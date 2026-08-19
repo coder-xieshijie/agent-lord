@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent Lord"
+  short_description: "Continue Codex and Claude work on exact task endpoints"
+  default_prompt: "Use $agent-lord to start a Codex or Claude task and continue it on the same endpoint."
