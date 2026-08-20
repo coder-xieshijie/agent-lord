@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-lord.local/schemas/operation-v1.schema.json",
+  "title": "Agent Lord operation v1",
+  "type": "object",
+  "required": [
+    "version",
+    "operation_id",
+    "task_id",
+    "provider",
+    "kind",
+    "target",
+    "status",
+    "message_sha256",
+    "expected",
+    "observed",
+    "source",
+    "read_only",
+    "artifact",
+    "error",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "version": {"const": 1},
+    "operation_id": {"type": "string"},
+    "task_id": {"type": "string"},
+    "provider": {"enum": ["claude-cli", "codex-app"]},
+    "kind": {"enum": ["start", "turn"]},
+    "target": {"type": "string"},
+    "status": {
+      "enum": ["preparing", "running", "awaiting_action", "submitted", "succeeded", "failed", "needs_decision"]
+    },
+    "message": {"type": "string"},
+    "message_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "expected": {"type": "object"},
+    "observed": {"type": "object"},
+    "source": {"type": "object"},
+    "read_only": {"type": "boolean"},
+    "artifact": {"type": ["object", "null"]},
+    "error": {"type": ["object", "null"]},
+    "created_at": {"type": "string"},
+    "updated_at": {"type": "string"}
+  },
+  "additionalProperties": true
+}

@@ -1,87 +1,57 @@
 ---
 name: agent-lord
-description: Start a Codex App task or Claude Code CLI session and continue later turns on the exact original endpoint. Use when a Codex Desktop user explicitly asks to dispatch or hand off work to Codex or Claude and keep conversing with that task; not for in-process subagents, CI jobs, or full workflow automation.
+description: Dispatch and supervise durable Codex App or Claude Code endpoints through deterministic scripts that enforce execution contracts, source identity, recovery, and sanitized results. Use when a Codex Desktop user asks to start or continue external Codex or Claude work; not for in-process subagents, CI jobs, or general DAG workflows.
 ---
 
 # Agent Lord
 
-Route one logical task to one durable host endpoint. This first version has two operations:
+Route one logical task to one durable endpoint. Treat `scripts/agent_lord.py` as the control plane: the model supplies intent and performs requested Codex host-tool calls, while the script owns validation, state, error classification, safe same-endpoint recovery, and artifact extraction.
 
-```text
-start(task_id, provider, target, prompt) -> task handle + first response
-turn(task_id, message)                   -> response from the same endpoint
-```
+## Invariants
 
-`provider` is `codex-app` or `claude-cli`. A turn starts only after the previous turn has reached a terminal state; in-flight steering and queued input are outside this version.
+- Start only with explicit user authorization. Preserve user choices for target, source revision, model, effort, permission posture, and external writes.
+- Keep one endpoint per `task_id` and one in-flight operation per task. Continue the saved endpoint; replacement requires an explicit decision.
+- Let the dispatch lock and operation journal enforce that invariant across concurrent controller processes; do not implement a second caller-side lock.
+- Store task, operation, action, event, log, and artifact state under `${AGENT_LORD_STATE_DIR:-$HOME/.codex/state/agent-lord}`, never in the target repository.
+- Pass explicit model and effort on every turn when the user supplied them. A mismatched or unverifiable model result is not a successful turn.
+- Use fixed full SHAs for revision-sensitive work. For Claude, the script refuses a working directory whose `HEAD` differs from the saved contract.
+- Exchange sanitized artifacts, not raw provider logs or reasoning traces.
 
-## Authorization and invariants
+## Deterministic loop
 
-- Start a task only when the user explicitly asks to create or dispatch it. A request to analyze, plan, or explain is not dispatch authorization.
-- Resolve the exact saved Codex project or Claude working directory before launch. The user supplies any branch, worktree, model, effort, permission, push, PR, or deployment choice that would materially change execution.
-- Give each logical task a unique `task_id`. Refuse duplicate starts and unknown follow-ups instead of guessing an endpoint.
-- Keep one writer per working directory. This skill allocates Codex worktrees through the Desktop host but does not allocate Claude worktrees.
-- Preserve the endpoint across turns. A failed or missing endpoint is an error; never create a replacement task implicitly.
-- Store orchestration handles outside repositories. Product changes and task metadata must not share a commit.
+1. Resolve the exact target and write the task prompt to a private temporary file outside the target repository. Remove caller-owned prompt/result files after the command has consumed them.
+2. Inspect `python3 scripts/agent_lord.py start --help`, then run `start` with every explicit user choice. Do not recreate its preflight checks manually.
+3. Process the returned envelope until terminal:
+   - `ACTION_REQUIRED`: invoke the exact model-side tool and arguments in `action`; save the raw return value outside the repository, then pass it to `accept`.
+   - `RUNNING`: use `check`, or run one bounded `checkpoint` (150 seconds by default) when the user requested supervision.
+   - `SUCCEEDED`: use the returned artifact as the canonical response.
+   - `ERROR`: follow `safe_recovery` only when present; otherwise report the structured error.
+   - `NEEDS_DECISION`: stop for the authority named by the error. Never convert it into an implicit replacement, model change, source change, or permission expansion.
+4. Start a later round with `turn` only after the previous operation is terminal. The script reapplies the saved execution contract and deduplicates an identical in-flight message.
 
-## Task handles
+`checkpoint` is a bounded foreground call. Exit `124` with `CHECKPOINT_QUIET` is a healthy quiet interval; run the next checkpoint after handling user input. An actionable Codex check returns `ACTION_REQUIRED` and exit `0`.
 
-Use `scripts/task_store.py` relative to this `SKILL.md`. It writes one record per task under `${AGENT_LORD_STATE_DIR:-$HOME/.codex/state/agent-lord}`.
+## Codex App action handshake
 
-The record contains only:
+Codex App host tools are model-side tools, so the script emits an action instead of guessing a shell bridge. The model is a transport carrier:
 
-```json
-{
-  "version": 1,
-  "task_id": "logical-name",
-  "provider": "codex-app",
-  "endpoint_id": "thread-or-session-id",
-  "host_id": "codex-host-or-null",
-  "target": "project-id-or-working-directory",
-  "created_at": "UTC timestamp"
-}
-```
+1. Call exactly `action.tool` with `action.arguments`.
+2. Preserve the complete raw tool result in a temporary file outside the repository.
+3. Run `python3 scripts/agent_lord.py accept --action-id <id> --result-file <file>`.
+4. Continue from the new envelope.
 
-Register a handle only after the provider returned an independently addressable endpoint. `turn` begins by loading that handle. The store refuses replacement; remove a record only as explicit cleanup after the endpoint is closed or a verified non-start.
+The adapter uses only the supported minimal `list_threads` arguments, treats `threadId` as endpoint identity and `hostId` as mutable routing, and rebinds the same thread before retrying a route-stale send. An ambiguous send is checked for its operation marker before any resend decision.
 
-## Start
+## Claude CLI
 
-### Codex App
+The default permission posture is `dangerously_bypass`. The Claude adapter maps it to Claude Code's real `--dangerously-skip-permissions` argument; `--read-only` overrides it with `--permission-mode plan`. The adapter launches directly from the saved working directory, feeds the prompt through a private temporary file, captures private provider logs, selects the last valid `type=result` object, and validates session identity, provider success, and observed model. `turn` always reapplies the saved model, effort, and permission posture. If the invoking controller disappears after launch, a later checkpoint recovers and validates a completed result from the saved operation journal instead of losing the turn.
 
-1. List Desktop projects and resolve one exact saved project. For a Git repository, default to a new worktree; use the saved checkout directly only when the user explicitly requests it.
-2. Create a visible Codex task with the initial prompt. Preserve the configured default model and effort unless the user supplied overrides.
-3. A returned `clientThreadId` is pending setup, not an endpoint. Do not register or message it; wait until the Desktop returns a real `threadId` and `hostId`.
-4. Register `provider=codex-app`, `endpoint_id=<threadId>`, `host_id=<hostId>`, and `target=<projectId>`.
-5. Wait for completion or attention, then read and return the first response.
+The Codex endpoint in this skill is Codex App, not Codex CLI. Codex CLI calls the equivalent bypass flag `--dangerously-bypass-approvals-and-sandbox`, but the App create/send action schema has no sandbox or approval field. The adapter therefore records the default as `dangerously_bypass` with `host-inherited-unverified` enforcement and never claims that a CLI flag was passed. `--read-only` remains prompt-enforced only for this adapter.
 
-### Claude Code CLI
+## Artifacts and compatibility
 
-1. Resolve and validate the exact working directory and confirm `claude` is available.
-2. Generate a UUID and save the prompt in a temporary input file outside the target repository. Launch from the target directory without a shell-interpolated prompt:
+Successful Claude turns automatically publish a final-response-only artifact. Codex results read through the host tool do the same; `export-artifact` can extract the final assistant message and model/effort metadata from an existing Claude or Codex JSONL without copying reasoning. A Codex export must contain the exact operation marker, so an unrelated turn from the same rollout cannot be mistaken for this result.
 
-   ```bash
-   claude --print --session-id <uuid> --output-format json < <input-file>
-   ```
+Version 1 task handles remain readable, but `turn` fails closed because those records did not preserve model, effort, permission, or source. Use `scripts/task_store.py upgrade` with explicit values before continuing one; it never infers the missing contract. The compatibility interface also supports explicit registration and cleanup; new work uses `scripts/agent_lord.py`.
 
-   Omit model, effort, permission, and bypass flags unless the user explicitly supplied them.
-3. Wait for the command to finish. Provider wrappers may print diagnostics before the result, so scan complete output from the end and select the last valid JSON object whose `type` is `result`; do not treat stdout as one pure JSON document. Verify that object's `session_id` equals the generated UUID and `is_error` is false.
-4. Register `provider=claude-cli`, `endpoint_id=<uuid>`, no `host_id`, and `target=<absolute-working-directory>`.
-5. Return Claude's first response. Remove the temporary input file after the command has consumed it.
-
-## Turn
-
-Load the exact task handle first.
-
-- For `codex-app`, send the follow-up to its recorded `threadId` and `hostId`, then wait and read that same task.
-- For `claude-cli`, verify the recorded working directory still exists, write the message to a temporary input file outside it, and run:
-
-  ```bash
-  claude --print --resume <session-id> --output-format json < <input-file>
-  ```
-
-  Select the last `type=result` JSON object by the same rule as `start`. Verify its session id still matches the record and `is_error` is false, return the response, and remove the input file.
-
-A successful `turn` must not create a new Codex thread or Claude session. Report `task_id`, provider, and delivery outcome to the user without claiming automatic recovery or a workflow Gate.
-
-## Scope
-
-This version provides endpoint creation and round-boundary continuation only. Hooks, daemons, watchers, CI, retries, replacement workers, Agent Flow nodes, automatic cross-restart wakeups, and First Mate backend integration require separate designs after this interface passes live smoke tests.
+For the action/result schema, state layout, error codes, and recovery permissions, read [references/protocol.md](references/protocol.md) when diagnosing an envelope or extending an adapter. This phase intentionally stops short of a general multi-agent workflow engine.

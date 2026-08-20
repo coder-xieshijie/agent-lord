@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "control": {
+    "checkpoint_seconds": 150,
+    "dead_process_result_grace_seconds": 5,
+    "finalize_lock_attempts": 40,
+    "finalize_lock_retry_interval_ms": 50
+  },
+  "providers": {
+    "claude-cli": {
+      "binary_env": "AGENT_LORD_CLAUDE_BIN",
+      "default_binary": "claude",
+      "efforts": ["low", "medium", "high", "xhigh", "max"],
+      "model_family_aliases": {
+        "opus": "opus",
+        "sonnet": "sonnet",
+        "haiku": "haiku"
+      },
+      "permissions": {
+        "default": "dangerously_bypass",
+        "read_only_override": "read_only",
+        "modes": {
+          "dangerously_bypass": {
+            "arguments": ["--dangerously-skip-permissions"],
+            "enforcement": "argument-enforced"
+          },
+          "read_only": {
+            "arguments": ["--permission-mode", "plan"],
+            "enforcement": "argument-enforced"
+          }
+        }
+      },
+      "reapply_execution_contract": true
+    },
+    "codex-app": {
+      "efforts": ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
+      "list_threads_limit": 50,
+      "permissions": {
+        "default": "dangerously_bypass",
+        "read_only_override": "read_only",
+        "modes": {
+          "dangerously_bypass": {
+            "arguments": [],
+            "enforcement": "host-inherited-unverified"
+          },
+          "read_only": {
+            "arguments": [],
+            "enforcement": "instruction-only"
+          }
+        }
+      },
+      "reapply_execution_contract": true,
+      "tools": {
+        "create": "codex_app__create_thread",
+        "send": "codex_app__send_message_to_thread",
+        "read": "codex_app__read_thread",
+        "list": "codex_app__list_threads"
+      }
+    }
+  }
+}

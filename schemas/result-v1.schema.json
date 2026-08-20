@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-lord.local/schemas/result-v1.schema.json",
+  "title": "Agent Lord result envelope v1",
+  "type": "object",
+  "required": ["version", "status"],
+  "properties": {
+    "version": {"const": 1},
+    "status": {
+      "enum": ["RUNNING", "ACTION_REQUIRED", "SUCCEEDED", "ERROR", "NEEDS_DECISION", "CHECKPOINT_QUIET", "IDLE"]
+    },
+    "task_id": {"type": "string"},
+    "operation_id": {"type": "string"},
+    "provider": {"type": "string"},
+    "endpoint_id": {"type": "string"},
+    "action": {
+      "type": "object",
+      "required": ["action_id", "tool", "arguments"],
+      "properties": {
+        "action_id": {"type": "string"},
+        "tool": {"type": "string"},
+        "arguments": {"type": "object"}
+      },
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "required": ["code", "message", "retryable", "requires_authorization"],
+      "properties": {
+        "code": {"type": "string"},
+        "message": {"type": "string"},
+        "retryable": {"type": "boolean"},
+        "requires_authorization": {"type": "boolean"}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-lord.local/schemas/task-v2.schema.json",
+  "title": "Agent Lord task handle v2",
+  "type": "object",
+  "required": [
+    "version",
+    "task_id",
+    "provider",
+    "endpoint_id",
+    "target",
+    "route",
+    "contract",
+    "created_at",
+    "updated_at",
+    "last_operation_id"
+  ],
+  "properties": {
+    "version": {"const": 2},
+    "task_id": {"type": "string"},
+    "provider": {"enum": ["claude-cli", "codex-app"]},
+    "endpoint_id": {"type": "string", "minLength": 1},
+    "target": {"type": "string", "minLength": 1},
+    "route": {
+      "type": "object",
+      "required": ["host_id", "resolved_at", "history"],
+      "properties": {
+        "host_id": {"type": ["string", "null"]},
+        "resolved_at": {"type": "string"},
+        "history": {"type": "array", "items": {"type": "object"}}
+      },
+      "additionalProperties": true
+    },
+    "contract": {
+      "type": "object",
+      "required": ["model", "effort", "read_only", "permission_mode", "source"],
+      "properties": {
+        "model": {"type": ["string", "null"]},
+        "effort": {"type": ["string", "null"]},
+        "read_only": {"type": "boolean"},
+        "permission_mode": {"type": "string", "minLength": 1},
+        "source": {"type": "object"}
+      },
+      "additionalProperties": false
+    },
+    "created_at": {"type": "string"},
+    "updated_at": {"type": "string"},
+    "last_operation_id": {"type": ["string", "null"]}
+  },
+  "additionalProperties": false
+}

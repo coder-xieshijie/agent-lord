@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-lord.local/schemas/action-v1.schema.json",
+  "title": "Agent Lord model-mediated action v1",
+  "type": "object",
+  "required": [
+    "version",
+    "action_id",
+    "operation_id",
+    "task_id",
+    "provider",
+    "kind",
+    "tool",
+    "arguments",
+    "status",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "version": {"const": 1},
+    "action_id": {"type": "string"},
+    "operation_id": {"type": "string"},
+    "task_id": {"type": "string"},
+    "provider": {"const": "codex-app"},
+    "kind": {"enum": ["codex.create", "codex.send", "codex.read", "codex.list"]},
+    "tool": {"type": "string"},
+    "arguments": {"type": "object"},
+    "status": {"enum": ["pending", "accepted", "failed", "uncertain"]},
+    "created_at": {"type": "string"},
+    "updated_at": {"type": "string"}
+  },
+  "additionalProperties": true
+}
