@@ -29,15 +29,16 @@ operations/<operation-id>.json
 actions/<action-id>.json       model-mediated Codex tool request
 events/<task-id>.jsonl         append-only transitions
 artifacts/<task-id>/<operation-id>.md
-logs/<operation-id>.stdout
-logs/<operation-id>.stderr
+logs/<operation-id>[.attempt-N].stdout
+logs/<operation-id>[.attempt-N].stderr
+logs/<operation-id>.final       Codex CLI final response only
 locks/
 tmp/
 ```
 
 Current state comes from task, operation, and provider truth. `events/*.jsonl` is a wake/audit log, not current-state authority.
 
-Task handles follow `schemas/task-v2.schema.json`. Version 1 records are normalized for inspection, but another turn is blocked until `scripts/task_store.py upgrade` attaches an explicit model, effort, permission, and optional source contract; migration never guesses these missing facts. Operations and actions follow their corresponding schemas.
+Task handles follow `schemas/task-v2.schema.json`. Version 1 records are normalized for inspection, but another turn is blocked until `scripts/task_store.py upgrade` attaches an explicit model, effort, retry, permission, and optional source contract. Operations and actions follow their corresponding schemas.
 
 ## Execution contract
 
@@ -47,12 +48,15 @@ The durable task record owns:
 - current route and route history;
 - target;
 - explicit model and effort;
+- an ordered retry plan whose stages freeze model and attempt budget;
 - explicit permission posture (`dangerously_bypass` by default; `--read-only` is an explicit override);
 - fixed source head/base when supplied.
 
-Provider arguments enforce model and effort on every operation. Claude success also requires observable model metadata. Codex host-tool actions carry the explicit contract; importing a Codex rollout with `export-artifact` additionally verifies `turn_context` model and effort.
+Provider arguments enforce model and effort on every operation. Claude success also requires observable model metadata. Codex CLI stores the `thread.started` UUID and requires `turn.completed`; Codex App actions carry the explicit contract. Importing a Codex rollout with `export-artifact` additionally verifies `turn_context` model and effort.
 
-Permission policy lives in `config/providers.json`; the selected mode is frozen in the durable task contract and resolved again before every operation. Claude Code maps the default `dangerously_bypass` posture to `--dangerously-skip-permissions`; a read-only override maps to `--permission-mode plan`. Codex CLI names the equivalent bypass flag `--dangerously-bypass-approvals-and-sandbox`, but Agent Lord's Codex adapter uses Codex App host actions, whose create/send schema exposes no approval or sandbox argument. It records default enforcement as `host-inherited-unverified`; read-only remains `instruction-only`. Neither state is misreported as a CLI argument enforced by the App transport.
+Permission policy lives in `config/providers.json`; the selected mode is frozen in the durable task contract and resolved again before every operation. Claude Code maps bypass to `--dangerously-skip-permissions`; Codex CLI maps it to `--dangerously-bypass-approvals-and-sandbox`. Codex App exposes no approval or sandbox argument, so it records bypass as `host-inherited-unverified` and read-only as `instruction-only`.
+
+Claude defaults to `claude-opus-5` and `xhigh` with five primary attempts. Fable-family tasks append a five-attempt `claude-opus-5` fallback stage. The primary and fallback stages reuse the same session UUID; after the frozen plan is exhausted, the terminal error has no automatic recovery. Unqualified `codex` resolves to `codex-cli`, whose default is `gpt-5.6-sol` with `xhigh`.
 
 The default bounded checkpoint is 150 seconds. `--seconds` remains an explicit per-call override.
 
@@ -83,14 +87,19 @@ The implementation may perform only identity-preserving recovery automatically:
 
 - re-read status;
 - reapply the saved model/effort;
+- execute the saved Claude retry stages on the same session;
 - rediscover the host for the same Codex `threadId`;
 - return the same pending action for an identical in-flight message;
 - inspect an ambiguous delivery for its operation marker.
-- recover a completed Claude result from the prewritten journal after the original controller disappears.
+- recover a completed local CLI result from the prewritten journal after the original controller disappears.
 
 The implementation returns `NEEDS_DECISION` before creating a replacement endpoint, changing provider/model/effort/source, widening permissions, or performing external writes.
 
-## Codex App transport seam
+## Codex transports
+
+Codex CLI is the default Codex transport. It runs non-interactively, extracts the endpoint from `thread.started`, and resumes only by the exact saved session UUID. The operation marker remains in the prompt so an exported rollout can be tied to one operation.
+
+### Codex App transport seam
 
 The current adapter emits model-mediated actions because no verified shell bridge owns the same Desktop-visible endpoint lifecycle. Tool results may be JSON objects, JSON strings, or plain errors; `accept` unwraps and classifies them.
 
@@ -104,6 +113,6 @@ send/read -> No AppServerManager
           -> retry the original action with the same operation id and prompt marker
 ```
 
-If a supported shell or App Server transport later becomes available, replace only the Codex adapter. Workflow state, contracts, errors, and artifacts stay unchanged.
+App routing is independent of the CLI session namespace. Never migrate an existing `codex-app` task handle to `codex-cli` implicitly.
 
 `config/providers.json` owns provider capabilities plus the checkpoint, dead-process grace, and lock retry constants. Dynamic facts such as `hostId`, PID, operation state, and observed model never belong in configuration.

@@ -43,11 +43,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     start = subparsers.add_parser("start", help="create one durable endpoint")
     start.add_argument("--task-id", required=True)
-    start.add_argument("--provider", required=True, choices=("claude-cli", "codex-app"))
+    start.add_argument("--provider", required=True, choices=("claude-cli", "codex", "codex-cli", "codex-app"))
     start.add_argument("--target", required=True)
     start.add_argument("--message-file", required=True)
     start.add_argument("--model")
     start.add_argument("--effort")
+    start.add_argument("--retry-attempts", type=int, help="override the primary Claude CLI attempt budget")
     start.add_argument(
         "--read-only",
         action="store_true",
@@ -100,6 +101,7 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
             read_text(args.message_file),
             model=args.model,
             effort=args.effort,
+            retry_attempts=args.retry_attempts,
             read_only=args.read_only,
             head_sha=args.head_sha,
             base_sha=args.base_sha,

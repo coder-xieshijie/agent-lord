@@ -14,14 +14,17 @@ from uuid import uuid4
 
 from . import codex_adapter
 from .artifacts import extract_codex_result, extract_jsonl_with_metadata, write_artifact
-from .claude_adapter import recover_claude, run_claude
+from .claude_adapter import claude_session_observed, recover_claude, run_claude
+from .codex_cli_adapter import recover_codex_cli, run_codex_cli
 from .config import (
     control_config,
     expected_model_matches,
+    normalize_provider,
     permission_mode_policy,
     permission_policy,
     provider_config,
-    validate_effort,
+    resolve_execution_defaults,
+    resolve_retry_plan,
 )
 from .errors import AgentLordError
 from .state import (
@@ -238,6 +241,7 @@ class AgentLord:
         effort: Optional[str],
         read_only: bool,
         permission_mode: Optional[str] = None,
+        retry_plan: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         permission = (
             permission_mode_policy(provider, permission_mode)
@@ -255,6 +259,7 @@ class AgentLord:
             "effort": effort,
             "permission_mode": permission["mode"],
             "permission_enforcement": permission["enforcement"],
+            "retry_plan": retry_plan if retry_plan is not None else resolve_retry_plan(provider, model),
         }
 
     @staticmethod
@@ -299,16 +304,17 @@ class AgentLord:
                 "read_only": operation.get("read_only", False),
                 "permission_mode": permission_mode,
                 "source": operation.get("source", {}),
+                "retry_plan": expected.get("retry_plan") or resolve_retry_plan(operation["provider"], expected.get("model")),
             },
             "created_at": now,
             "updated_at": now,
             "last_operation_id": operation["operation_id"],
         }
 
-    def _publish_claude_result(
+    def _publish_cli_result(
         self,
         operation: Dict[str, Any],
-        session_id: str,
+        endpoint_id: str,
         resume: bool,
         result: Dict[str, Any],
     ) -> Dict[str, Any]:
@@ -323,7 +329,7 @@ class AgentLord:
                     if current.get("status") in TERMINAL_OPERATION_STATES:
                         raise AgentLordError(
                             "STATE_CONFLICT",
-                            "Claude operation was finalized with a different terminal result",
+                            "CLI operation was finalized with a different terminal result",
                             details={"operation_id": operation["operation_id"], "status": current.get("status")},
                         )
                     artifact = write_artifact(
@@ -335,25 +341,32 @@ class AgentLord:
                     if not resume:
                         if self._task_exists(operation["task_id"]):
                             task = load_task(operation["task_id"], self.root)
-                            if task.get("endpoint_id") != session_id or task.get("last_operation_id") != operation["operation_id"]:
+                            if task.get("endpoint_id") != endpoint_id or task.get("last_operation_id") != operation["operation_id"]:
                                 raise AgentLordError(
                                     "IDENTITY_CONFLICT",
-                                    "existing task handle does not match the recovered Claude start",
+                                    "existing task handle does not match the recovered CLI start",
                                     details={"task_id": operation["task_id"], "endpoint_id": task.get("endpoint_id")},
                                 )
                         else:
-                            create_task(self._task_record(operation, session_id, None), self.root)
+                            create_task(self._task_record(current, endpoint_id, None), self.root)
                     else:
                         self._set_task_last_operation(operation["task_id"], operation["operation_id"])
+                    result_fields: Dict[str, Any] = {
+                        "observed": result["observed"],
+                        "artifact": artifact,
+                        "error": None,
+                        "provider_command": result["command"],
+                        "stdout_path": result["stdout_path"],
+                        "stderr_path": result["stderr_path"],
+                        "endpoint_id": endpoint_id,
+                        "active_attempt": None,
+                    }
+                    if result.get("result_path"):
+                        result_fields["result_path"] = result["result_path"]
                     updated = self._set_operation_status(
                         operation["operation_id"],
                         "succeeded",
-                        observed=result["observed"],
-                        artifact=artifact,
-                        error=None,
-                        provider_command=result["command"],
-                        stdout_path=result["stdout_path"],
-                        stderr_path=result["stderr_path"],
+                        **result_fields,
                     )
                     append_event(
                         operation["task_id"],
@@ -374,13 +387,128 @@ class AgentLord:
         assert busy_error is not None
         raise busy_error
 
+    @staticmethod
+    def _expanded_retry_models(operation: Dict[str, Any]) -> List[str]:
+        result: List[str] = []
+        for stage in operation.get("expected", {}).get("retry_plan", []):
+            model = stage.get("model")
+            attempts = stage.get("attempts")
+            if isinstance(model, str) and isinstance(attempts, int):
+                result.extend([model] * attempts)
+        return result
+
+    def _record_claude_attempt(
+        self,
+        operation: Dict[str, Any],
+        attempt_number: int,
+        model: str,
+        status: str,
+        error: Optional[AgentLordError] = None,
+    ) -> Dict[str, Any]:
+        def mutate(value: Dict[str, Any]) -> Dict[str, Any]:
+            history = list(value.get("attempt_history") or [])
+            entry: Dict[str, Any] = {"number": attempt_number, "model": model, "status": status}
+            if error is not None:
+                entry["error"] = error.as_dict()
+            history.append(entry)
+            value["attempt_history"] = history
+            if status == "failed":
+                value["active_attempt"] = None
+            return value
+
+        updated = update_operation(operation["operation_id"], mutate, self.root)
+        append_event(
+            operation["task_id"],
+            "provider-attempt-%s" % status,
+            {"attempt": attempt_number, "model": model, "error": error.as_dict() if error else None},
+            operation["operation_id"],
+            self.root,
+        )
+        return updated
+
+    def _raise_cli_failure(self, operation: Dict[str, Any], error: AgentLordError, exhausted: bool = False) -> Dict[str, Any]:
+        history = operation.get("attempt_history") or []
+        terminal_error = AgentLordError(
+            error.code,
+            error.message,
+            retryable=False if exhausted else error.retryable,
+            safe_recovery=None if exhausted else error.safe_recovery,
+            requires_authorization=error.requires_authorization,
+            details=dict(
+                error.details,
+                attempts=history,
+                retry_exhausted=exhausted,
+            ),
+            exit_code=error.exit_code,
+        )
+        failed = self._fail_operation(operation, terminal_error)
+        raise AgentLordError(
+            terminal_error.code,
+            terminal_error.message,
+            retryable=terminal_error.retryable,
+            safe_recovery=terminal_error.safe_recovery,
+            requires_authorization=terminal_error.requires_authorization,
+            details=dict(terminal_error.details, operation_id=failed["operation_id"], task_id=failed["task_id"]),
+            exit_code=terminal_error.exit_code,
+        ) from error
+
     def _finish_claude(self, operation: Dict[str, Any], session_id: str, resume: bool) -> Dict[str, Any]:
+        models = self._expanded_retry_models(operation)
+        if not models:
+            raise AgentLordError("STATE_CORRUPT", "Claude operation has no retry plan")
+        current = load_operation(operation["operation_id"], self.root)
+        start_index = len(current.get("attempt_history") or [])
+        attempt_resume = resume or start_index > 0
+        for index in range(start_index, len(models)):
+            model = models[index]
+            try:
+                result = run_claude(
+                    operation["operation_id"],
+                    operation["target"],
+                    operation["message"],
+                    session_id,
+                    attempt_resume,
+                    model,
+                    operation.get("expected", {}).get("effort"),
+                    bool(operation.get("read_only")),
+                    operation.get("expected", {}).get("permission_mode"),
+                    index + 1,
+                    self.root,
+                )
+            except AgentLordError as error:
+                if error.code == "STATE_BUSY":
+                    raise
+                current = load_operation(operation["operation_id"], self.root)
+                attempt_resume = attempt_resume or claude_session_observed(current)
+                current = self._record_claude_attempt(current, index + 1, model, "failed", error)
+                if not error.retryable or index + 1 >= len(models):
+                    return self._raise_cli_failure(current, error, exhausted=error.retryable)
+                continue
+            current = self._record_claude_attempt(operation, index + 1, model, "succeeded")
+            history = current.get("attempt_history") or []
+            result["observed"].update(
+                {
+                    "attempts": len(history),
+                    "attempt_history": history,
+                    "requested_model": operation.get("expected", {}).get("model"),
+                    "fallback_used": model != operation.get("expected", {}).get("model"),
+                }
+            )
+            return self._publish_cli_result(current, session_id, resume, result)
+        raise AgentLordError("STATE_CORRUPT", "Claude retry plan was exhausted without a terminal result")
+
+    def _finish_codex_cli(
+        self,
+        operation: Dict[str, Any],
+        endpoint_id: Optional[str],
+        resume: bool,
+    ) -> Dict[str, Any]:
         try:
-            result = run_claude(
+            result = run_codex_cli(
                 operation["operation_id"],
                 operation["target"],
                 operation["message"],
-                session_id,
+                endpoint_id,
                 resume,
                 operation.get("expected", {}).get("model"),
                 operation.get("expected", {}).get("effort"),
@@ -388,20 +516,11 @@ class AgentLord:
                 operation.get("expected", {}).get("permission_mode"),
                 self.root,
             )
-            return self._publish_claude_result(operation, session_id, resume, result)
+            return self._publish_cli_result(operation, result["endpoint_id"], resume, result)
         except AgentLordError as error:
             if error.code == "STATE_BUSY":
                 raise
-            failed = self._fail_operation(operation, error)
-            raise AgentLordError(
-                error.code,
-                error.message,
-                retryable=error.retryable,
-                safe_recovery=error.safe_recovery,
-                requires_authorization=error.requires_authorization,
-                details=dict(error.details, operation_id=failed["operation_id"], task_id=failed["task_id"]),
-                exit_code=error.exit_code,
-            ) from error
+            return self._raise_cli_failure(load_operation(operation["operation_id"], self.root), error)
 
     def start(
         self,
@@ -416,22 +535,24 @@ class AgentLord:
         base_sha: Optional[str] = None,
         codex_environment: str = "worktree",
         starting_branch: Optional[str] = None,
+        retry_attempts: Optional[int] = None,
     ) -> Dict[str, Any]:
         validate_identifier("task_id", task_id)
+        provider = normalize_provider(provider)
         provider_config(provider)
-        if effort:
-            validate_effort(provider, effort)
+        model, effort = resolve_execution_defaults(provider, model, effort)
+        retry_plan = resolve_retry_plan(provider, model, retry_attempts)
         if not isinstance(target, str) or not target or not isinstance(message, str) or not message:
             raise AgentLordError("CONFIG_INVALID", "target and message must be non-empty", exit_code=2)
         message_hash = self._message_hash(message)
         source = self._validate_source(head_sha, base_sha)
-        if provider == "claude-cli":
+        if provider in ("claude-cli", "codex-cli"):
             target = str(Path(target).expanduser().resolve())
             self._verify_checkout(target, source)
         elif codex_environment not in ("worktree", "local"):
             raise AgentLordError("CONFIG_INVALID", "Codex environment must be worktree or local", exit_code=2)
 
-        expected = self._expected_contract(provider, model, effort, read_only)
+        expected = self._expected_contract(provider, model, effort, read_only, retry_plan=retry_plan)
         action: Optional[Dict[str, Any]] = None
         with record_lock("dispatch", self._dispatch_lock_id(task_id), self.root):
             if self._task_exists(task_id):
@@ -468,6 +589,8 @@ class AgentLord:
                 )
         if provider == "claude-cli":
             return self._finish_claude(operation, str(uuid4()), resume=False)
+        if provider == "codex-cli":
+            return self._finish_codex_cli(operation, endpoint_id=None, resume=False)
 
         assert action is not None
         append_event(task_id, "action-required", {"action_id": action["action_id"], "tool": action["tool"]}, operation["operation_id"], self.root)
@@ -501,7 +624,7 @@ class AgentLord:
                 )
             contract = task.get("contract") or {}
             source = contract.get("source") or {}
-            if task["provider"] == "claude-cli":
+            if task["provider"] in ("claude-cli", "codex-cli"):
                 self._verify_checkout(task["target"], source)
             expected = self._expected_contract(
                 task["provider"],
@@ -509,6 +632,7 @@ class AgentLord:
                 contract.get("effort"),
                 bool(contract.get("read_only")),
                 contract.get("permission_mode"),
+                contract.get("retry_plan"),
             )
             operation = self._new_operation(
                 task_id,
@@ -530,6 +654,8 @@ class AgentLord:
             self._set_task_last_operation(task_id, operation["operation_id"])
         if task["provider"] == "claude-cli":
             return self._finish_claude(operation, task["endpoint_id"], resume=True)
+        if task["provider"] == "codex-cli":
+            return self._finish_codex_cli(operation, task["endpoint_id"], resume=True)
         assert action is not None
         return self.envelope(operation, action)
 
@@ -836,9 +962,23 @@ class AgentLord:
             if completed_ids:
                 return self.envelope(load_operation(completed_ids[0], self.root)), False
             for task, operation in current_active:
-                if operation.get("status") == "running" and task["provider"] == "claude-cli" and not self._pid_alive(operation.get("pid")):
+                if (
+                    operation.get("status") == "running"
+                    and task["provider"] in ("claude-cli", "codex-cli")
+                    and not self._pid_alive(operation.get("pid"))
+                ):
+                    if (
+                        task["provider"] == "claude-cli"
+                        and not operation.get("active_attempt")
+                        and len(operation.get("attempt_history") or []) < len(self._expanded_retry_models(operation))
+                    ):
+                        return self._finish_claude(
+                            operation,
+                            operation["endpoint_id"],
+                            resume=operation.get("kind") == "turn",
+                        ), False
                     try:
-                        recovered = recover_claude(operation)
+                        recovered = recover_claude(operation) if task["provider"] == "claude-cli" else recover_codex_cli(operation)
                     except AgentLordError as error:
                         if error.code == "RESULT_INVALID":
                             first_seen = operation.get("dead_process_observed_at_ms")
@@ -854,17 +994,71 @@ class AgentLord:
                                 continue
                             error = AgentLordError(
                                 "PROCESS_EXITED_WITHOUT_RESULT",
-                                "Claude process exited without publishing a recoverable terminal result",
+                                "CLI process exited without publishing a recoverable terminal result",
                                 retryable=True,
                                 safe_recovery="INSPECT_LOGS_THEN_RETRY_SAME_ENDPOINT",
                                 details={"provider_error": error.as_dict()},
                             )
+                        if task["provider"] == "claude-cli":
+                            active_attempt = operation.get("active_attempt") or {}
+                            attempt_number = active_attempt.get("number")
+                            attempt_model = active_attempt.get("model")
+                            if isinstance(attempt_number, int) and isinstance(attempt_model, str):
+                                operation = self._record_claude_attempt(
+                                    operation,
+                                    attempt_number,
+                                    attempt_model,
+                                    "failed",
+                                    error,
+                                )
+                                if error.retryable and len(operation.get("attempt_history") or []) < len(
+                                    self._expanded_retry_models(operation)
+                                ):
+                                    return self._finish_claude(
+                                        operation,
+                                        operation["endpoint_id"],
+                                        resume=operation.get("kind") == "turn",
+                                    ), False
                         failed = self._fail_operation(operation, error)
                         return self.envelope(failed), False
-                    recovered_result = self._publish_claude_result(
+                    endpoint_id = recovered.get("endpoint_id") or operation.get("endpoint_id")
+                    if not isinstance(endpoint_id, str) or not endpoint_id:
+                        error = AgentLordError("RESULT_INVALID", "recovered CLI result lacks endpoint identity")
+                        failed = self._fail_operation(operation, error)
+                        return self.envelope(failed), False
+                    if task["provider"] == "claude-cli":
+                        active_attempt = operation.get("active_attempt") or {}
+                        attempt_number = active_attempt.get("number")
+                        attempt_model = active_attempt.get("model")
+                        history = operation.get("attempt_history") or []
+                        already_recorded = bool(
+                            history
+                            and history[-1].get("number") == attempt_number
+                            and history[-1].get("status") == "succeeded"
+                        )
+                        if isinstance(attempt_number, int) and isinstance(attempt_model, str) and not already_recorded:
+                            operation = self._record_claude_attempt(
+                                operation,
+                                attempt_number,
+                                attempt_model,
+                                "succeeded",
+                            )
+                            history = operation.get("attempt_history") or []
+                        recovered["observed"].update(
+                            {
+                                "attempts": len(history),
+                                "attempt_history": history,
+                                "requested_model": operation.get("expected", {}).get("model"),
+                                "fallback_used": bool(
+                                    isinstance(attempt_model, str)
+                                    and attempt_model != operation.get("expected", {}).get("model")
+                                ),
+                            }
+                        )
+                    recovered_result = self._publish_cli_result(
                         operation,
-                        operation["endpoint_id"],
-                        bool(operation.get("resume")),
+                        endpoint_id,
+                        operation.get("kind") == "turn",
                         recovered,
                     )
                     return recovered_result, False
@@ -897,7 +1091,11 @@ class AgentLord:
         operation = load_operation(operation_id, self.root)
         if operation.get("task_id") != task_id:
             raise AgentLordError("ENDPOINT_MISMATCH", "operation does not belong to task_id")
-        required_marker = codex_adapter.operation_marker(operation_id) if operation.get("provider") == "codex-app" else None
+        required_marker = (
+            codex_adapter.operation_marker(operation_id)
+            if operation.get("provider") in ("codex-app", "codex-cli")
+            else None
+        )
         extracted = extract_jsonl_with_metadata(
             Path(source_file).expanduser().resolve(),
             source_format,

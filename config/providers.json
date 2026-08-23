@@ -10,12 +10,23 @@
     "claude-cli": {
       "binary_env": "AGENT_LORD_CLAUDE_BIN",
       "default_binary": "claude",
+      "default_model": "claude-opus-5",
+      "default_effort": "xhigh",
+      "default_retry_attempts": 5,
       "efforts": ["low", "medium", "high", "xhigh", "max"],
       "model_family_aliases": {
+        "fable": "fable",
         "opus": "opus",
         "sonnet": "sonnet",
         "haiku": "haiku"
       },
+      "fallbacks": [
+        {
+          "model_family": "fable",
+          "model": "claude-opus-5",
+          "attempts": 5
+        }
+      ],
       "permissions": {
         "default": "dangerously_bypass",
         "read_only_override": "read_only",
@@ -32,7 +43,33 @@
       },
       "reapply_execution_contract": true
     },
+    "codex-cli": {
+      "binary_env": "AGENT_LORD_CODEX_BIN",
+      "default_binary": "codex",
+      "default_model": "gpt-5.6-sol",
+      "default_effort": "xhigh",
+      "default_retry_attempts": 1,
+      "efforts": ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
+      "permissions": {
+        "default": "dangerously_bypass",
+        "read_only_override": "read_only",
+        "modes": {
+          "dangerously_bypass": {
+            "arguments": ["--dangerously-bypass-approvals-and-sandbox"],
+            "enforcement": "argument-enforced"
+          },
+          "read_only": {
+            "arguments": ["-c", "sandbox_mode=\"read-only\"", "-c", "approval_policy=\"never\""],
+            "enforcement": "config-argument-enforced"
+          }
+        }
+      },
+      "reapply_execution_contract": true
+    },
     "codex-app": {
+      "default_model": "gpt-5.6-sol",
+      "default_effort": "xhigh",
+      "default_retry_attempts": 1,
       "efforts": ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
       "list_threads_limit": 50,
       "permissions": {

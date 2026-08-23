@@ -11,6 +11,7 @@ import re
 import tempfile
 from typing import Any, Callable, Dict, Iterator, List, Optional
 
+from .config import resolve_retry_plan
 from .errors import AgentLordError
 
 
@@ -183,7 +184,7 @@ def normalize_task(value: Dict[str, Any]) -> Dict[str, Any]:
             )
         if not isinstance(value.get("task_id"), str) or not IDENTIFIER_PATTERN.fullmatch(value["task_id"]):
             raise AgentLordError("STATE_CORRUPT", "task record has an invalid task_id")
-        if value.get("provider") not in ("claude-cli", "codex-app"):
+        if value.get("provider") not in ("claude-cli", "codex-cli", "codex-app"):
             raise AgentLordError("STATE_CORRUPT", "task record has an unsupported provider")
         for name in ("endpoint_id", "target", "created_at", "updated_at"):
             if not isinstance(value.get(name), str) or not value[name] or "\x00" in value[name]:
@@ -196,18 +197,22 @@ def normalize_task(value: Dict[str, Any]) -> Dict[str, Any]:
             raise AgentLordError("STATE_CORRUPT", "task record has an invalid host_id")
         if value["provider"] == "codex-app" and not host_id:
             raise AgentLordError("STATE_CORRUPT", "Codex task record lacks host_id")
-        if value["provider"] == "claude-cli" and host_id is not None:
-            raise AgentLordError("STATE_CORRUPT", "Claude task record must not contain host_id")
+        if value["provider"] in ("claude-cli", "codex-cli") and host_id is not None:
+            raise AgentLordError("STATE_CORRUPT", "CLI task record must not contain host_id")
         if not isinstance(route.get("resolved_at"), str) or not route["resolved_at"]:
             raise AgentLordError("STATE_CORRUPT", "task record has an invalid route timestamp")
         contract = value.get("contract")
-        if not isinstance(contract, dict) or set(contract) != {
+        legacy_contract_fields = {
             "model",
             "effort",
             "read_only",
             "permission_mode",
             "source",
-        }:
+        }
+        contract_fields = legacy_contract_fields | {"retry_plan"}
+        if isinstance(contract, dict) and set(contract) == legacy_contract_fields:
+            contract["retry_plan"] = resolve_retry_plan(value["provider"], contract.get("model"))
+        if not isinstance(contract, dict) or set(contract) != contract_fields:
             raise AgentLordError("STATE_CORRUPT", "task record has an invalid execution contract")
         for name in ("model", "effort"):
             if contract[name] is not None and (not isinstance(contract[name], str) or not contract[name]):
@@ -223,6 +228,19 @@ def normalize_task(value: Dict[str, Any]) -> Dict[str, Any]:
         for name, sha in contract["source"].items():
             if name not in ("head_sha", "base_sha") or not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
                 raise AgentLordError("STATE_CORRUPT", "task contract has an invalid source fingerprint")
+        retry_plan = contract["retry_plan"]
+        if not isinstance(retry_plan, list) or not retry_plan:
+            raise AgentLordError("STATE_CORRUPT", "task contract has an invalid retry plan")
+        for stage in retry_plan:
+            if (
+                not isinstance(stage, dict)
+                or set(stage) != {"model", "attempts"}
+                or (stage["model"] is not None and (not isinstance(stage["model"], str) or not stage["model"]))
+                or not isinstance(stage["attempts"], int)
+                or isinstance(stage["attempts"], bool)
+                or stage["attempts"] <= 0
+            ):
+                raise AgentLordError("STATE_CORRUPT", "task contract has an invalid retry stage")
         last_operation_id = value.get("last_operation_id")
         if last_operation_id is not None and (
             not isinstance(last_operation_id, str) or not IDENTIFIER_PATTERN.fullmatch(last_operation_id)
@@ -264,6 +282,7 @@ def normalize_task(value: Dict[str, Any]) -> Dict[str, Any]:
                 "read_only": False,
                 "permission_mode": None,
                 "source": {},
+                "retry_plan": [],
             },
             "created_at": created_at,
             "updated_at": created_at,

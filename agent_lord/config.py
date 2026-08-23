@@ -5,13 +5,18 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional, Tuple
 
 from .errors import AgentLordError
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = PACKAGE_ROOT / "config" / "providers.json"
+PROVIDER_ALIASES = {"codex": "codex-cli"}
+
+
+def normalize_provider(provider: str) -> str:
+    return PROVIDER_ALIASES.get(provider, provider)
 
 
 def load_config() -> Dict[str, Any]:
@@ -38,6 +43,7 @@ def load_config() -> Dict[str, Any]:
 
 
 def provider_config(provider: str) -> Dict[str, Any]:
+    provider = normalize_provider(provider)
     providers = load_config().get("providers", {})
     value = providers.get(provider)
     if not isinstance(value, dict):
@@ -68,6 +74,7 @@ def control_config() -> Dict[str, int]:
 
 
 def validate_effort(provider: str, effort: str) -> None:
+    provider = normalize_provider(provider)
     allowed = provider_config(provider).get("efforts", [])
     if effort and effort not in allowed:
         raise AgentLordError(
@@ -80,6 +87,7 @@ def validate_effort(provider: str, effort: str) -> None:
 
 def permission_mode_policy(provider: str, mode: str) -> Dict[str, Any]:
     """Resolve one named provider-specific permission mode."""
+    provider = normalize_provider(provider)
     permissions = provider_config(provider).get("permissions")
     if not isinstance(permissions, dict):
         raise AgentLordError(
@@ -116,6 +124,7 @@ def permission_mode_policy(provider: str, mode: str) -> Dict[str, Any]:
 
 def permission_policy(provider: str, read_only: bool) -> Dict[str, Any]:
     """Select the configured default or explicit read-only override."""
+    provider = normalize_provider(provider)
     permissions = provider_config(provider).get("permissions")
     if not isinstance(permissions, dict):
         raise AgentLordError(
@@ -142,6 +151,71 @@ def claude_binary() -> str:
     return os.environ.get(environment_name, config.get("default_binary", "claude"))
 
 
+def codex_binary() -> str:
+    config = provider_config("codex-cli")
+    environment_name = config.get("binary_env", "AGENT_LORD_CODEX_BIN")
+    return os.environ.get(environment_name, config.get("default_binary", "codex"))
+
+
+def resolve_execution_defaults(
+    provider: str,
+    model: Optional[str],
+    effort: Optional[str],
+) -> Tuple[Optional[str], Optional[str]]:
+    config = provider_config(provider)
+    resolved_model = model or config.get("default_model")
+    resolved_effort = effort or config.get("default_effort")
+    if resolved_effort:
+        validate_effort(provider, resolved_effort)
+    return resolved_model, resolved_effort
+
+
+def resolve_retry_plan(
+    provider: str,
+    model: Optional[str],
+    retry_attempts: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    provider = normalize_provider(provider)
+    config = provider_config(provider)
+    if retry_attempts is not None and provider != "claude-cli":
+        raise AgentLordError(
+            "CONFIG_INVALID",
+            "retry attempts can be overridden only for Claude CLI",
+            details={"provider": provider, "retry_attempts": retry_attempts},
+            exit_code=2,
+        )
+    attempts = retry_attempts if retry_attempts is not None else config.get("default_retry_attempts", 1)
+    if not isinstance(attempts, int) or isinstance(attempts, bool) or attempts <= 0:
+        raise AgentLordError(
+            "CONFIG_INVALID",
+            "retry attempts must be a positive integer",
+            details={"provider": provider, "retry_attempts": attempts},
+            exit_code=2,
+        )
+    plan: List[Dict[str, Any]] = [{"model": model, "attempts": attempts}]
+    if provider != "claude-cli" or not model:
+        return plan
+    normalized_model = model.lower()
+    for fallback in config.get("fallbacks", []):
+        if not isinstance(fallback, dict):
+            continue
+        family = fallback.get("model_family")
+        fallback_model = fallback.get("model")
+        fallback_attempts = fallback.get("attempts")
+        if (
+            isinstance(family, str)
+            and family.lower() in normalized_model
+            and isinstance(fallback_model, str)
+            and fallback_model
+            and isinstance(fallback_attempts, int)
+            and not isinstance(fallback_attempts, bool)
+            and fallback_attempts > 0
+        ):
+            plan.append({"model": fallback_model, "attempts": fallback_attempts})
+            break
+    return plan
+
+
 def expected_model_matches(expected: str, observed: str) -> bool:
     """Match a concrete model or a documented family alias such as ``opus``."""
     expected_normalized = expected.strip().lower()
@@ -149,6 +223,8 @@ def expected_model_matches(expected: str, observed: str) -> bool:
     if not expected_normalized:
         return True
     if expected_normalized == observed_normalized:
+        return True
+    if observed_normalized.startswith(expected_normalized + "-"):
         return True
     aliases = provider_config("claude-cli").get("model_family_aliases", {})
     family = aliases.get(expected_normalized)

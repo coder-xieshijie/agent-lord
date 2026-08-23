@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 from agent_lord import AgentLord, AgentLordError
 from agent_lord.codex_adapter import operation_marker
-from agent_lord.config import DEFAULT_CONFIG, control_config
+from agent_lord.config import DEFAULT_CONFIG, control_config, expected_model_matches
 from agent_lord.state import create_operation, load_operation, load_task, utc_now
 from scripts.agent_lord import build_parser
 from scripts.task_store import upgrade as upgrade_task
@@ -35,15 +35,53 @@ if log:
 session_id = args[args.index("--resume") + 1] if "--resume" in args else args[args.index("--session-id") + 1]
 if os.environ.get("FAKE_CLAUDE_DIAGNOSTIC"):
     print(os.environ["FAKE_CLAUDE_DIAGNOSTIC"])
-model = os.environ.get("FAKE_CLAUDE_MODEL", "claude-opus-5")
+requested_model = args[args.index("--model") + 1] if "--model" in args else "opus"
+model = os.environ.get("FAKE_CLAUDE_MODEL") or (requested_model if requested_model.startswith("claude-") else "claude-" + requested_model + "-5")
 message = sys.stdin.read().strip()
+counter_path = os.environ.get("FAKE_CLAUDE_COUNTER")
+attempt = 1
+if counter_path:
+    try:
+        with open(counter_path, "r", encoding="utf-8") as handle:
+            attempt = int(handle.read()) + 1
+    except (FileNotFoundError, ValueError):
+        attempt = 1
+    with open(counter_path, "w", encoding="utf-8") as handle:
+        handle.write(str(attempt))
+failures = int(os.environ.get("FAKE_CLAUDE_FAILURES", "0"))
 print(json.dumps({
     "type": "result",
     "session_id": session_id,
-    "is_error": False,
-    "result": "final: " + message,
+    "is_error": attempt <= failures,
+    "result": ("failed attempt " + str(attempt)) if attempt <= failures else ("final: " + message),
     "modelUsage": {model: {"inputTokens": 1, "outputTokens": 1}}
 }))
+'''
+
+
+FAKE_CODEX = r'''#!/usr/bin/env python3
+import json
+import os
+import re
+import sys
+
+args = sys.argv[1:]
+log = os.environ.get("FAKE_CODEX_ARGV_LOG")
+if log:
+    with open(log, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(args) + "\n")
+session_id = os.environ.get("FAKE_CODEX_SESSION_ID", "0199a213-81c0-7800-8aa1-bbab2a035a53")
+for argument in args:
+    if re.fullmatch(r"[0-9a-f]{8}-[0-9a-f-]{27,}", argument):
+        session_id = argument
+result_path = args[args.index("--output-last-message") + 1]
+sys.stdin.read()
+with open(result_path, "w", encoding="utf-8") as handle:
+    handle.write("codex final\n")
+print(json.dumps({"type": "thread.started", "thread_id": session_id}))
+print(json.dumps({"type": "turn.started"}))
+print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": "codex final"}}))
+print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 1, "output_tokens": 1}}))
 '''
 
 
@@ -57,6 +95,11 @@ class AgentLordTests(unittest.TestCase):
         self.fake_claude.write_text(FAKE_CLAUDE, encoding="utf-8")
         self.fake_claude.chmod(self.fake_claude.stat().st_mode | stat.S_IXUSR)
         self.argv_log = Path(self.temporary.name) / "claude-argv.jsonl"
+        self.claude_counter = Path(self.temporary.name) / "claude-counter.txt"
+        self.fake_codex = Path(self.temporary.name) / "fake-codex"
+        self.fake_codex.write_text(FAKE_CODEX, encoding="utf-8")
+        self.fake_codex.chmod(self.fake_codex.stat().st_mode | stat.S_IXUSR)
+        self.codex_argv_log = Path(self.temporary.name) / "codex-argv.jsonl"
         self.environment = patch.dict(
             os.environ,
             {
@@ -64,6 +107,9 @@ class AgentLordTests(unittest.TestCase):
                 "AGENT_LORD_CLAUDE_BIN": str(self.fake_claude),
                 "FAKE_CLAUDE_ARGV_LOG": str(self.argv_log),
                 "FAKE_CLAUDE_MODEL": "claude-opus-5",
+                "FAKE_CLAUDE_COUNTER": str(self.claude_counter),
+                "AGENT_LORD_CODEX_BIN": str(self.fake_codex),
+                "FAKE_CODEX_ARGV_LOG": str(self.codex_argv_log),
             },
             clear=False,
         )
@@ -132,6 +178,168 @@ class AgentLordTests(unittest.TestCase):
             self.assertEqual("xhigh", arguments[arguments.index("--effort") + 1])
             self.assertEqual("plan", arguments[arguments.index("--permission-mode") + 1])
         self.assertEqual(endpoint_id, invocations[1][invocations[1].index("--resume") + 1])
+
+    def test_claude_defaults_to_opus_xhigh_and_five_attempts(self) -> None:
+        result = self.lord.start("claude-defaults", "claude-cli", str(self.target), "review")
+
+        self.assertEqual("SUCCEEDED", result["status"])
+        self.assertEqual("claude-opus-5", result["expected"]["model"])
+        self.assertEqual("xhigh", result["expected"]["effort"])
+        self.assertEqual([{"model": "claude-opus-5", "attempts": 5}], result["expected"]["retry_plan"])
+        arguments = json.loads(self.argv_log.read_text(encoding="utf-8").splitlines()[0])
+        self.assertEqual("claude-opus-5", arguments[arguments.index("--model") + 1])
+        self.assertEqual("xhigh", arguments[arguments.index("--effort") + 1])
+
+    def test_claude_model_only_defaults_effort_to_xhigh(self) -> None:
+        with patch.dict(os.environ, {"FAKE_CLAUDE_MODEL": "claude-sonnet-5"}, clear=False):
+            result = self.lord.start(
+                "claude-model-only",
+                "claude-cli",
+                str(self.target),
+                "review",
+                model="sonnet",
+            )
+
+        self.assertEqual("SUCCEEDED", result["status"])
+        self.assertEqual("sonnet", result["expected"]["model"])
+        self.assertEqual("xhigh", result["expected"]["effort"])
+
+    def test_claude_full_model_contract_accepts_a_versioned_provider_id(self) -> None:
+        self.assertTrue(expected_model_matches("claude-opus-5", "claude-opus-5-20260801"))
+        self.assertFalse(expected_model_matches("claude-opus-5", "claude-opus-4-20260801"))
+
+    def test_claude_retries_primary_model_up_to_five_attempts(self) -> None:
+        with patch.dict(os.environ, {"FAKE_CLAUDE_FAILURES": "4"}, clear=False):
+            result = self.lord.start("claude-retry", "claude-cli", str(self.target), "review")
+
+        invocations = [json.loads(line) for line in self.argv_log.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual("SUCCEEDED", result["status"])
+        self.assertEqual(5, len(invocations))
+        self.assertEqual(5, result["observed"]["attempts"])
+        self.assertTrue(all(arguments[arguments.index("--model") + 1] == "claude-opus-5" for arguments in invocations))
+
+    def test_claude_fable_falls_back_to_opus_after_five_failures(self) -> None:
+        with patch.dict(os.environ, {"FAKE_CLAUDE_FAILURES": "5"}, clear=False):
+            result = self.lord.start(
+                "claude-fable-fallback",
+                "claude-cli",
+                str(self.target),
+                "review",
+                model="fable",
+            )
+
+        invocations = [json.loads(line) for line in self.argv_log.read_text(encoding="utf-8").splitlines()]
+        models = [arguments[arguments.index("--model") + 1] for arguments in invocations]
+        self.assertEqual("SUCCEEDED", result["status"])
+        self.assertEqual(["fable"] * 5 + ["claude-opus-5"], models)
+        self.assertEqual(
+            [{"model": "fable", "attempts": 5}, {"model": "claude-opus-5", "attempts": 5}],
+            result["expected"]["retry_plan"],
+        )
+        self.assertTrue(result["observed"]["fallback_used"])
+
+    def test_claude_fable_is_terminal_only_after_both_five_attempt_stages_fail(self) -> None:
+        with patch.dict(os.environ, {"FAKE_CLAUDE_FAILURES": "10"}, clear=False):
+            with self.assertRaises(AgentLordError) as raised:
+                self.lord.start(
+                    "claude-fable-exhausted",
+                    "claude-cli",
+                    str(self.target),
+                    "review",
+                    model="fable",
+                )
+
+        invocations = [json.loads(line) for line in self.argv_log.read_text(encoding="utf-8").splitlines()]
+        models = [arguments[arguments.index("--model") + 1] for arguments in invocations]
+        sessions = [
+            arguments[arguments.index("--resume") + 1]
+            if "--resume" in arguments
+            else arguments[arguments.index("--session-id") + 1]
+            for arguments in invocations
+        ]
+        self.assertEqual(["fable"] * 5 + ["claude-opus-5"] * 5, models)
+        self.assertEqual(1, len(set(sessions)))
+        self.assertFalse(raised.exception.retryable)
+        self.assertTrue(raised.exception.details["retry_exhausted"])
+        self.assertEqual(10, len(raised.exception.details["attempts"]))
+
+    def test_claude_retry_attempt_override_changes_only_primary_stage(self) -> None:
+        with patch.dict(os.environ, {"FAKE_CLAUDE_FAILURES": "2"}, clear=False):
+            result = self.lord.start(
+                "claude-fable-retry-override",
+                "claude-cli",
+                str(self.target),
+                "review",
+                model="fable",
+                retry_attempts=2,
+            )
+
+        self.assertEqual(
+            [{"model": "fable", "attempts": 2}, {"model": "claude-opus-5", "attempts": 5}],
+            result["expected"]["retry_plan"],
+        )
+        invocations = [json.loads(line) for line in self.argv_log.read_text(encoding="utf-8").splitlines()]
+        models = [arguments[arguments.index("--model") + 1] for arguments in invocations]
+        self.assertEqual(["fable", "fable", "claude-opus-5"], models)
+
+    def test_claude_reports_real_failure_after_retry_budget_exhausted(self) -> None:
+        with patch.dict(os.environ, {"FAKE_CLAUDE_FAILURES": "10"}, clear=False):
+            with self.assertRaises(AgentLordError) as raised:
+                self.lord.start("claude-exhausted", "claude-cli", str(self.target), "review")
+
+        invocations = [json.loads(line) for line in self.argv_log.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(5, len(invocations))
+        self.assertEqual("PROVIDER_FAILED", raised.exception.code)
+        self.assertFalse(raised.exception.retryable)
+        self.assertTrue(raised.exception.details["retry_exhausted"])
+        self.assertEqual(5, len(raised.exception.details["attempts"]))
+
+    def test_codex_alias_defaults_to_cli_sol_xhigh_and_resumes_same_session(self) -> None:
+        start = self.lord.start("codex-cli-default", "codex", str(self.target), "review")
+        turn = self.lord.turn("codex-cli-default", "continue")
+
+        self.assertEqual("SUCCEEDED", start["status"])
+        self.assertEqual("codex-cli", start["provider"])
+        self.assertEqual("gpt-5.6-sol", start["expected"]["model"])
+        self.assertEqual("xhigh", start["expected"]["effort"])
+        self.assertEqual(start["endpoint_id"], turn["endpoint_id"])
+        invocations = [json.loads(line) for line in self.codex_argv_log.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(2, len(invocations))
+        for arguments in invocations:
+            self.assertEqual("gpt-5.6-sol", arguments[arguments.index("--model") + 1])
+            self.assertIn('model_reasoning_effort="xhigh"', arguments)
+            self.assertIn("--dangerously-bypass-approvals-and-sandbox", arguments)
+        self.assertEqual("exec", invocations[0][0])
+        self.assertEqual("resume", invocations[1][1])
+        self.assertIn(start["endpoint_id"], invocations[1])
+
+    def test_codex_cli_read_only_is_enforced_by_config_arguments(self) -> None:
+        result = self.lord.start(
+            "codex-cli-read-only",
+            "codex",
+            str(self.target),
+            "review",
+            read_only=True,
+        )
+
+        arguments = json.loads(self.codex_argv_log.read_text(encoding="utf-8").splitlines()[0])
+        self.assertEqual("SUCCEEDED", result["status"])
+        self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", arguments)
+        self.assertIn('sandbox_mode="read-only"', arguments)
+        self.assertIn('approval_policy="never"', arguments)
+        self.assertEqual("config-argument-enforced", result["observed"]["permission_enforcement"])
+
+    def test_retry_attempt_override_is_rejected_for_codex(self) -> None:
+        with self.assertRaises(AgentLordError) as raised:
+            self.lord.start(
+                "codex-cli-retry-override",
+                "codex",
+                str(self.target),
+                "review",
+                retry_attempts=2,
+            )
+
+        self.assertEqual("CONFIG_INVALID", raised.exception.code)
 
     def test_default_permission_policy_bypasses_claude_checks(self) -> None:
         start = self.lord.start(

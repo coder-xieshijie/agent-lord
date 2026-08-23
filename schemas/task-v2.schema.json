@@ -18,7 +18,7 @@
   "properties": {
     "version": {"const": 2},
     "task_id": {"type": "string"},
-    "provider": {"enum": ["claude-cli", "codex-app"]},
+    "provider": {"enum": ["claude-cli", "codex-cli", "codex-app"]},
     "endpoint_id": {"type": "string", "minLength": 1},
     "target": {"type": "string", "minLength": 1},
     "route": {
@@ -33,13 +33,26 @@
     },
     "contract": {
       "type": "object",
-      "required": ["model", "effort", "read_only", "permission_mode", "source"],
+      "required": ["model", "effort", "read_only", "permission_mode", "source", "retry_plan"],
       "properties": {
         "model": {"type": ["string", "null"]},
         "effort": {"type": ["string", "null"]},
         "read_only": {"type": "boolean"},
         "permission_mode": {"type": "string", "minLength": 1},
-        "source": {"type": "object"}
+        "source": {"type": "object"},
+        "retry_plan": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["model", "attempts"],
+            "properties": {
+              "model": {"type": ["string", "null"]},
+              "attempts": {"type": "integer", "minimum": 1}
+            },
+            "additionalProperties": false
+          }
+        }
       },
       "additionalProperties": false
     },

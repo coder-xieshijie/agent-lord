@@ -25,7 +25,7 @@
     "version": {"const": 1},
     "operation_id": {"type": "string"},
     "task_id": {"type": "string"},
-    "provider": {"enum": ["claude-cli", "codex-app"]},
+    "provider": {"enum": ["claude-cli", "codex-cli", "codex-app"]},
     "kind": {"enum": ["start", "turn"]},
     "target": {"type": "string"},
     "status": {

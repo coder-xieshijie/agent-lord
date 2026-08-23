@@ -152,8 +152,9 @@ def _validate_provider_output(
 def recover_claude(operation: Dict[str, Any]) -> Dict[str, Any]:
     """Recover a completed CLI turn when its original controller disappeared."""
     session_id = operation.get("endpoint_id")
-    stdout_value = operation.get("stdout_path")
-    stderr_value = operation.get("stderr_path")
+    active_attempt = operation.get("active_attempt") or {}
+    stdout_value = active_attempt.get("stdout_path") or operation.get("stdout_path")
+    stderr_value = active_attempt.get("stderr_path") or operation.get("stderr_path")
     if not isinstance(session_id, str) or not session_id:
         raise AgentLordError("RESULT_INVALID", "Claude operation journal lacks its session identity")
     if not isinstance(stdout_value, str) or not isinstance(stderr_value, str):
@@ -165,7 +166,7 @@ def recover_claude(operation: Dict[str, Any]) -> Dict[str, Any]:
         stdout,
         stderr,
         session_id,
-        operation.get("expected", {}).get("model"),
+        active_attempt.get("model") or operation.get("expected", {}).get("model"),
         operation.get("expected", {}).get("effort"),
         bool(operation.get("read_only")),
         operation.get("expected", {}).get("permission_mode"),
@@ -173,12 +174,30 @@ def recover_claude(operation: Dict[str, Any]) -> Dict[str, Any]:
     )
     parsed.update(
         {
-            "command": operation.get("provider_command", []),
+            "command": active_attempt.get("command") or operation.get("provider_command", []),
             "stdout_path": str(stdout_path),
             "stderr_path": str(stderr_path),
+            "attempt_number": active_attempt.get("number"),
+            "attempt_model": active_attempt.get("model") or operation.get("expected", {}).get("model"),
         }
     )
     return parsed
+
+
+def claude_session_observed(operation: Dict[str, Any]) -> bool:
+    session_id = operation.get("endpoint_id")
+    active_attempt = operation.get("active_attempt") or {}
+    stdout_value = active_attempt.get("stdout_path") or operation.get("stdout_path")
+    if not isinstance(session_id, str) or not isinstance(stdout_value, str):
+        return False
+    try:
+        stdout = Path(stdout_value).read_text(encoding="utf-8")
+    except OSError:
+        return False
+    try:
+        return last_result(stdout).get("session_id") == session_id
+    except AgentLordError:
+        return False
 
 
 def run_claude(
@@ -191,6 +210,7 @@ def run_claude(
     effort: Optional[str],
     read_only: bool,
     permission_mode: Optional[str] = None,
+    attempt_number: Optional[int] = None,
     root: Optional[Path] = None,
 ) -> Dict[str, Any]:
     root = ensure_layout(root)
@@ -220,8 +240,9 @@ def run_claude(
     command.extend(permission["arguments"])
 
     prompt_path: Optional[Path] = None
-    stdout_path = root / "logs" / (operation_id + ".stdout")
-    stderr_path = root / "logs" / (operation_id + ".stderr")
+    attempt_suffix = ".attempt-%d" % attempt_number if attempt_number is not None else ""
+    stdout_path = root / "logs" / (operation_id + attempt_suffix + ".stdout")
+    stderr_path = root / "logs" / (operation_id + attempt_suffix + ".stderr")
     try:
         with tempfile.NamedTemporaryFile(
             mode="w",
@@ -243,6 +264,14 @@ def run_claude(
             value["provider_command"] = command
             value["stdout_path"] = str(stdout_path)
             value["stderr_path"] = str(stderr_path)
+            value["active_attempt"] = {
+                "number": attempt_number,
+                "model": model,
+                "resume": resume,
+                "command": command,
+                "stdout_path": str(stdout_path),
+                "stderr_path": str(stderr_path),
+            }
             return value
 
         update_operation(operation_id, mark_prepared, root)
@@ -310,6 +339,8 @@ def run_claude(
             "command": command,
             "stdout_path": str(stdout_path),
             "stderr_path": str(stderr_path),
+            "attempt_number": attempt_number,
+            "attempt_model": model,
         }
     )
     return parsed

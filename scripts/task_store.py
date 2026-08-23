@@ -20,7 +20,14 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agent_lord.config import permission_policy, provider_config, validate_effort  # noqa: E402
+from agent_lord.config import (  # noqa: E402
+    normalize_provider,
+    permission_policy,
+    provider_config,
+    resolve_execution_defaults,
+    resolve_retry_plan,
+    validate_effort,
+)
 from agent_lord.errors import AgentLordError  # noqa: E402
 from agent_lord.state import create_task, load_task, remove_task, update_task, utc_now, validate_identifier  # noqa: E402
 
@@ -34,35 +41,37 @@ def dump(value: Dict[str, Any]) -> str:
 
 def put(args: argparse.Namespace) -> Dict[str, Any]:
     validate_identifier("task_id", args.task_id)
-    provider_config(args.provider)
+    provider = normalize_provider(args.provider)
+    provider_config(provider)
     for name in ("endpoint_id", "target"):
         value = getattr(args, name)
         if not isinstance(value, str) or not value or "\x00" in value:
             raise AgentLordError("CONFIG_INVALID", "%s must be a non-empty string without NUL bytes" % name, exit_code=2)
-    if args.effort:
-        validate_effort(args.provider, args.effort)
-    if args.provider == "codex-app" and not args.host_id:
+    model, effort = resolve_execution_defaults(provider, args.model, args.effort)
+    retry_plan = resolve_retry_plan(provider, model, getattr(args, "retry_attempts", None))
+    if provider == "codex-app" and not args.host_id:
         raise AgentLordError("CONFIG_INVALID", "host_id is required for provider codex-app", exit_code=2)
-    if args.provider == "claude-cli" and args.host_id:
-        raise AgentLordError("CONFIG_INVALID", "host_id is not accepted for provider claude-cli", exit_code=2)
+    if provider in ("claude-cli", "codex-cli") and args.host_id:
+        raise AgentLordError("CONFIG_INVALID", "host_id is not accepted for CLI providers", exit_code=2)
     now = utc_now()
     history = []
     if args.host_id:
         history.append({"host_id": args.host_id, "observed_at": now, "reason": "manual-registration"})
-    permission = permission_policy(args.provider, args.read_only)
+    permission = permission_policy(provider, args.read_only)
     value: Dict[str, Any] = {
         "version": 2,
         "task_id": args.task_id,
-        "provider": args.provider,
+        "provider": provider,
         "endpoint_id": args.endpoint_id,
         "target": args.target,
         "route": {"host_id": args.host_id, "resolved_at": now, "history": history},
         "contract": {
-            "model": args.model,
-            "effort": args.effort,
+            "model": model,
+            "effort": effort,
             "read_only": args.read_only,
             "permission_mode": permission["mode"],
             "source": {},
+            "retry_plan": retry_plan,
         },
         "created_at": now,
         "updated_at": now,
@@ -92,6 +101,7 @@ def upgrade(args: argparse.Namespace) -> Dict[str, Any]:
             "read_only": args.read_only,
             "permission_mode": permission["mode"],
             "source": source,
+            "retry_plan": resolve_retry_plan(task["provider"], args.model, getattr(args, "retry_attempts", None)),
         }
         return value
 
@@ -104,12 +114,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     put_parser = subparsers.add_parser("put", help="register a pre-existing endpoint")
     put_parser.add_argument("--task-id", required=True)
-    put_parser.add_argument("--provider", required=True, choices=("codex-app", "claude-cli"))
+    put_parser.add_argument("--provider", required=True, choices=("codex", "codex-cli", "codex-app", "claude-cli"))
     put_parser.add_argument("--endpoint-id", required=True)
     put_parser.add_argument("--host-id")
     put_parser.add_argument("--target", required=True)
     put_parser.add_argument("--model")
     put_parser.add_argument("--effort")
+    put_parser.add_argument("--retry-attempts", type=int, help="override the primary Claude CLI attempt budget")
     put_parser.add_argument(
         "--read-only",
         action="store_true",
@@ -123,6 +134,7 @@ def build_parser() -> argparse.ArgumentParser:
     upgrade_parser.add_argument("--task-id", required=True)
     upgrade_parser.add_argument("--model", required=True)
     upgrade_parser.add_argument("--effort", required=True)
+    upgrade_parser.add_argument("--retry-attempts", type=int, help="override the primary Claude CLI attempt budget")
     upgrade_parser.add_argument(
         "--read-only",
         action="store_true",
