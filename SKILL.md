@@ -14,10 +14,10 @@ Route one logical task to one durable endpoint. Treat `scripts/agent_lord.py` as
 - Treat the user-specified endpoint set as part of the execution contract. Dispatch the requested Codex CLI, Claude Code CLI, or collaboration of both exactly; never drop a named provider or substitute two Codex endpoints for Codex plus Claude Code.
 - Keep one endpoint per `task_id` and one in-flight operation per task. Continue the saved endpoint; replacement requires an explicit decision.
 - Let the dispatch lock and operation journal enforce that invariant across concurrent controller processes; do not implement a second caller-side lock.
-- Let operation-scoped workspace and branch write leases serialize writable local CLI tasks. Read-only tasks may share one clean fixed-head worktree; writable tasks never share a worktree concurrently.
+- Let operation-scoped workspace and branch write leases serialize writable local CLI tasks. Read-only tasks share one clean fixed-head worktree under a shared lease; writable tasks never share a worktree concurrently, and an unfenced writable operation keeps blocking new writers until `checkpoint` fences it.
 - Store task, operation, action, event, log, and artifact state under `${AGENT_LORD_STATE_DIR:-$HOME/.codex/state/agent-lord}`, never in the target repository.
 - Freeze the resolved model, effort, retry plan, permission posture, and source contract when the task starts; every later turn reapplies them.
-- Use fixed full SHAs for revision-sensitive work. Local CLI providers refuse a working directory whose `HEAD` differs from the saved contract.
+- Use fixed full SHAs for revision-sensitive work. Read-only tasks refuse any working directory whose `HEAD` differs from the frozen head. A writable repo-managed task may advance: its `HEAD` must stay on the contract checkout branch and remain a descendant of the last verified head, which the control plane then records as the new verification baseline.
 - Exchange sanitized artifacts, not raw provider logs or reasoning traces.
 - Treat the caller's task set and next-step policy as inputs. Agent Lord supervises endpoint operations; it does not infer dependencies or dispatch a workflow.
 - The workflow is user input, not a built-in Agent Lord process. Take parallelism, sequencing, node order, roles, and completion conditions exactly as the user specified them, and run only the nodes the user named.
@@ -29,8 +29,8 @@ Route one logical task to one durable endpoint. Treat `scripts/agent_lord.py` as
 1. Resolve the exact repository, source branch, fixed head/base, and write the task prompt to a private temporary file outside the repository. Remove caller-owned prompt/result files after the command has consumed them.
 2. Inspect `python3 scripts/agent_lord.py start --help`, then run `start` with every explicit user choice. For revision-sensitive local CLI work, use `--repo`, `--source-branch`, one explicit workspace policy, and `--head-sha`; the control plane freezes the resolved checkout as the target. Use `--target` when the exact working directory already is the contract. Do not recreate these preflight checks manually.
 3. Process the returned envelope until terminal:
-   - `ACTION_REQUIRED`: invoke the exact model-side tool and arguments in `action`; save the raw return value outside the repository, then pass it to `accept`.
-   - `RUNNING`: use `check`, or pass every selected `task_id` to one bounded `checkpoint` when the user requested supervision.
+   - `ACTION_REQUIRED`: invoke the exact model-side tool and arguments in `action`; save the raw return value outside the repository, then pass it to `accept`. Add `--auto-read` to `accept` when the next step would only be another polling read; the envelope then carries that read action directly instead of requiring a separate `check`.
+   - `RUNNING`: use `check` for one task's full current state, or pass every selected `task_id` to one bounded `checkpoint` when the user requested supervision. Only `checkpoint` performs recovery; `check` reports state and, when the recorded controller process is gone, an `observed.supervision.recovery_command` hint.
    - `CHECKPOINT_ACTIONABLE`: process every ordinary envelope in `actionable`.
    - `SUCCEEDED`: use the returned artifact as the canonical response.
    - `ERROR`: follow `safe_recovery` only when present; otherwise report the structured error.
@@ -46,7 +46,7 @@ Route one logical task to one durable endpoint. Treat `scripts/agent_lord.py` as
 - The caller starts the named integrator only after the workers are terminal. Agent Lord validates the declared barrier and isolation contract; it does not invent workers, an integrator, temporary branch names, merge order, or another MR.
 - A missing or inconsistent parallel plan returns `NEEDS_DECISION`. Read [references/protocol.md](references/protocol.md) before dispatching concurrent writable tasks.
 
-`checkpoint` wakes the caller only for terminal or model-actionable state. Its default quiet interval is 150 seconds; `CHECKPOINT_QUIET` with exit `124` is healthy and can be followed by another checkpoint. Read the protocol reference for multi-task selection, compact output, and recovery supervision semantics.
+`checkpoint` wakes the caller only for terminal or model-actionable state. Its default quiet interval is 150 seconds; `CHECKPOINT_QUIET` with exit `124` is healthy and can be followed by another checkpoint. An automatic selection that finds no active task returns `CHECKPOINT_QUIET` immediately instead of waiting out the interval. Read the protocol reference for multi-task selection, compact output, and recovery supervision semantics.
 
 ## Provider routing and defaults
 
@@ -62,7 +62,7 @@ Explicit user values override defaults. `--retry-attempts` overrides the primary
 
 Claude maps the default `dangerously_bypass` posture to `--dangerously-skip-permissions`; `--read-only` maps to `--permission-mode plan`. It verifies the main model from same-session `system` / `assistant` / `result` metadata. A failed auxiliary `auto_mode` model is published as a sanitized warning when the matching main result succeeded; it does not consume retry budget or trigger fallback. Claude journals streaming progress and retries or recovers only on the saved session under the frozen contract. Read the protocol reference when diagnosing stalls, controller takeover, or retry exhaustion.
 
-Codex CLI maps `dangerously_bypass` to `--dangerously-bypass-approvals-and-sandbox`; `--read-only` applies explicit sandbox and approval config arguments. It runs `codex exec --json`, stores `thread.started.thread_id` as endpoint identity, publishes only `--output-last-message`, and continues through `codex exec resume <session-id>` while reapplying model, effort, and permissions.
+Codex CLI maps `dangerously_bypass` to `--dangerously-bypass-approvals-and-sandbox`; `--read-only` applies explicit sandbox and approval config arguments. It runs `codex exec --json`, stores `thread.started.thread_id` as endpoint identity, publishes only `--output-last-message`, and continues through `codex exec resume <session-id>` while reapplying model, effort, and permissions. A `preparing` operation whose controller died is supervised by `checkpoint`: never-launched work is retryable, and a possibly-launched one becomes `DELIVERY_UNKNOWN`.
 
 ## Codex App action handshake
 
@@ -70,14 +70,15 @@ Codex App host tools are model-side tools, so the script emits an action instead
 
 1. Call exactly `action.tool` with `action.arguments`.
 2. Preserve the complete raw tool result in a temporary file outside the repository.
-3. Run `python3 scripts/agent_lord.py accept --action-id <id> --result-file <file>`.
+3. Run `python3 scripts/agent_lord.py accept --action-id <id> --result-file <file>`; add `--auto-read` when you only intend to keep polling the same thread.
 4. Continue from the new envelope.
 
-The App adapter uses only the supported minimal `list_threads` arguments, treats `threadId` as endpoint identity and `hostId` as mutable routing, and rebinds the same thread before retrying a route-stale send. Its action schema has no sandbox or approval field, so bypass is recorded as `host-inherited-unverified` and read-only remains instruction-only.
+The App adapter uses only the supported minimal `list_threads` arguments, treats `threadId` as endpoint identity and `hostId` as mutable routing, and rebinds the same thread before retrying a route-stale send. A transiently failed listing is re-issued within a small bounded budget instead of terminalizing the operation. Its action schema has no sandbox or approval field, so bypass is recorded as `host-inherited-unverified` and read-only remains instruction-only.
 
 ## Artifacts and compatibility
 
-Successful local CLI turns automatically publish a final-response-only artifact. Codex App reads do the same; `export-artifact` can extract the final assistant message and model/effort metadata from an existing Claude or Codex JSONL without copying reasoning. A Codex export must contain the exact operation marker, so an unrelated turn from the same rollout cannot be mistaken for this result.
+Successful local CLI turns automatically publish a final-response-only artifact. Codex App reads do the same; `export-artifact` can extract the final assistant message and model/effort metadata from an existing Claude or Codex JSONL without copying reasoning. A Codex export must contain the exact operation marker, and a Claude export must be a `claude-jsonl` log whose assistant records carry this operation's own session id, so an unrelated turn cannot be mistaken for this result. `export-artifact` is auxiliary: a rejected export never invalidates an already-succeeded operation or its artifact. A Claude session log cannot prove effort, so the export publishes an explicit `EFFORT_UNVERIFIABLE_FORMAT` warning instead of inventing one; the contract itself is still argument-enforced at dispatch.
+
 
 Version 1 task handles remain readable, but `turn` fails closed because those records did not preserve model, effort, permission, or source. Use `scripts/task_store.py upgrade` with explicit values before continuing one; it never infers the missing contract. The compatibility interface also supports explicit registration and cleanup; new work uses `scripts/agent_lord.py`.
 

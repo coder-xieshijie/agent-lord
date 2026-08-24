@@ -39,7 +39,16 @@
         "effort": {"type": ["string", "null"]},
         "read_only": {"type": "boolean"},
         "permission_mode": {"type": "string", "minLength": 1},
-        "source": {"type": "object"},
+        "source": {
+          "type": "object",
+          "properties": {
+            "head_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+            "base_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+            "verified_head_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+          },
+          "additionalProperties": false,
+          "dependentRequired": {"verified_head_sha": ["head_sha"]}
+        },
         "workspace": {
           "type": "object",
           "properties": {

@@ -73,15 +73,32 @@ def extract_codex_result(value: Any, operation_marker: Optional[str] = None) -> 
     return candidates[-1]
 
 
+def _record_session_id(item: Dict[str, Any]) -> Optional[str]:
+    for key in ("sessionId", "session_id"):
+        value = item.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
 def extract_jsonl_with_metadata(
     path: Path,
     source_format: str,
     required_operation_marker: Optional[str] = None,
+    required_session_id: Optional[str] = None,
 ) -> Dict[str, Any]:
+    if required_session_id is not None and source_format != "claude-jsonl":
+        raise AgentLordError(
+            "CONFIG_INVALID",
+            "session binding is only defined for claude-jsonl sources",
+            details={"source_format": source_format},
+            exit_code=2,
+        )
     candidates: List[str] = []
     models: List[str] = []
     efforts: List[str] = []
     marker_seen = required_operation_marker is None
+    session_seen = required_session_id is None
     current_model: Optional[str] = None
     current_effort: Optional[str] = None
 
@@ -101,6 +118,9 @@ def extract_jsonl_with_metadata(
                 if source_format == "claude-jsonl":
                     if item.get("type") != "assistant":
                         continue
+                    if required_session_id is not None and _record_session_id(item) != required_session_id:
+                        continue
+                    session_seen = True
                     message = item.get("message") or {}
                     if message.get("role") != "assistant":
                         continue
@@ -156,6 +176,12 @@ def extract_jsonl_with_metadata(
             "RESULT_INVALID",
             "artifact source does not contain the requested operation marker",
             details={"path": str(path)},
+        )
+    if not session_seen:
+        raise AgentLordError(
+            "RESULT_INVALID",
+            "artifact source contains no assistant record for the requested session",
+            details={"path": str(path), "session_id": required_session_id},
         )
     if not candidates:
         raise AgentLordError("RESULT_INVALID", "artifact source contains no final assistant message", details={"path": str(path)})

@@ -17,10 +17,24 @@ from unittest.mock import patch
 
 
 from agent_lord import AgentLord, AgentLordError
-from agent_lord.claude_adapter import terminate_claude_process
+from agent_lord.claude_adapter import claude_session_observed, terminate_claude_process
+from agent_lord.claude_attempt_result import evaluate_claude_attempt, last_result
 from agent_lord.codex_adapter import operation_marker
 from agent_lord.config import DEFAULT_CONFIG, control_config, expected_model_matches
-from agent_lord.state import create_operation, load_operation, load_task, record_lock, update_operation, utc_now
+from agent_lord.engine import _CheckpointScan
+import agent_lord.state
+from agent_lord.state import (
+    create_action,
+    create_operation,
+    load_action,
+    load_operation,
+    load_task,
+    operation_paths,
+    record_lock,
+    update_operation,
+    update_task,
+    utc_now,
+)
 from scripts.agent_lord import build_parser
 from scripts.task_store import upgrade as upgrade_task
 
@@ -297,6 +311,160 @@ class AgentLordTests(unittest.TestCase):
         ).stdout.strip()
         subprocess.run(["git", "-C", str(self.target), "branch", "feat/source"], check=True)
         return head
+
+    def _count_git_subcommands(self, action: Any) -> Dict[str, int]:
+        counts: Dict[str, int] = {}
+        original = subprocess.run
+
+        def counting(arguments: Any, *args: Any, **kwargs: Any) -> Any:
+            if isinstance(arguments, list) and arguments[:1] == ["git"]:
+                key = " ".join(item for item in arguments[3:] if not item.startswith("/"))
+                counts[key] = counts.get(key, 0) + 1
+            return original(arguments, *args, **kwargs)
+
+        with patch("agent_lord.engine.subprocess.run", counting):
+            action()
+        return counts
+
+    def test_repo_managed_start_lists_worktrees_once(self) -> None:
+        head = self._init_source_repo()
+
+        counts = self._count_git_subcommands(
+            lambda: self.lord.start(
+                "one-listing",
+                "claude-cli",
+                None,
+                "review",
+                read_only=True,
+                head_sha=head,
+                repository=str(self.target),
+                source_branch="feat/source",
+                workspace_policy="shared-readonly",
+            )
+        )
+
+        self.assertEqual(1, counts.get("worktree list --porcelain"))
+        self.assertEqual(1, counts.get("status --porcelain --untracked-files=normal"))
+        self.assertEqual(
+            str((self.root / "worktrees" / "one-listing").resolve()),
+            load_task("one-listing", self.root)["target"],
+        )
+
+    def test_repo_managed_start_reuses_an_existing_checkout_without_a_second_listing(self) -> None:
+        head = self._init_source_repo()
+        self.lord.start(
+            "first-reader",
+            "claude-cli",
+            None,
+            "review",
+            read_only=True,
+            head_sha=head,
+            repository=str(self.target),
+            source_branch="feat/source",
+            workspace_policy="shared-readonly",
+        )
+
+        counts = self._count_git_subcommands(
+            lambda: self.lord.start(
+                "second-reader",
+                "claude-cli",
+                None,
+                "review",
+                read_only=True,
+                head_sha=head,
+                repository=str(self.target),
+                source_branch="feat/source",
+                workspace_policy="shared-readonly",
+            )
+        )
+
+        self.assertEqual(1, counts.get("worktree list --porcelain"))
+        self.assertIsNone(counts.get("worktree add"))
+        self.assertEqual(
+            load_task("first-reader", self.root)["target"],
+            load_task("second-reader", self.root)["target"],
+        )
+
+    def _synthetic_stream_json(self, session_id: str, assistant_events: int) -> str:
+        lines = [
+            json.dumps({"type": "system", "subtype": "init", "session_id": session_id, "model": "claude-opus-5"}),
+            "[claude-code:unrecognized_model] "
+            + json.dumps({"model": "claude-3-5-haiku", "query_source": "auto_mode"}),
+        ]
+        for index in range(assistant_events):
+            lines.append(
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "session_id": session_id,
+                        "message": {
+                            "model": "claude-opus-5",
+                            "content": [{"type": "text", "text": "chunk %d %s" % (index, "x" * 400)}],
+                        },
+                    }
+                )
+            )
+        lines.append(
+            json.dumps(
+                {
+                    "type": "result",
+                    "subtype": "success",
+                    "session_id": session_id,
+                    "is_error": False,
+                    "model": "claude-opus-5",
+                    "modelUsage": {"claude-opus-5": {"inputTokens": 10, "outputTokens": 20}},
+                    "result": "final answer",
+                }
+            )
+        )
+        return "\n".join(lines) + "\n"
+
+    def test_single_pass_terminal_evaluation_keeps_every_reported_field(self) -> None:
+        session_id = "11111111-2222-4333-8444-555555555555"
+        stdout = self._synthetic_stream_json(session_id, 2000)
+
+        evaluation = evaluate_claude_attempt(
+            stdout,
+            "",
+            session_id=session_id,
+            expected_model="claude-opus-5",
+            return_code=0,
+        )
+
+        self.assertEqual("claude-opus-5", evaluation.main_model)
+        self.assertTrue(evaluation.main_model_verified)
+        self.assertEqual(
+            ("system.init.model", "assistant.message.model", "result.model", "result.modelUsage"),
+            evaluation.main_model_evidence,
+        )
+        self.assertEqual(
+            [{"source": "auto_mode", "model": "claude-3-5-haiku", "status": "failed", "code": "unrecognized_model"}],
+            [item.as_dict() for item in evaluation.auxiliary_models],
+        )
+        self.assertEqual(
+            [{"code": "AUXILIARY_MODEL_UNRECOGNIZED", "source": "auto_mode", "model": "claude-3-5-haiku"}],
+            [item.as_dict() for item in evaluation.warnings],
+        )
+        self.assertEqual(last_result(stdout), evaluation.result)
+        self.assertEqual("final answer", evaluation.result["result"])
+
+    def test_journaled_session_evidence_replaces_a_second_transcript_read(self) -> None:
+        session_id = "22222222-3333-4444-8555-666666666666"
+        stdout_path = Path(self.temporary.name) / "streamed.jsonl"
+        stdout_path.write_text(self._synthetic_stream_json(session_id, 4), encoding="utf-8")
+        operation = {
+            "endpoint_id": session_id,
+            "active_attempt": {"attempt_id": "a1", "stdout_path": str(stdout_path), "session_observed": True},
+        }
+
+        stdout_path.unlink()
+
+        self.assertTrue(claude_session_observed(operation))
+        self.assertFalse(
+            claude_session_observed(
+                {"endpoint_id": session_id, "active_attempt": {"attempt_id": "a1", "stdout_path": str(stdout_path)}}
+            )
+        )
 
     def test_record_lock_releases_when_holder_is_killed(self) -> None:
         repository = Path(__file__).resolve().parent.parent
@@ -1483,6 +1651,7 @@ class AgentLordTests(unittest.TestCase):
         self.assertEqual("claude-fable-5", result["observed"]["main_model"])
         self.assertEqual("AUXILIARY_MODEL_UNRECOGNIZED", result["observed"]["warnings"][0]["code"])
         self.assertEqual(result["observed"]["warnings"], result["warnings"])
+        self._assert_warnings_match_the_result_schema(result["warnings"])
         self.assertEqual(
             "AUXILIARY_MODEL_UNRECOGNIZED",
             result["observed"]["attempt_history"][0]["warnings"][0]["code"],
@@ -2158,7 +2327,77 @@ class AgentLordTests(unittest.TestCase):
         with self.assertRaises(AgentLordError) as raised:
             self.lord.export_artifact("drift-task", complete["operation_id"], str(source), "codex-jsonl")
         self.assertEqual("MODEL_MISMATCH", raised.exception.code)
-        failed = load_operation(complete["operation_id"], self.root)
+        preserved = load_operation(complete["operation_id"], self.root)
+        self.assertEqual("succeeded", preserved["status"])
+        self.assertEqual(complete["artifact"], preserved["artifact"])
+        self.assertIsNone(preserved.get("invalidated_artifact"))
+
+    def test_failed_export_does_not_terminalize_a_succeeded_operation(self) -> None:
+        complete = self._complete_codex_start("export-guard")
+        source = Path(self.temporary.name) / "export-guard.jsonl"
+        source.write_text(
+            "\n".join(
+                [
+                    json.dumps({"type": "turn_context", "payload": {"model": "gpt-5.6-terra", "effort": "xhigh"}}),
+                    json.dumps(
+                        {
+                            "type": "response_item",
+                            "payload": {
+                                "type": "message",
+                                "role": "user",
+                                "content": [
+                                    {"type": "input_text", "text": operation_marker(complete["operation_id"])}
+                                ],
+                            },
+                        }
+                    ),
+                    json.dumps({"type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "wrong model"}]}}),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        with self.assertRaises(AgentLordError):
+            self.lord.export_artifact("export-guard", complete["operation_id"], str(source), "codex-jsonl")
+        after = self.lord.check("export-guard")
+        self.assertEqual("SUCCEEDED", after["status"])
+        self.assertEqual(complete["artifact"], after["artifact"])
+        self.assertEqual(
+            "initial report\n",
+            Path(after["artifact"]["path"]).read_text(encoding="utf-8"),
+        )
+
+    def test_failed_export_still_invalidates_a_non_terminal_operation(self) -> None:
+        complete = self._complete_codex_start("export-nonterminal")
+        operation_id = complete["operation_id"]
+        # Re-open the operation so the export runs against a still-live delivery.
+        update_operation(operation_id, lambda record: dict(record, status="submitted"), self.root)
+        source = Path(self.temporary.name) / "export-nonterminal.jsonl"
+        source.write_text(
+            "\n".join(
+                [
+                    json.dumps({"type": "turn_context", "payload": {"model": "gpt-5.6-terra", "effort": "xhigh"}}),
+                    json.dumps(
+                        {
+                            "type": "response_item",
+                            "payload": {
+                                "type": "message",
+                                "role": "user",
+                                "content": [{"type": "input_text", "text": operation_marker(operation_id)}],
+                            },
+                        }
+                    ),
+                    json.dumps({"type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "wrong model"}]}}),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        with self.assertRaises(AgentLordError) as raised:
+            self.lord.export_artifact("export-nonterminal", operation_id, str(source), "codex-jsonl")
+        self.assertEqual("MODEL_MISMATCH", raised.exception.code)
+        failed = load_operation(operation_id, self.root)
+        self.assertEqual("failed", failed["status"])
         self.assertIsNone(failed["artifact"])
         self.assertEqual(complete["artifact"], failed["invalidated_artifact"])
 
@@ -2229,6 +2468,725 @@ class AgentLordTests(unittest.TestCase):
                 "codex-jsonl",
             )
         self.assertEqual("EFFORT_UNVERIFIED", raised.exception.code)
+
+    def _claude_session_line(self, session_id: str, text: str, model: str = "claude-opus-5") -> str:
+        return json.dumps(
+            {
+                "type": "assistant",
+                "sessionId": session_id,
+                "message": {"role": "assistant", "model": model, "content": [{"type": "text", "text": text}]},
+            }
+        )
+
+    def test_claude_export_binds_the_session_and_declares_unprovable_effort(self) -> None:
+        start = self.lord.start(
+            "claude-export",
+            "claude-cli",
+            str(self.target),
+            "review",
+            model="opus",
+            effort="xhigh",
+            read_only=True,
+        )
+        self.assertEqual("SUCCEEDED", start["status"])
+        session_id = start["endpoint_id"]
+        source = Path(self.temporary.name) / "claude-session.jsonl"
+        source.write_text(
+            "\n".join(
+                [
+                    self._claude_session_line("00000000-0000-4000-8000-0000000000ff", "other session final"),
+                    self._claude_session_line(session_id, "bound intermediate"),
+                    self._claude_session_line(session_id, "bound final"),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        exported = self.lord.export_artifact("claude-export", start["operation_id"], str(source), "claude-jsonl")
+
+        self.assertEqual("bound final\n", Path(exported["artifact"]["path"]).read_text(encoding="utf-8"))
+        self.assertEqual(["claude-opus-5"], exported["observed"]["models"])
+        self.assertIsNone(exported["observed"]["effort"])
+        self.assertEqual("unavailable", exported["observed"]["effort_verification"])
+        self.assertEqual(
+            [{"code": "EFFORT_UNVERIFIABLE_FORMAT", "source_format": "claude-jsonl", "expected_effort": "xhigh"}],
+            exported["observed"]["warnings"],
+        )
+        self.assertEqual(exported["observed"]["warnings"], exported["warnings"])
+        self._assert_warnings_match_the_result_schema(exported["warnings"])
+
+    def _assert_warnings_match_the_result_schema(self, warnings: List[Dict[str, Any]]) -> None:
+        schema = json.loads(
+            (Path(__file__).resolve().parent.parent / "schemas" / "result-v1.schema.json").read_text(encoding="utf-8")
+        )
+        variants = schema["properties"]["warnings"]["items"]["oneOf"]
+        for warning in warnings:
+            matched = [
+                variant
+                for variant in variants
+                if set(warning) <= set(variant["properties"]) and set(variant["required"]) <= set(warning)
+            ]
+            self.assertEqual(1, len(matched), warning)
+
+    def test_claude_export_rejects_a_transcript_from_another_session(self) -> None:
+        start = self.lord.start(
+            "claude-export-foreign",
+            "claude-cli",
+            str(self.target),
+            "review",
+            model="opus",
+            effort="xhigh",
+            read_only=True,
+        )
+        source = Path(self.temporary.name) / "foreign-session.jsonl"
+        source.write_text(
+            self._claude_session_line("00000000-0000-4000-8000-0000000000ff", "foreign final") + "\n",
+            encoding="utf-8",
+        )
+
+        with self.assertRaises(AgentLordError) as raised:
+            self.lord.export_artifact("claude-export-foreign", start["operation_id"], str(source), "claude-jsonl")
+
+        self.assertEqual("RESULT_INVALID", raised.exception.code)
+        preserved = load_operation(start["operation_id"], self.root)
+        self.assertEqual("succeeded", preserved["status"])
+        self.assertEqual(start["artifact"], preserved["artifact"])
+
+    def test_claude_export_rejects_a_codex_rollout_source(self) -> None:
+        start = self.lord.start(
+            "claude-export-format",
+            "claude-cli",
+            str(self.target),
+            "review",
+            read_only=True,
+        )
+        source = Path(self.temporary.name) / "not-a-session.jsonl"
+        source.write_text("{}\n", encoding="utf-8")
+
+        with self.assertRaises(AgentLordError) as raised:
+            self.lord.export_artifact("claude-export-format", start["operation_id"], str(source), "codex-jsonl")
+
+        self.assertEqual("CONFIG_INVALID", raised.exception.code)
+
+    def _synthetic_operation(self, operation_id: str, task_id: str, **overrides: Any) -> Dict[str, Any]:
+        now = utc_now()
+        record = {
+            "version": 1,
+            "operation_id": operation_id,
+            "task_id": task_id,
+            "provider": "claude-cli",
+            "kind": "start",
+            "target": str(self.target),
+            "status": "running",
+            "message": "synthetic",
+            "message_sha256": "0" * 64,
+            "expected": {
+                "model": "claude-opus-5",
+                "effort": "high",
+                "permission_mode": "dangerously_bypass",
+                "permission_enforcement": "argument-enforced",
+                "retry_plan": [{"model": "claude-opus-5", "attempts": 1}],
+            },
+            "observed": {},
+            "source": {},
+            "read_only": False,
+            "artifact": None,
+            "error": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+        record.update(overrides)
+        return create_operation(record, self.root)
+
+    def test_accept_tolerates_a_codex_read_that_is_not_ready_yet(self) -> None:
+        complete = self._complete_codex_start("codex-poll")
+        turn = self.lord.turn("codex-poll", "second question")
+        sent = self.lord.accept(turn["action"]["action_id"], {"threadId": "thread-1", "hostId": "old-host"})
+        self.assertEqual("RUNNING", sent["status"])
+        check = self.lord.check("codex-poll")
+        operation_id = check["operation_id"]
+        self.assertNotEqual(complete["operation_id"], operation_id)
+        not_ready = {
+            "thread": {"threadId": "thread-1", "hostId": "old-host", "status": "running"},
+            "turns": [
+                {
+                    "items": [
+                        {"role": "user", "content": [{"type": "text", "text": operation_marker(operation_id)}]},
+                    ]
+                }
+            ],
+        }
+
+        polled = self.lord.accept(check["action"]["action_id"], not_ready)
+
+        self.assertEqual("RUNNING", polled["status"])
+        self.assertEqual("submitted", polled["operation_status"])
+        self.assertNotIn("action", polled)
+
+    def test_auto_read_accept_returns_the_next_read_and_cuts_polling_rounds(self) -> None:
+        rounds = 5
+
+        def poll(task_id: str, auto_read: bool) -> Dict[str, int]:
+            counts = {"check": 0, "accept": 0, "tool": 0}
+            start = self.lord.start(
+                task_id,
+                "codex-app",
+                "project-1",
+                "review",
+                model="gpt-5.6-sol",
+                effort="xhigh",
+                read_only=True,
+            )
+            counts["accept"] += 1
+            counts["tool"] += 1
+            accepted = self.lord.accept(
+                start["action"]["action_id"],
+                {"threadId": task_id, "hostId": "host"},
+                auto_read=auto_read,
+            )
+            operation_id = start["operation_id"]
+            pending = accepted.get("action")
+            for _ in range(rounds):
+                if pending is None:
+                    check = self.lord.check(task_id)
+                    counts["check"] += 1
+                    pending = check["action"]
+                counts["tool"] += 1
+                counts["accept"] += 1
+                accepted = self.lord.accept(
+                    pending["action_id"],
+                    {
+                        "thread": {"threadId": task_id, "hostId": "host", "status": "running"},
+                        "turns": [
+                            {
+                                "items": [
+                                    {
+                                        "role": "user",
+                                        "content": [{"type": "text", "text": operation_marker(operation_id)}],
+                                    }
+                                ]
+                            }
+                        ],
+                    },
+                    auto_read=auto_read,
+                )
+                self.assertIn(accepted["status"], ("RUNNING", "ACTION_REQUIRED"))
+                pending = accepted.get("action")
+            return counts
+
+        baseline = poll("poll-baseline", False)
+        optimized = poll("poll-auto-read", True)
+
+        # One Python process per check/accept, one model action per process plus each host tool call.
+        baseline_processes = 1 + baseline["check"] + baseline["accept"]
+        optimized_processes = 1 + optimized["check"] + optimized["accept"]
+        self.assertEqual((5, 6), (baseline["check"], baseline["accept"]))
+        self.assertEqual((0, 6), (optimized["check"], optimized["accept"]))
+        self.assertEqual(12, baseline_processes)
+        self.assertEqual(7, optimized_processes)
+        # One model action per Python process plus one per host tool call.
+        self.assertEqual(18, baseline_processes + baseline["tool"])
+        self.assertEqual(13, optimized_processes + optimized["tool"])
+        self.assertEqual(3, (baseline["check"] + baseline["accept"] + baseline["tool"] - 2) // rounds)
+        self.assertEqual(2, (optimized["check"] + optimized["accept"] + optimized["tool"] - 2) // rounds)
+
+    def test_auto_read_is_opt_in_and_keeps_a_submitted_operation_quiet(self) -> None:
+        complete = self._complete_codex_start("quiet-default")
+        turn = self.lord.turn("quiet-default", "second question")
+        self.lord.accept(turn["action"]["action_id"], {"threadId": "thread-1", "hostId": "old-host"})
+        operation_id = load_task("quiet-default", self.root)["last_operation_id"]
+        operation = load_operation(operation_id, self.root)
+
+        self.assertEqual("submitted", operation["status"])
+        self.assertNotEqual(complete["operation_id"], operation_id)
+        result, quiet = self.lord.checkpoint(["quiet-default"], 1)
+        self.assertTrue(quiet)
+        self.assertEqual("CHECKPOINT_QUIET", result["status"])
+
+    def test_writable_turn_advances_along_the_contract_branch(self) -> None:
+        head = self._init_source_repo()
+        self.lord.start(
+            "advance-task",
+            "claude-cli",
+            None,
+            "first edit",
+            head_sha=head,
+            repository=str(self.target),
+            source_branch="feat/source",
+            workspace_policy="reuse-or-create",
+        )
+        worktree = load_task("advance-task", self.root)["target"]
+        advanced_head = self._commit_in(worktree, "worker commit")
+
+        turn = self.lord.turn("advance-task", "second edit")
+
+        self.assertEqual("SUCCEEDED", turn["status"])
+        source = load_task("advance-task", self.root)["contract"]["source"]
+        self.assertEqual(head, source["head_sha"])
+        self.assertEqual(advanced_head, source["verified_head_sha"])
+
+        second_head = self._commit_in(worktree, "another worker commit")
+        self.assertEqual("SUCCEEDED", self.lord.turn("advance-task", "third edit")["status"])
+        self.assertEqual(
+            second_head,
+            load_task("advance-task", self.root)["contract"]["source"]["verified_head_sha"],
+        )
+
+    def test_writable_turn_rejects_a_head_off_the_contract_branch(self) -> None:
+        head = self._init_source_repo()
+        self.lord.start(
+            "diverged-task",
+            "claude-cli",
+            None,
+            "first edit",
+            head_sha=head,
+            repository=str(self.target),
+            source_branch="feat/source",
+            workspace_policy="reuse-or-create",
+        )
+        worktree = load_task("diverged-task", self.root)["target"]
+        subprocess.run(["git", "-C", worktree, "checkout", "-q", "-b", "side/branch"], check=True)
+        self._commit_in(worktree, "off-contract commit")
+
+        with self.assertRaises(AgentLordError) as raised:
+            self.lord.turn("diverged-task", "second edit")
+
+        self.assertEqual("SOURCE_MISMATCH", raised.exception.code)
+        self.assertEqual("side/branch", raised.exception.details["observed_branch"])
+        self.assertNotIn("verified_head_sha", load_task("diverged-task", self.root)["contract"]["source"])
+
+    def test_read_only_turn_still_requires_the_frozen_head(self) -> None:
+        head = self._init_source_repo()
+        self.lord.start(
+            "frozen-task",
+            "claude-cli",
+            None,
+            "review",
+            read_only=True,
+            head_sha=head,
+            repository=str(self.target),
+            source_branch="feat/source",
+            workspace_policy="reuse-or-create",
+        )
+        worktree = load_task("frozen-task", self.root)["target"]
+        self._commit_in(worktree, "unexpected commit")
+
+        with self.assertRaises(AgentLordError) as raised:
+            self.lord.turn("frozen-task", "second review")
+
+        self.assertEqual("SOURCE_MISMATCH", raised.exception.code)
+
+    def _commit_in(self, worktree: str, message: str) -> str:
+        marker = Path(worktree) / "tracked.txt"
+        marker.write_text(marker.read_text(encoding="utf-8") + message + "\n", encoding="utf-8")
+        subprocess.run(["git", "-C", worktree, "add", "tracked.txt"], check=True)
+        subprocess.run(
+            ["git", "-c", "core.hooksPath=/dev/null", "-C", worktree, "commit", "-q", "-m", message],
+            check=True,
+        )
+        return subprocess.run(
+            ["git", "-C", worktree, "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip().lower()
+
+    def test_unfenced_writable_operation_blocks_a_second_writer_until_it_is_fenced(self) -> None:
+        self._synthetic_operation("orphan-writer", "orphan-writer-task", status="running")
+
+        with self.assertRaises(AgentLordError) as raised:
+            self.lord.start("second-writer", "claude-cli", str(self.target), "edit")
+
+        self.assertEqual("WORKSPACE_WRITE_CONFLICT", raised.exception.code)
+        self.assertEqual("orphan-writer", raised.exception.details["operation_id"])
+        self.assertEqual("RUN_CHECKPOINT_TO_FENCE_THEN_RETRY", raised.exception.safe_recovery)
+        self.assertFalse(any((self.root / "operations").glob("second-writer-*.json")))
+
+        update_operation("orphan-writer", lambda record: dict(record, status="failed"), self.root)
+
+        self.assertEqual("SUCCEEDED", self.lord.start("second-writer", "claude-cli", str(self.target), "edit")["status"])
+
+    def test_unfenced_read_only_operation_does_not_block_a_writer(self) -> None:
+        self._synthetic_operation("orphan-reader", "orphan-reader-task", status="running", read_only=True)
+
+        self.assertEqual("SUCCEEDED", self.lord.start("writer-after-reader", "claude-cli", str(self.target), "edit")["status"])
+
+    def test_read_only_start_is_refused_while_a_writer_owns_the_worktree(self) -> None:
+        with patch.dict(os.environ, {"FAKE_CLAUDE_DELAY_SECONDS": "1"}, clear=False):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                writer = executor.submit(self.lord.start, "worktree-writer", "claude-cli", str(self.target), "edit")
+                deadline = time.time() + 5
+                while time.time() < deadline and not any((self.root / "operations").glob("worktree-writer-*.json")):
+                    time.sleep(0.01)
+                with self.assertRaises(AgentLordError) as raised:
+                    self.lord.start(
+                        "worktree-reader",
+                        "claude-cli",
+                        str(self.target),
+                        "review",
+                        read_only=True,
+                    )
+                completed = writer.result(timeout=10)
+
+        self.assertEqual("WORKSPACE_WRITE_CONFLICT", raised.exception.code)
+        self.assertEqual("read-only", raised.exception.details["requested"])
+        self.assertEqual("SUCCEEDED", completed["status"])
+
+    def test_read_only_tasks_share_one_worktree_concurrently(self) -> None:
+        with patch.dict(os.environ, {"FAKE_CLAUDE_DELAY_SECONDS": "1"}, clear=False):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                first = executor.submit(
+                    self.lord.start, "reader-one", "claude-cli", str(self.target), "review", read_only=True
+                )
+                deadline = time.time() + 5
+                while time.time() < deadline and not any((self.root / "operations").glob("reader-one-*.json")):
+                    time.sleep(0.01)
+                second = self.lord.start(
+                    "reader-two",
+                    "claude-cli",
+                    str(self.target),
+                    "review too",
+                    read_only=True,
+                )
+                completed = first.result(timeout=10)
+
+        self.assertEqual("SUCCEEDED", completed["status"])
+        self.assertEqual("SUCCEEDED", second["status"])
+
+    def test_preparing_codex_operation_with_a_dead_controller_is_terminalized(self) -> None:
+        self._synthetic_operation(
+            "stuck-preparing",
+            "stuck-preparing-task",
+            provider="codex-cli",
+            status="preparing",
+            controller_pid=99999999,
+        )
+
+        result, quiet = self.lord.checkpoint(["stuck-preparing-task"], 2)
+
+        self.assertFalse(quiet)
+        actionable = self._single_checkpoint_action(result)
+        self.assertEqual("ERROR", actionable["status"])
+        self.assertEqual("PROCESS_EXITED_WITHOUT_RESULT", actionable["error"]["code"])
+        self.assertTrue(actionable["error"]["retryable"])
+        self.assertEqual("failed", load_operation("stuck-preparing", self.root)["status"])
+
+    def test_preparing_codex_operation_with_a_launched_command_needs_a_decision(self) -> None:
+        self._synthetic_operation(
+            "stuck-launched",
+            "stuck-launched-task",
+            provider="codex-cli",
+            status="preparing",
+            controller_pid=99999999,
+            provider_command=["codex", "exec"],
+        )
+
+        result, quiet = self.lord.checkpoint(["stuck-launched-task"], 2)
+
+        self.assertFalse(quiet)
+        actionable = self._single_checkpoint_action(result)
+        self.assertEqual("NEEDS_DECISION", actionable["status"])
+        self.assertEqual("DELIVERY_UNKNOWN", actionable["error"]["code"])
+        self.assertEqual("needs_decision", load_operation("stuck-launched", self.root)["status"])
+
+    def test_preparing_codex_operation_with_a_live_controller_stays_quiet(self) -> None:
+        self._synthetic_operation(
+            "live-preparing",
+            "live-preparing-task",
+            provider="codex-cli",
+            status="preparing",
+            controller_pid=os.getpid(),
+        )
+
+        result, quiet = self.lord.checkpoint(["live-preparing-task"], 1)
+
+        self.assertTrue(quiet)
+        self.assertEqual("preparing", load_operation("live-preparing", self.root)["status"])
+
+    def test_integrator_rejects_duplicate_integration_order(self) -> None:
+        head = self._init_source_repo()
+        for task_id, workspace_branch, order in (
+            ("dup-worker-one", "fix/dup-one", 1),
+            ("dup-worker-two", "fix/dup-two", 2),
+        ):
+            self.lord.start(
+                task_id,
+                "claude-cli",
+                None,
+                "edit",
+                head_sha=head,
+                repository=str(self.target),
+                source_branch="feat/source",
+                workspace_policy="isolated",
+                workspace_branch=workspace_branch,
+                parallel_group="dup-group",
+                integration_role="worker",
+                integration_target_branch="feat/source",
+                integrator_task_id="dup-integrator",
+                integration_order=order,
+            )
+
+        def duplicate_order(record: Dict[str, Any]) -> Dict[str, Any]:
+            contract = dict(record["contract"])
+            contract["parallel_plan"] = dict(contract["parallel_plan"], integration_order=1)
+            return dict(record, contract=contract)
+
+        # A concurrent worker start that slipped past the group scan leaves exactly this state.
+        update_task("dup-worker-two", duplicate_order, self.root)
+
+        with self.assertRaises(AgentLordError) as raised:
+            self.lord.start(
+                "dup-integrator",
+                "claude-cli",
+                None,
+                "integrate",
+                head_sha=head,
+                repository=str(self.target),
+                source_branch="feat/source",
+                workspace_policy="reuse-or-create",
+                parallel_group="dup-group",
+                integration_role="integrator",
+                integration_target_branch="feat/source",
+                integration_workers=["dup-worker-one", "dup-worker-two"],
+            )
+
+        self.assertEqual("PARALLEL_WRITE_PLAN_INCOMPLETE", raised.exception.code)
+        self.assertTrue(raised.exception.requires_authorization)
+        self.assertEqual([1, 1], raised.exception.details["observed_order"])
+
+    def test_concurrent_workers_cannot_claim_one_integration_order(self) -> None:
+        head = self._init_source_repo()
+        common = {
+            "provider": "claude-cli",
+            "target": None,
+            "message": "edit",
+            "head_sha": head,
+            "repository": str(self.target),
+            "source_branch": "feat/source",
+            "workspace_policy": "isolated",
+            "parallel_group": "race-group",
+            "integration_role": "worker",
+            "integration_target_branch": "feat/source",
+            "integrator_task_id": "race-integrator",
+            "integration_order": 1,
+        }
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            submitted = [
+                executor.submit(self.lord.start, "race-worker-one", workspace_branch="fix/race-one", **common),
+                executor.submit(self.lord.start, "race-worker-two", workspace_branch="fix/race-two", **common),
+            ]
+            outcomes = []
+            for future in submitted:
+                try:
+                    outcomes.append(future.result(timeout=30)["status"])
+                except AgentLordError as error:
+                    outcomes.append(error.code)
+
+        self.assertEqual(1, outcomes.count("SUCCEEDED"))
+        self.assertEqual(1, outcomes.count("PARALLEL_WRITE_PLAN_INCOMPLETE"))
+
+    def test_transient_codex_list_failure_is_retried_before_terminalizing(self) -> None:
+        self._complete_codex_start("route-retry")
+        turn = self.lord.turn("route-retry", "cross review")
+        stale = self.lord.accept(
+            turn["action"]["action_id"],
+            "No AppServerManager registered for hostId: old-host",
+        )
+        self.assertEqual("codex_app__list_threads", stale["action"]["tool"])
+
+        retried = self.lord.accept(stale["action"]["action_id"], "request timed out")
+
+        self.assertEqual("ACTION_REQUIRED", retried["status"])
+        self.assertEqual("codex_app__list_threads", retried["action"]["tool"])
+        self.assertNotEqual(stale["action"]["action_id"], retried["action"]["action_id"])
+        failed = load_action(stale["action"]["action_id"], self.root)
+        self.assertEqual("failed", failed["status"])
+        self.assertEqual("PROVIDER_FAILED", failed["error"]["code"])
+        self.assertEqual(1, failed["error"]["details"]["list_attempt"])
+        self.assertEqual("awaiting_action", load_operation(stale["operation_id"], self.root)["status"])
+
+    def test_repeated_codex_list_failures_still_terminalize(self) -> None:
+        self._complete_codex_start("route-retry-exhausted")
+        turn = self.lord.turn("route-retry-exhausted", "cross review")
+        pending = self.lord.accept(
+            turn["action"]["action_id"],
+            "No AppServerManager registered for hostId: old-host",
+        )
+        statuses = []
+        for _ in range(4):
+            pending = self.lord.accept(pending["action"]["action_id"], "request timed out")
+            statuses.append(pending["status"])
+            if pending["status"] != "ACTION_REQUIRED":
+                break
+
+        self.assertEqual("ERROR", statuses[-1])
+        self.assertEqual("PROVIDER_FAILED", pending["error"]["code"])
+
+    def _seed_checkpoint_scale(self, operations: int, actions: int) -> str:
+        """One supervised task plus a large archive of records other tasks own."""
+        self.lord.start("scan-active", "claude-cli", str(self.target), "review", read_only=True)
+        active_id = load_task("scan-active", self.root)["last_operation_id"]
+        update_operation(
+            active_id,
+            lambda record: dict(record, status="running", artifact=None, controller_pid=os.getpid()),
+            self.root,
+        )
+        archived = operations - len(operation_paths(self.root))
+        for index in range(archived):
+            operation_id = "scan-archive-%04d" % index
+            self._synthetic_operation(operation_id, "scan-other-%02d" % (index % 20), status="succeeded")
+            if index < actions:
+                now = utc_now()
+                create_action(
+                    {
+                        "version": 1,
+                        "action_id": "%s-a1" % operation_id,
+                        "operation_id": operation_id,
+                        "task_id": "scan-other-%02d" % (index % 20),
+                        "provider": "codex-app",
+                        "kind": "codex.read",
+                        "tool": "codex_app__read_thread",
+                        "arguments": {},
+                        "status": "submitted",
+                        "created_at": now,
+                        "updated_at": now,
+                    },
+                    self.root,
+                )
+        return active_id
+
+    def test_checkpoint_scan_stops_reparsing_records_it_already_attributed(self) -> None:
+        self._seed_checkpoint_scale(500, 200)
+        scan = _CheckpointScan(self.root)
+        reads = {"count": 0}
+        original = agent_lord.state._read_json
+
+        def counting(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+            reads["count"] += 1
+            return original(*args, **kwargs)
+
+        with patch("agent_lord.state._read_json", counting):
+            scan.tick(["scan-active"])
+            first = reads["count"]
+            reads["count"] = 0
+            scan.tick(["scan-active"])
+            second = reads["count"]
+            reads["count"] = 0
+            scan.tick(["scan-active"])
+            third = reads["count"]
+
+        self.assertGreaterEqual(first, 700)
+        self.assertLessEqual(second, 10)
+        self.assertEqual(second, third)
+
+    def test_checkpoint_scan_cache_reports_the_same_envelope_as_a_cold_scan(self) -> None:
+        self._seed_checkpoint_scale(500, 200)
+        cold = _CheckpointScan(self.root)
+        cold.tick(["scan-active"])
+        warm = _CheckpointScan(self.root)
+        for _ in range(3):
+            warm.tick(["scan-active"])
+
+        cold_active = self.lord._active_task_operations(["scan-active"], cold)
+        warm_active = self.lord._active_task_operations(["scan-active"], warm)
+
+        self.assertEqual(
+            self.lord._compact_checkpoint_active(cold_active),
+            self.lord._compact_checkpoint_active(warm_active),
+        )
+        self.assertEqual(
+            self.lord._checkpoint_actionable(["scan-active"], cold_active, cold),
+            self.lord._checkpoint_actionable(["scan-active"], warm_active, warm),
+        )
+        self.assertEqual(1, len(warm_active))
+        self.assertEqual("scan-active", warm_active[0][0]["task_id"])
+
+    def test_checkpoint_without_any_active_task_returns_immediately(self) -> None:
+        self.lord.start("finished-task", "claude-cli", str(self.target), "review", read_only=True)
+
+        started = time.monotonic()
+        result, quiet = self.lord.checkpoint(None, 30)
+        elapsed = time.monotonic() - started
+
+        self.assertTrue(quiet)
+        self.assertEqual("CHECKPOINT_QUIET", result["status"])
+        self.assertEqual([], result["active"])
+        self.assertLess(elapsed, 5)
+
+    def _running_operation_for_task(self, task_id: str, controller_pid: int) -> str:
+        self.lord.start(task_id, "claude-cli", str(self.target), "review", read_only=True)
+        operation_id = load_task(task_id, self.root)["last_operation_id"]
+        update_operation(
+            operation_id,
+            lambda record: dict(record, status="running", artifact=None, controller_pid=controller_pid),
+            self.root,
+        )
+        return operation_id
+
+    def test_check_reports_a_supervision_hint_for_a_dead_controller(self) -> None:
+        self._running_operation_for_task("dead-controller-task", 99999999)
+
+        envelope = self.lord.check("dead-controller-task")
+
+        self.assertEqual("RUNNING", envelope["status"])
+        self.assertEqual(
+            {"controller_state": "exited", "recovery_command": "checkpoint"},
+            envelope["observed"]["supervision"],
+        )
+
+    def test_check_adds_no_supervision_hint_while_the_controller_lives(self) -> None:
+        self._running_operation_for_task("live-controller-task", os.getpid())
+
+        envelope = self.lord.check("live-controller-task")
+
+        self.assertEqual("RUNNING", envelope["status"])
+        self.assertNotIn("supervision", envelope["observed"])
+
+    def test_cli_rejects_codex_app_only_arguments_for_cli_providers(self) -> None:
+        for extra in ({"codex_environment": "local"}, {"starting_branch": "feat/x"}):
+            with self.subTest(extra=extra):
+                with self.assertRaises(AgentLordError) as raised:
+                    self.lord.start(
+                        "cli-only-" + "".join(extra),
+                        "claude-cli",
+                        str(self.target),
+                        "review",
+                        read_only=True,
+                        **extra,
+                    )
+                self.assertEqual("CONFIG_INVALID", raised.exception.code)
+
+    def test_cli_start_parser_leaves_codex_environment_unset(self) -> None:
+        parsed = build_parser().parse_args(
+            ["start", "--task-id", "t", "--provider", "claude-cli", "--target", "/tmp", "--message-file", "m"]
+        )
+        self.assertIsNone(parsed.codex_environment)
+        self.assertIsNone(parsed.starting_branch)
+
+    def test_accept_parser_exposes_opt_in_auto_read(self) -> None:
+        default = build_parser().parse_args(["accept", "--action-id", "a", "--result-file", "r"])
+        enabled = build_parser().parse_args(["accept", "--action-id", "a", "--result-file", "r", "--auto-read"])
+        self.assertFalse(default.auto_read)
+        self.assertTrue(enabled.auto_read)
+
+    def test_corrupt_provider_config_prints_one_json_error(self) -> None:
+        broken = Path(self.temporary.name) / "broken-providers.json"
+        broken.write_text("{ not json", encoding="utf-8")
+        environment = dict(os.environ, AGENT_LORD_PROVIDER_CONFIG=str(broken))
+
+        completed = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve().parent.parent / "scripts" / "agent_lord.py"), "check", "--task-id", "x"],
+            capture_output=True,
+            text=True,
+            env=environment,
+        )
+
+        self.assertEqual(2, completed.returncode)
+        self.assertEqual("", completed.stderr.strip())
+        payload = json.loads(completed.stdout)
+        self.assertEqual("ERROR", payload["status"])
+        self.assertEqual("CONFIG_INVALID", payload["error"]["code"])
 
     def test_version_one_task_handle_is_read_compatibly(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)

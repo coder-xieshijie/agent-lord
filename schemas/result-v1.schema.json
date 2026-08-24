@@ -19,14 +19,28 @@
     "warnings": {
       "type": "array",
       "items": {
-        "type": "object",
-        "required": ["code", "source", "model"],
-        "properties": {
-          "code": {"type": "string"},
-          "source": {"type": "string"},
-          "model": {"type": "string"}
-        },
-        "additionalProperties": false
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["code", "source", "model"],
+            "properties": {
+              "code": {"type": "string"},
+              "source": {"type": "string"},
+              "model": {"type": "string"}
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": ["code", "source_format", "expected_effort"],
+            "properties": {
+              "code": {"const": "EFFORT_UNVERIFIABLE_FORMAT"},
+              "source_format": {"type": "string"},
+              "expected_effort": {"type": "string"}
+            },
+            "additionalProperties": false
+          }
+        ]
       }
     },
     "action": {

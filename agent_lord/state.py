@@ -133,8 +133,13 @@ def _read_json(path: Path, missing_code: str, missing_message: str) -> Dict[str,
     return value
 
 
+def shared_locks_supported() -> bool:
+    """Report whether this platform can hold a reader lease without excluding readers."""
+    return os.name != "nt"
+
+
 @contextmanager
-def record_lock(record_kind: str, record_id: str, root: Optional[Path] = None) -> Iterator[None]:
+def record_lock(record_kind: str, record_id: str, root: Optional[Path] = None, shared: bool = False) -> Iterator[None]:
     root = ensure_layout(root)
     lock_path = root / "locks" / (validate_identifier(record_kind + "_id", record_id) + ".lock")
     descriptor = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
@@ -150,11 +155,13 @@ def record_lock(record_kind: str, record_id: str, root: Optional[Path] = None) -
         else:
             import fcntl
 
-            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            mode = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
+            fcntl.flock(descriptor, mode | fcntl.LOCK_NB)
         acquired = True
-        os.ftruncate(descriptor, 0)
-        os.write(descriptor, (str(os.getpid()) + "\n").encode("ascii"))
-        os.fsync(descriptor)
+        if not shared:
+            os.ftruncate(descriptor, 0)
+            os.write(descriptor, (str(os.getpid()) + "\n").encode("ascii"))
+            os.fsync(descriptor)
         yield
     except (BlockingIOError, PermissionError, OSError) as exc:
         if acquired:
@@ -255,8 +262,14 @@ def normalize_task(value: Dict[str, Any]) -> Dict[str, Any]:
         ):
             raise AgentLordError("STATE_CORRUPT", "task contract has invalid permissions or source")
         for name, sha in contract["source"].items():
-            if name not in ("head_sha", "base_sha") or not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
+            if (
+                name not in ("head_sha", "base_sha", "verified_head_sha")
+                or not isinstance(sha, str)
+                or not re.fullmatch(r"[0-9a-f]{40}", sha)
+            ):
                 raise AgentLordError("STATE_CORRUPT", "task contract has an invalid source fingerprint")
+        if "verified_head_sha" in contract["source"] and "head_sha" not in contract["source"]:
+            raise AgentLordError("STATE_CORRUPT", "task contract advanced a source head it never froze")
         retry_plan = contract["retry_plan"]
         if not isinstance(retry_plan, list) or not retry_plan:
             raise AgentLordError("STATE_CORRUPT", "task contract has an invalid retry plan")
@@ -435,22 +448,29 @@ def update_operation(operation_id: str, mutator: Callable[[Dict[str, Any]], Dict
         return updated
 
 
-def list_operations(task_id: str, root: Optional[Path] = None) -> List[Dict[str, Any]]:
+def operation_paths(root: Optional[Path] = None) -> List[Path]:
     root = ensure_layout(root)
+    return sorted((root / "operations").glob("*.json"))
+
+
+def read_operation_path(path: Path) -> Dict[str, Any]:
+    return _read_json(path, "OPERATION_UNKNOWN", "operation disappeared")
+
+
+def list_operations(task_id: str, root: Optional[Path] = None) -> List[Dict[str, Any]]:
     result: List[Dict[str, Any]] = []
-    for path in (root / "operations").glob("*.json"):
-        value = _read_json(path, "OPERATION_UNKNOWN", "operation disappeared")
+    for path in operation_paths(root):
+        value = read_operation_path(path)
         if value.get("task_id") == task_id:
             result.append(value)
     return sorted(result, key=lambda item: item.get("created_at", ""))
 
 
 def all_operations(root: Optional[Path] = None) -> List[Dict[str, Any]]:
-    root = ensure_layout(root)
-    result: List[Dict[str, Any]] = []
-    for path in (root / "operations").glob("*.json"):
-        result.append(_read_json(path, "OPERATION_UNKNOWN", "operation disappeared"))
-    return sorted(result, key=lambda item: item.get("created_at", ""))
+    return sorted(
+        (read_operation_path(path) for path in operation_paths(root)),
+        key=lambda item: item.get("created_at", ""),
+    )
 
 
 def find_inflight_operation(task_id: str, message_sha256: str, root: Optional[Path] = None) -> Optional[Dict[str, Any]]:
@@ -480,11 +500,19 @@ def update_action(action_id: str, mutator: Callable[[Dict[str, Any]], Dict[str, 
         return updated
 
 
-def list_actions(operation_id: str, root: Optional[Path] = None) -> List[Dict[str, Any]]:
+def action_paths(root: Optional[Path] = None) -> List[Path]:
     root = ensure_layout(root)
+    return sorted((root / "actions").glob("*.json"))
+
+
+def read_action_path(path: Path) -> Dict[str, Any]:
+    return _read_json(path, "ACTION_UNKNOWN", "action disappeared")
+
+
+def list_actions(operation_id: str, root: Optional[Path] = None) -> List[Dict[str, Any]]:
     result: List[Dict[str, Any]] = []
-    for path in (root / "actions").glob("*.json"):
-        value = _read_json(path, "ACTION_UNKNOWN", "action disappeared")
+    for path in action_paths(root):
+        value = read_action_path(path)
         if value.get("operation_id") == operation_id:
             result.append(value)
     return sorted(result, key=lambda item: item.get("created_at", ""))

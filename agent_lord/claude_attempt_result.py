@@ -67,11 +67,15 @@ def _json_objects(text: str) -> Iterable[Dict[str, Any]]:
             yield value
 
 
-def last_result(text: str) -> Dict[str, Any]:
-    candidates = [value for value in _json_objects(text) if value.get("type") == "result"]
+def _last_result_event(events: List[Dict[str, Any]]) -> Dict[str, Any]:
+    candidates = [value for value in events if value.get("type") == "result"]
     if not candidates:
         raise AgentLordError("RESULT_INVALID", "Claude output contains no type=result object")
     return candidates[-1]
+
+
+def last_result(text: str) -> Dict[str, Any]:
+    return _last_result_event(list(_json_objects(text)))
 
 
 def _diagnostics(stdout: str, stderr: str) -> List[Dict[str, str]]:
@@ -164,8 +168,10 @@ def evaluate_claude_attempt(
     if main_unrecognized is not None:
         raise main_unrecognized
 
+    # One pass over the transcript: every later check reuses these decoded events.
+    events = list(_json_objects(stdout))
     try:
-        result = last_result(stdout)
+        result = _last_result_event(events)
     except AgentLordError:
         if main_unrecognized is not None:
             raise main_unrecognized
@@ -185,7 +191,6 @@ def evaluate_claude_attempt(
             details={"subtype": result.get("subtype")},
         )
 
-    events = list(_json_objects(stdout))
     authoritative, usage_models = _main_model_evidence(events, result, session_id)
     authoritative_models = list(dict.fromkeys(model for _, model in authoritative))
     evidence = list(dict.fromkeys(name for name, _ in authoritative))

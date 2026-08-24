@@ -38,18 +38,25 @@ from .config import (
 from .errors import AgentLordError
 from .state import (
     TERMINAL_OPERATION_STATES,
+    action_paths,
     all_operations,
     append_event,
     create_operation,
     create_task,
     ensure_layout,
+    list_actions,
     list_operations,
     list_tasks,
     load_action,
     load_operation,
     load_task,
+    operation_path,
+    operation_paths,
     pending_action,
+    read_action_path,
+    read_operation_path,
     record_lock,
+    shared_locks_supported,
     state_dir,
     task_path,
     update_action,
@@ -62,6 +69,88 @@ from .state import (
 
 SHA_PATTERN = re.compile(r"[0-9a-fA-F]{40}\Z")
 WORKSPACE_POLICIES = {"reuse-or-create", "shared-readonly", "isolated"}
+ROUTE_LIST_ATTEMPTS = 3
+
+
+class _CheckpointScan:
+    """One checkpoint invocation's view of the state directory.
+
+    Several passes of a single tick need the same task, operation, and action records,
+    so every record file is parsed at most once per tick. Across ticks the scan also
+    remembers which task owns an already-seen operation or action file and skips
+    re-reading records that belong to tasks this checkpoint did not select. That is
+    safe because ``task_id`` and ``operation_id`` are written once by exclusive record
+    creation and are never rewritten, unlike status or progress fields. Selection is
+    never inferred from an id prefix: ids may be caller-supplied.
+    """
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self._operation_owner: Dict[str, str] = {}
+        self._action_owner: Dict[str, str] = {}
+        self.tasks: List[Dict[str, Any]] = []
+        self.operations: List[Dict[str, Any]] = []
+        self.known_task_ids: set = set()
+        self._operations_by_id: Dict[str, Dict[str, Any]] = {}
+        self._pending_actions: Dict[str, Dict[str, Any]] = {}
+
+    def tick(self, selected_task_ids: Optional[List[str]]) -> None:
+        selected = set(selected_task_ids) if selected_task_ids is not None else None
+        self.tasks = list_tasks(self.root)
+        operations: List[Dict[str, Any]] = []
+        seen_paths: set = set()
+        for path in operation_paths(self.root):
+            key = str(path)
+            seen_paths.add(key)
+            owner = self._operation_owner.get(key)
+            if owner is not None and selected is not None and owner not in selected:
+                continue
+            value = read_operation_path(path)
+            task_id = value.get("task_id")
+            if isinstance(task_id, str):
+                self._operation_owner[key] = task_id
+            operations.append(value)
+        self.operations = sorted(operations, key=lambda item: item.get("created_at", ""))
+        self._operations_by_id = {
+            item["operation_id"]: item for item in self.operations if isinstance(item.get("operation_id"), str)
+        }
+        self.known_task_ids = {task.get("task_id") for task in self.tasks}
+        self.known_task_ids.update(
+            owner for key, owner in self._operation_owner.items() if key in seen_paths
+        )
+        self._pending_actions = {}
+        seen_action_paths: set = set()
+        for path in action_paths(self.root):
+            key = str(path)
+            seen_action_paths.add(key)
+            owner = self._action_owner.get(key)
+            if owner is not None and selected is not None and owner not in selected:
+                continue
+            value = read_action_path(path)
+            operation_id = value.get("operation_id")
+            if isinstance(operation_id, str):
+                owner_task = self._operation_owner.get(str(operation_path(operation_id, self.root)))
+                if isinstance(owner_task, str):
+                    self._action_owner[key] = owner_task
+            if value.get("status") != "pending" or not isinstance(operation_id, str):
+                continue
+            current = self._pending_actions.get(operation_id)
+            if current is None or (value.get("created_at", ""), value.get("action_id", "")) >= (
+                current.get("created_at", ""),
+                current.get("action_id", ""),
+            ):
+                self._pending_actions[operation_id] = value
+
+    def operation(self, operation_id: str) -> Dict[str, Any]:
+        value = self._operations_by_id.get(operation_id)
+        if value is None:
+            value = load_operation(operation_id, self.root)
+            self._operations_by_id[operation_id] = value
+        return value
+
+    def pending_action(self, operation_id: str) -> Optional[Dict[str, Any]]:
+        return self._pending_actions.get(operation_id)
+
 
 
 class AgentLord:
@@ -94,44 +183,113 @@ class AgentLord:
         return source
 
     @staticmethod
-    def _verify_checkout(target: str, source: Dict[str, str]) -> None:
+    def _observed_head(target: str, expected: str) -> str:
+        try:
+            result = subprocess.run(
+                ["git", "-C", target, "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except (OSError, subprocess.CalledProcessError) as exc:
+            raise AgentLordError(
+                "SOURCE_UNVERIFIED",
+                "cannot verify the requested source checkout",
+                details={"target": target, "expected_head": expected, "error": str(exc)},
+            ) from exc
+        return result.stdout.strip().lower()
+
+    @staticmethod
+    def _verify_base(target: str, expected_base: Optional[str]) -> None:
+        if not expected_base:
+            return
+        try:
+            subprocess.run(
+                ["git", "-C", target, "cat-file", "-e", expected_base + "^{commit}"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except (OSError, subprocess.CalledProcessError) as exc:
+            raise AgentLordError(
+                "SOURCE_UNVERIFIED",
+                "fixed base commit is not available in the requested checkout",
+                details={"target": target, "expected_base": expected_base, "error": str(exc)},
+            ) from exc
+
+    @classmethod
+    def _verify_checkout(cls, target: str, source: Dict[str, str]) -> None:
         expected = source.get("head_sha")
         if expected:
-            try:
-                result = subprocess.run(
-                    ["git", "-C", target, "rev-parse", "HEAD"],
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                )
-            except (OSError, subprocess.CalledProcessError) as exc:
-                raise AgentLordError(
-                    "SOURCE_UNVERIFIED",
-                    "cannot verify the requested source checkout",
-                    details={"target": target, "expected_head": expected, "error": str(exc)},
-                ) from exc
-            observed = result.stdout.strip().lower()
+            observed = cls._observed_head(target, expected)
             if observed != expected:
                 raise AgentLordError(
                     "SOURCE_MISMATCH",
                     "working directory is not at the requested fixed head",
                     details={"target": target, "expected_head": expected, "observed_head": observed},
                 )
-        expected_base = source.get("base_sha")
-        if expected_base:
-            try:
-                subprocess.run(
-                    ["git", "-C", target, "cat-file", "-e", expected_base + "^{commit}"],
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                )
-            except (OSError, subprocess.CalledProcessError) as exc:
-                raise AgentLordError(
-                    "SOURCE_UNVERIFIED",
-                    "fixed base commit is not available in the requested checkout",
-                    details={"target": target, "expected_base": expected_base, "error": str(exc)},
-                ) from exc
+        cls._verify_base(target, source.get("base_sha"))
+
+    @staticmethod
+    def _managed_checkout_branch(contract: Dict[str, Any]) -> Optional[str]:
+        """Return the branch a writable repo-managed checkout is allowed to advance along."""
+        if contract.get("read_only"):
+            return None
+        workspace = contract.get("workspace") or {}
+        policy = workspace.get("policy")
+        if policy == "isolated":
+            branch = workspace.get("workspace_branch")
+        elif policy == "reuse-or-create":
+            branch = workspace.get("source_branch")
+        else:
+            return None
+        return branch if isinstance(branch, str) and branch else None
+
+    @classmethod
+    def _verify_managed_advance(cls, target: str, source: Dict[str, str], branch: str) -> Optional[str]:
+        """Verify a writable repo-managed checkout, allowing forward motion on its own branch.
+
+        Returns the new head when the checkout advanced, or None when it is unchanged.
+        """
+        expected = source.get("verified_head_sha") or source.get("head_sha")
+        cls._verify_base(target, source.get("base_sha"))
+        if not expected:
+            return None
+        observed = cls._observed_head(target, expected)
+        if observed == expected:
+            return None
+        details = {
+            "target": target,
+            "expected_head": expected,
+            "observed_head": observed,
+            "contract_branch": branch,
+        }
+        checked_out = subprocess.run(
+            ["git", "-C", target, "symbolic-ref", "--quiet", "--short", "HEAD"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        observed_branch = checked_out.stdout.strip()
+        if checked_out.returncode != 0 or observed_branch != branch:
+            raise AgentLordError(
+                "SOURCE_MISMATCH",
+                "writable checkout left its contract branch",
+                details=dict(details, observed_branch=observed_branch or None),
+            )
+        ancestry = subprocess.run(
+            ["git", "-C", target, "merge-base", "--is-ancestor", expected, observed],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if ancestry.returncode != 0:
+            raise AgentLordError(
+                "SOURCE_MISMATCH",
+                "writable checkout is not a descendant of its verified head",
+                details=details,
+            )
+        return observed
 
     @staticmethod
     def _git(repository: str, arguments: List[str], *, check: bool = True) -> subprocess.CompletedProcess:
@@ -179,7 +337,12 @@ class AgentLord:
         repository: str,
         checkout_branch: str,
         worktree_root: Optional[str],
-    ) -> str:
+    ) -> Tuple[str, bool]:
+        """Locate the worktree the contract branch is already bound to, or plan a new one.
+
+        The second element says whether the checkout already exists, so preparation
+        under the same workspace-prepare lease does not repeat the worktree listing.
+        """
         branch_ref = "refs/heads/" + checkout_branch
         matches = [item for item in self._worktrees(repository) if item.get("branch") == branch_ref]
         if len(matches) > 1:
@@ -189,9 +352,9 @@ class AgentLord:
                 details={"checkout_branch": checkout_branch, "worktrees": [item["worktree"] for item in matches]},
             )
         if matches:
-            return str(Path(matches[0]["worktree"]).expanduser().resolve())
+            return str(Path(matches[0]["worktree"]).expanduser().resolve()), True
         parent = Path(worktree_root).expanduser().resolve() if worktree_root else self.root / "worktrees"
-        return str((parent / task_id).resolve())
+        return str((parent / task_id).resolve()), False
 
     def _prepare_workspace(
         self,
@@ -201,20 +364,12 @@ class AgentLord:
         target: str,
         workspace_policy: str,
         workspace_branch: Optional[str],
+        existing_checkout: bool,
     ) -> str:
         checkout_branch = workspace_branch if workspace_policy == "isolated" else source_branch
         assert checkout_branch is not None
         branch_ref = "refs/heads/" + checkout_branch
-        matches = [item for item in self._worktrees(repository) if item.get("branch") == branch_ref]
-        if len(matches) > 1:
-            raise AgentLordError(
-                "SOURCE_UNVERIFIED",
-                "checkout branch is bound to more than one worktree",
-                details={"checkout_branch": checkout_branch, "worktrees": [item["worktree"] for item in matches]},
-            )
-        if matches:
-            target = str(Path(matches[0]["worktree"]).expanduser().resolve())
-        else:
+        if not existing_checkout:
             target_path = Path(target)
             if target_path.exists():
                 raise AgentLordError(
@@ -303,17 +458,68 @@ class AgentLord:
         path = result.stdout.strip() if result.returncode == 0 else repository
         return str(Path(path).expanduser().resolve())
 
+    def _live_writable_operation(
+        self,
+        workspace_identity: str,
+        exclude_operation_id: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        """Find an unfenced writable operation that still owns this worktree.
+
+        Write leases are advisory flocks held by the controller process, so a killed
+        controller releases them while its provider child keeps writing. Scanning the
+        journal for non-terminal writable operations closes that takeover window.
+        """
+        identities: Dict[str, str] = {}
+        for operation in all_operations(self.root):
+            if operation.get("status") in TERMINAL_OPERATION_STATES:
+                continue
+            if operation.get("read_only") or operation.get("provider") not in ("claude-cli", "codex-cli"):
+                continue
+            if operation.get("operation_id") == exclude_operation_id:
+                continue
+            target = operation.get("target")
+            if not isinstance(target, str) or not target:
+                continue
+            identity = identities.get(target)
+            if identity is None:
+                identity = self._target_identity(target)
+                identities[target] = identity
+            if identity == workspace_identity:
+                return operation
+        return None
+
     @contextmanager
     def _write_leases(
         self,
         target: str,
         read_only: bool,
         workspace: Dict[str, Any],
+        exclude_operation_id: Optional[str] = None,
     ) -> Iterator[None]:
-        if read_only:
-            yield
-            return
         workspace_identity = self._target_identity(target)
+        if read_only:
+            if not shared_locks_supported():
+                yield
+                return
+            try:
+                with record_lock(
+                    "workspace-write",
+                    self._lease_id("workspace", workspace_identity),
+                    self.root,
+                    shared=True,
+                ):
+                    yield
+            except AgentLordError as error:
+                if error.code != "STATE_BUSY":
+                    raise
+                raise AgentLordError(
+                    "WORKSPACE_WRITE_CONFLICT",
+                    "a writable task owns this worktree",
+                    retryable=True,
+                    safe_recovery="WAIT_FOR_WRITER_OR_USE_ISOLATED_WORKTREE",
+                    details={"target": workspace_identity, "requested": "read-only"},
+                ) from error
+            return
         checkout_branch = workspace.get("workspace_branch") or workspace.get("source_branch")
         repository = workspace.get("repository")
         with ExitStack() as stack:
@@ -335,6 +541,20 @@ class AgentLord:
                     safe_recovery="WAIT_FOR_WRITER_OR_USE_ISOLATED_WORKTREE",
                     details={"target": workspace_identity},
                 ) from error
+            unfenced = self._live_writable_operation(workspace_identity, exclude_operation_id)
+            if unfenced is not None:
+                raise AgentLordError(
+                    "WORKSPACE_WRITE_CONFLICT",
+                    "an unfenced writable operation still owns this worktree",
+                    retryable=True,
+                    safe_recovery="RUN_CHECKPOINT_TO_FENCE_THEN_RETRY",
+                    details={
+                        "target": workspace_identity,
+                        "operation_id": unfenced.get("operation_id"),
+                        "operation_status": unfenced.get("status"),
+                        "task_id": unfenced.get("task_id"),
+                    },
+                )
             if isinstance(repository, str) and repository and isinstance(checkout_branch, str) and checkout_branch:
                 branch_identity = self._repository_identity(repository) + "\0" + checkout_branch
                 try:
@@ -477,6 +697,7 @@ class AgentLord:
                 exit_code=2,
             )
         worker_heads = set()
+        worker_orders: List[Tuple[Any, str]] = []
         for worker_id in integration_workers:
             validate_identifier("integration_worker", worker_id)
             try:
@@ -517,6 +738,7 @@ class AgentLord:
                     details={"task_id": task_id, "worker_task_id": worker_id},
                     exit_code=2,
                 )
+            worker_orders.append((worker_plan.get("integration_order"), worker_id))
         if None in worker_heads or len(worker_heads) != 1:
             raise AgentLordError(
                 "PARALLEL_WRITE_PLAN_INCOMPLETE",
@@ -525,10 +747,16 @@ class AgentLord:
                 details={"worker_heads": sorted(str(head) for head in worker_heads)},
                 exit_code=2,
             )
-        ordered_workers = sorted(
-            integration_workers,
-            key=lambda worker_id: load_task(worker_id, self.root)["contract"]["parallel_plan"]["integration_order"],
-        )
+        declared_orders = [order for order, _ in worker_orders]
+        if len(set(declared_orders)) != len(declared_orders):
+            raise AgentLordError(
+                "PARALLEL_WRITE_PLAN_INCOMPLETE",
+                "integration workers must declare unique integration order",
+                requires_authorization=True,
+                details={"task_id": task_id, "observed_order": declared_orders},
+                exit_code=2,
+            )
+        ordered_workers = [worker_id for _, worker_id in sorted(worker_orders)]
         if ordered_workers != integration_workers:
             raise AgentLordError(
                 "PARALLEL_WRITE_PLAN_INCOMPLETE",
@@ -558,6 +786,45 @@ class AgentLord:
     @staticmethod
     def _controller_lease_lock_id(operation_id: str) -> str:
         return "controller-" + hashlib.sha256(operation_id.encode("utf-8")).hexdigest()[:32]
+
+    @contextmanager
+    def _parallel_group_lease(self, parallel_group: Optional[str]) -> Iterator[None]:
+        """Serialize one declared parallel group across its uniqueness scan and journal write.
+
+        Dispatch locks are per task id, so two differently-named members of one group can
+        otherwise pass the uniqueness scan concurrently and both be journaled.
+        """
+        if not parallel_group:
+            yield
+            return
+        lease = None
+        busy: Optional[AgentLordError] = None
+        for attempt in range(self.control["finalize_lock_attempts"]):
+            candidate = record_lock("parallel-group", self._lease_id("group", parallel_group), self.root)
+            try:
+                candidate.__enter__()
+            except AgentLordError as error:
+                if error.code != "STATE_BUSY":
+                    raise
+                busy = error
+                if attempt + 1 < self.control["finalize_lock_attempts"]:
+                    time.sleep(self.control["finalize_lock_retry_interval_ms"] / 1000)
+                continue
+            lease = candidate
+            break
+        if lease is None:
+            assert busy is not None
+            raise AgentLordError(
+                "STATE_BUSY",
+                "another member of this parallel write group is being journaled",
+                retryable=True,
+                safe_recovery="RETRY_SAME_COMMAND",
+                details={"parallel_group": parallel_group},
+            ) from busy
+        try:
+            yield
+        finally:
+            lease.__exit__(None, None, None)
 
     def _active_operation(self, task_id: str) -> Optional[Dict[str, Any]]:
         active = [
@@ -673,6 +940,18 @@ class AgentLord:
 
     def _set_task_last_operation(self, task_id: str, operation_id: str) -> Dict[str, Any]:
         return update_task(task_id, lambda value: dict(value, last_operation_id=operation_id), self.root)
+
+    def _advance_verified_head(self, task_id: str, head_sha: str) -> Dict[str, Any]:
+        """Durably record the newest verified head of a writable repo-managed checkout."""
+
+        def mutate(value: Dict[str, Any]) -> Dict[str, Any]:
+            contract = dict(value.get("contract") or {})
+            source = dict(contract.get("source") or {})
+            source["verified_head_sha"] = head_sha
+            contract["source"] = source
+            return dict(value, contract=contract)
+
+        return update_task(task_id, mutate, self.root)
 
     @staticmethod
     def _expected_contract(
@@ -1126,7 +1405,7 @@ class AgentLord:
         integrator_task_id: Optional[str] = None,
         integration_order: Optional[int] = None,
         integration_workers: Optional[List[str]] = None,
-        codex_environment: str = "worktree",
+        codex_environment: Optional[str] = None,
         starting_branch: Optional[str] = None,
         retry_attempts: Optional[int] = None,
     ) -> Dict[str, Any]:
@@ -1186,7 +1465,6 @@ class AgentLord:
             if workspace_branch:
                 self._git(repository, ["check-ref-format", "--branch", workspace_branch])
             checkout_branch = workspace_branch or source_branch
-            target = self._resolve_workspace_target(task_id, repository, checkout_branch, worktree_root)
             workspace = {
                 "policy": workspace_policy,
                 "repository": repository,
@@ -1200,43 +1478,86 @@ class AgentLord:
                 "source-branch, workspace-policy, workspace-branch, and worktree-root require repo workspace preparation",
                 exit_code=2,
             )
-        if not isinstance(target, str) or not target:
+        if not workspace_requested and (not isinstance(target, str) or not target):
             raise AgentLordError("CONFIG_INVALID", "target must be non-empty", exit_code=2)
         if provider in ("claude-cli", "codex-cli"):
-            target = str(Path(target).expanduser().resolve())
-            if not workspace:
-                workspace = {"policy": "exact-target"}
+            if codex_environment is not None or starting_branch is not None:
+                raise AgentLordError(
+                    "CONFIG_INVALID",
+                    "codex-environment and starting-branch apply only to the codex-app provider",
+                    details={"provider": provider},
+                    exit_code=2,
+                )
             if not workspace_requested:
+                assert isinstance(target, str)
+                target = str(Path(target).expanduser().resolve())
+                workspace = {"policy": "exact-target"}
                 self._verify_checkout(target, source)
-        elif codex_environment not in ("worktree", "local"):
+        elif codex_environment is not None and codex_environment not in ("worktree", "local"):
             raise AgentLordError("CONFIG_INVALID", "Codex environment must be worktree or local", exit_code=2)
 
-        parallel_plan = self._parallel_plan(
-            task_id,
-            read_only,
-            workspace,
-            parallel_group,
-            integration_role,
-            integration_target_branch,
-            integrator_task_id,
-            integration_order,
-            integration_workers,
-        )
-        expected = self._expected_contract(provider, model, effort, read_only, retry_plan=retry_plan)
         action: Optional[Dict[str, Any]] = None
         claude_lease = None
         write_leases = None
         workspace_prepare_lease = None
+        existing_checkout = False
         session_id = str(uuid4()) if provider == "claude-cli" else None
         try:
-            with record_lock("dispatch", self._dispatch_lock_id(task_id), self.root):
-                if self._task_exists(task_id):
-                    task = load_task(task_id, self.root)
-                    last_operation_id = task.get("last_operation_id")
-                    if last_operation_id:
-                        last_operation = load_operation(last_operation_id, self.root)
+            with self._parallel_group_lease(parallel_group):
+                parallel_plan = self._parallel_plan(
+                    task_id,
+                    read_only,
+                    workspace,
+                    parallel_group,
+                    integration_role,
+                    integration_target_branch,
+                    integrator_task_id,
+                    integration_order,
+                    integration_workers,
+                )
+                expected = self._expected_contract(provider, model, effort, read_only, retry_plan=retry_plan)
+                with record_lock("dispatch", self._dispatch_lock_id(task_id), self.root):
+                    if workspace_requested:
+                        assert repository is not None and source_branch is not None and checkout_branch is not None
+                        prepare_identity = self._repository_identity(repository) + "\0" + checkout_branch
+                        candidate_prepare_lease = record_lock(
+                            "workspace-prepare",
+                            self._lease_id("prepare", prepare_identity),
+                            self.root,
+                        )
+                        candidate_prepare_lease.__enter__()
+                        workspace_prepare_lease = candidate_prepare_lease
+                        target, existing_checkout = self._resolve_workspace_target(
+                            task_id, repository, checkout_branch, worktree_root
+                        )
+                    assert isinstance(target, str)
+                    if self._task_exists(task_id):
+                        task = load_task(task_id, self.root)
+                        last_operation_id = task.get("last_operation_id")
+                        if last_operation_id:
+                            last_operation = load_operation(last_operation_id, self.root)
+                            if self._same_start_spec(
+                                last_operation,
+                                provider,
+                                target,
+                                message_hash,
+                                expected,
+                                source,
+                                read_only,
+                                workspace,
+                                parallel_plan,
+                            ):
+                                return self.envelope(last_operation)
+                        raise AgentLordError(
+                            "TASK_EXISTS",
+                            "task_id already has a durable endpoint",
+                            details={"task_id": task_id},
+                            exit_code=2,
+                        )
+                    inflight = self._active_operation(task_id)
+                    if inflight:
                         if self._same_start_spec(
-                            last_operation,
+                            inflight,
                             provider,
                             target,
                             message_hash,
@@ -1246,94 +1567,68 @@ class AgentLord:
                             workspace,
                             parallel_plan,
                         ):
-                            return self.envelope(last_operation)
-                    raise AgentLordError(
-                        "TASK_EXISTS",
-                        "task_id already has a durable endpoint",
-                        details={"task_id": task_id},
-                        exit_code=2,
-                    )
-                inflight = self._active_operation(task_id)
-                if inflight:
-                    if self._same_start_spec(
-                        inflight,
+                            return self.envelope(inflight)
+                        raise AgentLordError(
+                            "OPERATION_IN_FLIGHT",
+                            "task_id already has a different start in flight",
+                            retryable=True,
+                            safe_recovery="CHECK_SAME_OPERATION",
+                            details={"operation_id": inflight["operation_id"], "status": inflight.get("status")},
+                        )
+                    if provider in ("claude-cli", "codex-cli"):
+                        candidate_leases = self._write_leases(target, read_only, workspace)
+                        candidate_leases.__enter__()
+                        write_leases = candidate_leases
+                    if workspace_requested:
+                        assert repository is not None and source_branch is not None
+                        target = self._prepare_workspace(
+                            repository,
+                            source_branch,
+                            source["head_sha"],
+                            target,
+                            workspace_policy,
+                            workspace_branch,
+                            existing_checkout,
+                        )
+                        self._verify_base(target, source.get("base_sha"))
+                        assert workspace_prepare_lease is not None
+                        workspace_prepare_lease.__exit__(None, None, None)
+                        workspace_prepare_lease = None
+                    operation_id = self._operation_id(task_id, "start")
+                    if provider == "claude-cli":
+                        claude_lease = record_lock(
+                            "controller-lease",
+                            self._controller_lease_lock_id(operation_id),
+                            self.root,
+                        )
+                        claude_lease.__enter__()
+                    operation = self._new_operation(
+                        task_id,
                         provider,
+                        "start",
                         target,
-                        message_hash,
+                        message,
                         expected,
                         source,
                         read_only,
                         workspace,
                         parallel_plan,
-                    ):
-                        return self.envelope(inflight)
-                    raise AgentLordError(
-                        "OPERATION_IN_FLIGHT",
-                        "task_id already has a different start in flight",
-                        retryable=True,
-                        safe_recovery="CHECK_SAME_OPERATION",
-                        details={"operation_id": inflight["operation_id"], "status": inflight.get("status")},
+                        operation_id=operation_id,
+                        controller_pid=os.getpid() if provider in ("claude-cli", "codex-cli") else None,
+                        endpoint_id=session_id,
                     )
-                if workspace_requested:
-                    assert repository is not None and source_branch is not None
-                    checkout_branch = workspace_branch or source_branch
-                    prepare_identity = self._repository_identity(repository) + "\0" + checkout_branch
-                    candidate_prepare_lease = record_lock(
-                        "workspace-prepare",
-                        self._lease_id("prepare", prepare_identity),
-                        self.root,
-                    )
-                    candidate_prepare_lease.__enter__()
-                    workspace_prepare_lease = candidate_prepare_lease
-                    target = self._resolve_workspace_target(task_id, repository, checkout_branch, worktree_root)
-                if provider in ("claude-cli", "codex-cli"):
-                    candidate_leases = self._write_leases(target, read_only, workspace)
-                    candidate_leases.__enter__()
-                    write_leases = candidate_leases
-                if workspace_requested:
-                    assert repository is not None and source_branch is not None
-                    target = self._prepare_workspace(
-                        repository,
-                        source_branch,
-                        source["head_sha"],
-                        target,
-                        workspace_policy,
-                        workspace_branch,
-                    )
-                    self._verify_checkout(target, source)
-                    assert workspace_prepare_lease is not None
-                    workspace_prepare_lease.__exit__(None, None, None)
-                    workspace_prepare_lease = None
-                operation_id = self._operation_id(task_id, "start")
-                if provider == "claude-cli":
-                    claude_lease = record_lock(
-                        "controller-lease",
-                        self._controller_lease_lock_id(operation_id),
-                        self.root,
-                    )
-                    claude_lease.__enter__()
-                operation = self._new_operation(
-                    task_id,
-                    provider,
-                    "start",
-                    target,
-                    message,
-                    expected,
-                    source,
-                    read_only,
-                    workspace,
-                    parallel_plan,
-                    operation_id=operation_id,
-                    controller_pid=os.getpid() if provider == "claude-cli" else None,
-                    endpoint_id=session_id,
-                )
-                if provider == "codex-app":
-                    action = codex_adapter.create_thread_action(operation, codex_environment, starting_branch, self.root)
-                    operation = self._set_operation_status(
-                        operation["operation_id"],
-                        "awaiting_action",
-                        action_id=action["action_id"],
-                    )
+                    if provider == "codex-app":
+                        action = codex_adapter.create_thread_action(
+                            operation,
+                            codex_environment or "worktree",
+                            starting_branch,
+                            self.root,
+                        )
+                        operation = self._set_operation_status(
+                            operation["operation_id"],
+                            "awaiting_action",
+                            action_id=action["action_id"],
+                        )
         except BaseException:
             if claude_lease is not None:
                 claude_lease.__exit__(*sys.exc_info())
@@ -1395,7 +1690,26 @@ class AgentLord:
                 workspace = contract.get("workspace") or {"policy": "exact-target"}
                 parallel_plan = contract.get("parallel_plan") or {}
                 if task["provider"] in ("claude-cli", "codex-cli"):
-                    self._verify_checkout(task["target"], source)
+                    branch = self._managed_checkout_branch(contract)
+                    if branch is None:
+                        self._verify_checkout(task["target"], source)
+                    else:
+                        advanced = self._verify_managed_advance(task["target"], source, branch)
+                        if advanced is not None:
+                            source = dict(source, verified_head_sha=advanced)
+                            task = self._advance_verified_head(task_id, advanced)
+                            contract = task["contract"]
+                            append_event(
+                                task_id,
+                                "source-head-advanced",
+                                {
+                                    "frozen_head": source.get("head_sha"),
+                                    "verified_head": advanced,
+                                    "branch": branch,
+                                },
+                                None,
+                                self.root,
+                            )
                     candidate_leases = self._write_leases(
                         task["target"],
                         bool(contract.get("read_only")),
@@ -1431,7 +1745,7 @@ class AgentLord:
                     workspace,
                     parallel_plan,
                     operation_id=operation_id,
-                    controller_pid=os.getpid() if task["provider"] == "claude-cli" else None,
+                    controller_pid=os.getpid() if task["provider"] in ("claude-cli", "codex-cli") else None,
                     endpoint_id=task.get("endpoint_id") if task["provider"] == "claude-cli" else None,
                 )
                 if task["provider"] == "codex-app":
@@ -1513,16 +1827,65 @@ class AgentLord:
         append_event(operation["task_id"], "route-stale", error.as_dict(), operation["operation_id"], self.root)
         return self.envelope(updated, followup)
 
-    def accept(self, action_id: str, raw_result: Any) -> Dict[str, Any]:
+    def _retry_route_listing(
+        self,
+        operation: Dict[str, Any],
+        action: Dict[str, Any],
+        error_text: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Re-issue a transiently failed thread listing instead of killing route recovery."""
+        attempts = sum(
+            1
+            for item in list_actions(operation["operation_id"], self.root)
+            if item.get("kind") == "codex.list" and item.get("status") == "failed"
+        )
+        if attempts + 1 >= ROUTE_LIST_ATTEMPTS:
+            return None
+        error = AgentLordError(
+            "PROVIDER_FAILED",
+            "Codex thread listing failed transiently; retrying the same route recovery",
+            retryable=True,
+            safe_recovery="RETRY_SAME_HOST_TOOL_ACTION",
+            details={"provider_error": error_text, "list_attempt": attempts + 1},
+        )
+        self._mark_action(action["action_id"], "failed", error=error.as_dict())
+        updated = self._set_operation_status(operation["operation_id"], "awaiting_action", error=error.as_dict())
+        followup = codex_adapter.list_threads_action(
+            updated,
+            self.root,
+            resume_action_id=action["resume_action_id"],
+            resume_kind=action.get("resume_kind"),
+        )
+        updated = self._set_operation_status(
+            operation["operation_id"],
+            "awaiting_action",
+            action_id=followup["action_id"],
+            error=error.as_dict(),
+        )
+        append_event(operation["task_id"], "route-list-retry", error.as_dict(), operation["operation_id"], self.root)
+        return self.envelope(updated, followup)
+
+    def accept(self, action_id: str, raw_result: Any, auto_read: bool = False) -> Dict[str, Any]:
         action = load_action(action_id, self.root)
         with record_lock(
             "operation-control",
             self._operation_control_lock_id(action["operation_id"]),
             self.root,
         ):
-            return self._accept_locked(action_id, raw_result)
+            return self._accept_locked(action_id, raw_result, auto_read)
 
-    def _accept_locked(self, action_id: str, raw_result: Any) -> Dict[str, Any]:
+    def _auto_read_followup(
+        self,
+        operation: Dict[str, Any],
+        task: Dict[str, Any],
+        auto_read: bool,
+    ) -> Optional[Dict[str, Any]]:
+        """Create the polling read the caller would otherwise obtain from a second `check`."""
+        if not auto_read:
+            return None
+        return codex_adapter.read_action(operation, task, self.root)
+
+    def _accept_locked(self, action_id: str, raw_result: Any, auto_read: bool = False) -> Dict[str, Any]:
         action = load_action(action_id, self.root)
         operation = load_operation(action["operation_id"], self.root)
         if action.get("status") != "pending":
@@ -1545,6 +1908,10 @@ class AgentLord:
                 followup = codex_adapter.read_action(operation, task, self.root)
                 updated = self._set_operation_status(operation["operation_id"], "awaiting_action", action_id=followup["action_id"], error=error.as_dict())
                 return self.envelope(updated, followup)
+            if action["kind"] == "codex.list" and isinstance(action.get("resume_action_id"), str):
+                retry = self._retry_route_listing(operation, action, provider_error)
+                if retry is not None:
+                    return retry
             error = AgentLordError(
                 "PROVIDER_FAILED",
                 "Codex host tool returned an error",
@@ -1563,17 +1930,19 @@ class AgentLord:
                 failed = self._fail_operation(operation, error)
                 self._mark_action(action_id, "failed", error=error.as_dict())
                 return self.envelope(failed)
-            create_task(self._task_record(operation, endpoint_id, host_id), self.root)
+            task = create_task(self._task_record(operation, endpoint_id, host_id), self.root)
             self._mark_action(action_id, "accepted", result=result)
+            followup = self._auto_read_followup(operation, task, auto_read)
             updated = self._set_operation_status(
                 operation["operation_id"],
-                "submitted",
+                "awaiting_action" if followup else "submitted",
                 endpoint_id=endpoint_id,
                 observed=self._codex_observation(operation, host_id=host_id),
                 error=None,
+                **({"action_id": followup["action_id"]} if followup else {}),
             )
             append_event(operation["task_id"], "endpoint-created", {"endpoint_id": endpoint_id, "host_id": host_id}, operation["operation_id"], self.root)
-            return self.envelope(updated)
+            return self.envelope(updated, followup)
 
         task = load_task(operation["task_id"], self.root)
         if action["kind"] == "codex.send":
@@ -1590,14 +1959,16 @@ class AgentLord:
             if host_id:
                 task = self._rebind_task(task["task_id"], host_id, "send-receipt")
             self._mark_action(action_id, "accepted", result=result)
+            followup = self._auto_read_followup(operation, task, auto_read)
             updated = self._set_operation_status(
                 operation["operation_id"],
-                "submitted",
+                "awaiting_action" if followup else "submitted",
                 observed=self._codex_observation(operation, host_id=task.get("route", {}).get("host_id")),
                 error=None,
+                **({"action_id": followup["action_id"]} if followup else {}),
             )
             append_event(operation["task_id"], "message-accepted", {"action_id": action_id}, operation["operation_id"], self.root)
-            return self.envelope(updated)
+            return self.envelope(updated, followup)
 
         if action["kind"] == "codex.list":
             thread = codex_adapter.find_thread(result, task["endpoint_id"])
@@ -1643,7 +2014,7 @@ class AgentLord:
                 )
                 append_event(operation["task_id"], "operation-succeeded", {"artifact": artifact}, operation["operation_id"], self.root)
                 return self.envelope(updated)
-            if operation.get("error", {}).get("code") == "DELIVERY_UNKNOWN" and marker not in serialized:
+            if (operation.get("error") or {}).get("code") == "DELIVERY_UNKNOWN" and marker not in serialized:
                 error = AgentLordError(
                     "DELIVERY_UNKNOWN",
                     "the operation marker is absent from the bounded transcript; resend requires an explicit decision",
@@ -1653,12 +2024,14 @@ class AgentLord:
                 failed = self._fail_operation(operation, error)
                 return self.envelope(failed)
             status = codex_adapter.thread_status(result, task["endpoint_id"])
+            followup = self._auto_read_followup(operation, task, auto_read)
             updated = self._set_operation_status(
                 operation["operation_id"],
-                "submitted",
+                "awaiting_action" if followup else "submitted",
                 observed=self._codex_observation(operation, thread_status=status),
+                **({"action_id": followup["action_id"]} if followup else {}),
             )
-            return self.envelope(updated)
+            return self.envelope(updated, followup)
 
         error = AgentLordError("RESULT_INVALID", "unknown Codex action kind", details={"kind": action["kind"]})
         failed = self._fail_operation(operation, error)
@@ -1690,7 +2063,34 @@ class AgentLord:
                 action = codex_adapter.read_action(operation, task, self.root)
                 updated = self._set_operation_status(operation_id, "awaiting_action", action_id=action["action_id"])
                 return self.envelope(updated, action)
-            return self.envelope(operation)
+            return self._with_supervision_hint(self.envelope(operation), task, operation)
+
+    def _with_supervision_hint(
+        self,
+        envelope: Dict[str, Any],
+        task: Dict[str, Any],
+        operation: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Tell a `check`-only caller when only `checkpoint` can still move this operation.
+
+        `check` reconstructs state; it never fences a dead controller. Without this hint a
+        caller polling `check` on an orphaned local CLI operation waits forever.
+        """
+        if task.get("provider") not in ("claude-cli", "codex-cli"):
+            return envelope
+        controller_pid = (
+            self._claude_controller_pid(operation)
+            if task["provider"] == "claude-cli"
+            else operation.get("controller_pid")
+        )
+        if controller_pid is None or self._pid_alive(controller_pid):
+            return envelope
+        observed = dict(envelope.get("observed") or {})
+        supervision = dict(observed.get("supervision") or {})
+        supervision.update({"controller_state": "exited", "recovery_command": "checkpoint"})
+        observed["supervision"] = supervision
+        envelope["observed"] = observed
+        return envelope
 
     @staticmethod
     def _pid_alive(pid: Any) -> bool:
@@ -1711,21 +2111,23 @@ class AgentLord:
             or operation.get("controller_pid")
         )
 
-    def _active_task_operations(self, task_ids: Optional[List[str]]) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
-        tasks: List[Dict[str, Any]] = []
-        if task_ids is not None:
-            for task_id in task_ids:
-                try:
-                    tasks.append(load_task(task_id, self.root))
-                except AgentLordError as error:
-                    if error.code != "TASK_UNKNOWN":
-                        raise
-        else:
-            tasks = list_tasks(self.root)
+    def _active_task_operations(
+        self,
+        task_ids: Optional[List[str]],
+        scan: Optional["_CheckpointScan"] = None,
+    ) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
+        if scan is None:
+            scan = _CheckpointScan(self.root)
+            scan.tick(task_ids)
+        tasks = (
+            [task for task in scan.tasks if task["task_id"] in set(task_ids)]
+            if task_ids is not None
+            else scan.tasks
+        )
         tasks_by_id = {task["task_id"]: task for task in tasks}
         result: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
-        operations = all_operations(self.root)
-        known_task_ids = set(tasks_by_id) | {operation.get("task_id") for operation in operations}
+        operations = scan.operations
+        known_task_ids = set(tasks_by_id) | scan.known_task_ids
         if task_ids is not None:
             unknown = [task_id for task_id in task_ids if task_id not in known_task_ids]
             if unknown:
@@ -1804,9 +2206,13 @@ class AgentLord:
         self,
         task_ids: Optional[List[str]],
         active: List[Tuple[Dict[str, Any], Dict[str, Any]]],
+        scan: Optional["_CheckpointScan"] = None,
     ) -> Optional[Dict[str, Any]]:
+        if scan is None:
+            scan = _CheckpointScan(self.root)
+            scan.tick(task_ids)
         latest_by_task: Dict[str, Dict[str, Any]] = {}
-        durable_tasks = list_tasks(self.root)
+        durable_tasks = scan.tasks
         durable_task_ids = {task.get("task_id") for task in durable_tasks}
         for task in durable_tasks:
             task_id = task.get("task_id")
@@ -1816,8 +2222,8 @@ class AgentLord:
                 and isinstance(operation_id, str)
                 and (task_ids is None or task_id in task_ids)
             ):
-                latest_by_task[task_id] = load_operation(operation_id, self.root)
-        for operation in all_operations(self.root):
+                latest_by_task[task_id] = scan.operation(operation_id)
+        for operation in scan.operations:
             task_id = operation.get("task_id")
             if not isinstance(task_id, str) or (task_ids is not None and task_id not in task_ids):
                 continue
@@ -1834,10 +2240,10 @@ class AgentLord:
         envelopes: List[Dict[str, Any]] = []
         for task_id in sorted(latest_by_task):
             operation = latest_by_task[task_id]
+            action = scan.pending_action(operation["operation_id"])
             if operation.get("status") in TERMINAL_OPERATION_STATES:
-                envelopes.append(self.envelope(operation))
+                envelopes.append(self.envelope(operation, action, resolve_action=False))
                 continue
-            action = pending_action(operation["operation_id"], self.root)
             if action is not None:
                 envelopes.append(self.envelope(operation, action))
         return self._checkpoint_batch(envelopes, active) if envelopes else None
@@ -1848,6 +2254,7 @@ class AgentLord:
                 operation["target"],
                 bool(operation.get("read_only")),
                 operation.get("workspace") or {"policy": "exact-target"},
+                exclude_operation_id=operation["operation_id"],
             ):
                 return self._finish_claude(
                     operation,
@@ -2220,7 +2627,51 @@ class AgentLord:
             raise
         return self._launch_claude_recovery(recovery_claim["operation_id"]) if recovery_claim else None
 
+    def _supervise_preparing_codex_cli(self, operation: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Terminalize a codex-cli operation whose controller died before its provider ran.
+
+        Nothing else can move such an operation: `start` refuses it as OPERATION_IN_FLIGHT
+        and no provider process exists to recover a result from.
+        """
+        if self._pid_alive(operation.get("controller_pid")):
+            return None
+        try:
+            with record_lock(
+                "operation-control",
+                self._operation_control_lock_id(operation["operation_id"]),
+                self.root,
+            ):
+                operation = load_operation(operation["operation_id"], self.root)
+                if operation.get("status") != "preparing":
+                    return None
+                if self._pid_alive(operation.get("controller_pid")) or self._pid_alive(operation.get("pid")):
+                    return None
+                if operation.get("provider_command"):
+                    # The prompt file was already attached, so the provider may have been
+                    # launched and can no longer be identified, let alone fenced.
+                    error = AgentLordError(
+                        "DELIVERY_UNKNOWN",
+                        "Codex CLI controller exited while launching its provider attempt",
+                        requires_authorization=True,
+                        details={"operation_id": operation["operation_id"]},
+                    )
+                else:
+                    error = AgentLordError(
+                        "PROCESS_EXITED_WITHOUT_RESULT",
+                        "Codex CLI controller exited before its provider attempt was launched",
+                        retryable=True,
+                        safe_recovery="RETRY_SAME_COMMAND",
+                        details={"operation_id": operation["operation_id"]},
+                    )
+                return self.envelope(self._fail_operation(operation, error))
+        except AgentLordError as error:
+            if error.code == "STATE_BUSY":
+                return None
+            raise
+
     def _supervise_codex_cli(self, operation: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if operation.get("status") == "preparing":
+            return self._supervise_preparing_codex_cli(operation)
         if self._pid_alive(operation.get("pid")):
             return None
         try:
@@ -2273,21 +2724,28 @@ class AgentLord:
     def checkpoint(self, task_ids: Optional[List[str]], seconds: int) -> Tuple[Dict[str, Any], bool]:
         if seconds <= 0:
             raise AgentLordError("CONFIG_INVALID", "checkpoint seconds must be greater than zero", exit_code=2)
-        active = self._active_task_operations(task_ids)
+        scan = _CheckpointScan(self.root)
+        scan.tick(task_ids)
+        active = self._active_task_operations(task_ids, scan)
         selected_task_ids = task_ids if task_ids is not None else [task["task_id"] for task, _ in active]
-        actionable = self._checkpoint_actionable(selected_task_ids, active)
+        actionable = self._checkpoint_actionable(selected_task_ids, active, scan)
         if actionable is not None:
             return actionable, False
+        if not selected_task_ids:
+            # Auto-selection found nothing to supervise: waiting out the quiet interval
+            # could only report the same empty set.
+            return {"version": 1, "status": "CHECKPOINT_QUIET", "seconds": seconds, "active": []}, True
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
-            current_active = self._active_task_operations(selected_task_ids)
-            actionable = self._checkpoint_actionable(selected_task_ids, current_active)
+            scan.tick(selected_task_ids)
+            current_active = self._active_task_operations(selected_task_ids, scan)
+            actionable = self._checkpoint_actionable(selected_task_ids, current_active, scan)
             if actionable is not None:
                 return actionable, False
             for task, operation in current_active:
                 if task["provider"] == "claude-cli":
                     envelope = self._supervise_claude(operation)
-                elif task["provider"] == "codex-cli" and operation.get("status") == "running":
+                elif task["provider"] == "codex-cli" and operation.get("status") in ("preparing", "running"):
                     envelope = self._supervise_codex_cli(operation)
                 else:
                     envelope = None
@@ -2296,8 +2754,9 @@ class AgentLord:
             poll_seconds = min(0.25, max(0.05, self.control["claude_progress_poll_interval_ms"] / 1000))
             time.sleep(min(poll_seconds, max(0.0, deadline - time.monotonic())))
 
-        active = self._active_task_operations(selected_task_ids)
-        actionable = self._checkpoint_actionable(selected_task_ids, active)
+        scan.tick(selected_task_ids)
+        active = self._active_task_operations(selected_task_ids, scan)
+        actionable = self._checkpoint_actionable(selected_task_ids, active, scan)
         if actionable is not None:
             return actionable, False
         return {
@@ -2306,6 +2765,16 @@ class AgentLord:
             "seconds": seconds,
             "active": self._compact_checkpoint_active(active),
         }, True
+
+    def _reject_export(self, operation: Dict[str, Any], error: AgentLordError) -> None:
+        """Refuse an artifact export without rewriting an already-terminal operation.
+
+        export-artifact is an auxiliary command: a rejected export says nothing about the
+        delivery that already succeeded, so it must never invalidate a canonical artifact.
+        """
+        if operation.get("status") not in TERMINAL_OPERATION_STATES:
+            self._fail_operation(operation, error)
+        raise error
 
     def export_artifact(self, task_id: str, operation_id: str, source_file: str, source_format: str) -> Dict[str, Any]:
         operation = load_operation(operation_id, self.root)
@@ -2316,10 +2785,27 @@ class AgentLord:
             if operation.get("provider") in ("codex-app", "codex-cli")
             else None
         )
+        required_session_id = None
+        if operation.get("provider") == "claude-cli":
+            if source_format != "claude-jsonl":
+                raise AgentLordError(
+                    "CONFIG_INVALID",
+                    "a claude-cli operation can only be proven by its own claude-jsonl session log",
+                    details={"source_format": source_format},
+                    exit_code=2,
+                )
+            required_session_id = operation.get("endpoint_id")
+            if not isinstance(required_session_id, str) or not required_session_id:
+                raise AgentLordError(
+                    "ENDPOINT_MISMATCH",
+                    "cannot bind a Claude transcript without the saved session identity",
+                    details={"operation_id": operation_id},
+                )
         extracted = extract_jsonl_with_metadata(
             Path(source_file).expanduser().resolve(),
             source_format,
             required_operation_marker=required_marker,
+            required_session_id=required_session_id,
         )
         observed = extracted["observed"]
         expected = operation.get("expected", {})
@@ -2333,28 +2819,53 @@ class AgentLord:
                 for model in observed_models
             ]
             if not matches or not all(matches):
-                error = AgentLordError(
-                    "MODEL_MISMATCH" if observed_models else "MODEL_UNVERIFIED",
-                    "provider log does not satisfy the saved model contract",
-                    retryable=True,
-                    safe_recovery="RETRY_SAME_ENDPOINT_WITH_SAVED_EXECUTION_CONTRACT",
-                    details={"expected": expected_model, "observed": observed_models},
+                self._reject_export(
+                    operation,
+                    AgentLordError(
+                        "MODEL_MISMATCH" if observed_models else "MODEL_UNVERIFIED",
+                        "provider log does not satisfy the saved model contract",
+                        retryable=True,
+                        safe_recovery="RETRY_SAME_ENDPOINT_WITH_SAVED_EXECUTION_CONTRACT",
+                        details={"expected": expected_model, "observed": observed_models},
+                    ),
                 )
-                self._fail_operation(operation, error)
-                raise error
         expected_effort = expected.get("effort")
         if expected_effort:
             observed_effort = observed.get("effort")
-            if not observed_effort or expected_effort != observed_effort:
-                error = AgentLordError(
-                    "EFFORT_MISMATCH" if observed_effort else "EFFORT_UNVERIFIED",
-                    "provider log does not satisfy the saved reasoning-effort contract",
-                    retryable=True,
-                    safe_recovery="RETRY_SAME_ENDPOINT_WITH_SAVED_EXECUTION_CONTRACT",
-                    details={"expected": expected_effort, "observed": observed_effort},
+            if observed_effort and expected_effort != observed_effort:
+                self._reject_export(
+                    operation,
+                    AgentLordError(
+                        "EFFORT_MISMATCH",
+                        "provider log does not satisfy the saved reasoning-effort contract",
+                        retryable=True,
+                        safe_recovery="RETRY_SAME_ENDPOINT_WITH_SAVED_EXECUTION_CONTRACT",
+                        details={"expected": expected_effort, "observed": observed_effort},
+                    ),
                 )
-                self._fail_operation(operation, error)
-                raise error
+            if not observed_effort:
+                if source_format != "claude-jsonl":
+                    self._reject_export(
+                        operation,
+                        AgentLordError(
+                            "EFFORT_UNVERIFIED",
+                            "provider log does not satisfy the saved reasoning-effort contract",
+                            retryable=True,
+                            safe_recovery="RETRY_SAME_ENDPOINT_WITH_SAVED_EXECUTION_CONTRACT",
+                            details={"expected": expected_effort, "observed": observed_effort},
+                        ),
+                    )
+                # Claude session transcripts carry no effort field; the contract is enforced
+                # at dispatch, and this export declares the gap instead of inventing proof.
+                warnings = list(observed.get("warnings") or [])
+                warnings.append(
+                    {
+                        "code": "EFFORT_UNVERIFIABLE_FORMAT",
+                        "source_format": source_format,
+                        "expected_effort": expected_effort,
+                    }
+                )
+                observed["warnings"] = warnings
         artifact = write_artifact(task_id, operation_id, extracted["text"], self.root)
         updated = self._set_operation_status(
             operation_id,
@@ -2365,8 +2876,13 @@ class AgentLord:
         append_event(task_id, "artifact-exported", artifact, operation_id, self.root)
         return self.envelope(updated)
 
-    def envelope(self, operation: Dict[str, Any], action: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        if action is None:
+    def envelope(
+        self,
+        operation: Dict[str, Any],
+        action: Optional[Dict[str, Any]] = None,
+        resolve_action: bool = True,
+    ) -> Dict[str, Any]:
+        if action is None and resolve_action:
             action = pending_action(operation["operation_id"], self.root)
         status_map = {
             "preparing": "RUNNING",

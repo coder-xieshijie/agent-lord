@@ -118,6 +118,9 @@ def recover_claude(operation: Dict[str, Any]) -> Dict[str, Any]:
 def claude_session_observed(operation: Dict[str, Any]) -> bool:
     session_id = operation.get("endpoint_id")
     active_attempt = operation.get("active_attempt") or {}
+    if active_attempt.get("session_observed") is True:
+        # The supervising stream already saw this session id; re-reading cannot unsee it.
+        return True
     stdout_value = active_attempt.get("stdout_path") or operation.get("stdout_path")
     if not isinstance(session_id, str) or not isinstance(stdout_value, str):
         return False
@@ -557,6 +560,13 @@ def run_claude(
 
                 def mark_exited(value: Dict[str, Any]) -> Dict[str, Any]:
                     value["provider_return_code"] = return_code
+                    if session_observed:
+                        # Journal what the stream already proved so terminal evaluation
+                        # never re-reads the whole transcript to answer the same question.
+                        active = dict(value.get("active_attempt") or {})
+                        if active.get("attempt_id") == attempt_id:
+                            active["session_observed"] = True
+                            value["active_attempt"] = active
                     return value
 
                 update_operation(operation_id, mark_exited, root)

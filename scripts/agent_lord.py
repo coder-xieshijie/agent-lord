@@ -77,8 +77,12 @@ def build_parser() -> argparse.ArgumentParser:
         dest="integration_workers",
         help="worker task id in integration order; repeat for the integrator",
     )
-    start.add_argument("--codex-environment", choices=("worktree", "local"), default="worktree")
-    start.add_argument("--starting-branch")
+    start.add_argument(
+        "--codex-environment",
+        choices=("worktree", "local"),
+        help="codex-app thread environment; rejected for CLI providers (default: worktree)",
+    )
+    start.add_argument("--starting-branch", help="codex-app starting branch; rejected for CLI providers")
 
     turn = subparsers.add_parser("turn", help="continue the exact saved endpoint")
     turn.add_argument("--task-id", required=True)
@@ -87,6 +91,11 @@ def build_parser() -> argparse.ArgumentParser:
     accept = subparsers.add_parser("accept", help="validate one model-mediated Codex host-tool result")
     accept.add_argument("--action-id", required=True)
     accept.add_argument("--result-file", required=True)
+    accept.add_argument(
+        "--auto-read",
+        action="store_true",
+        help="return the next read action directly instead of requiring another check round",
+    )
 
     check = subparsers.add_parser("check", help="reconstruct one task's current state")
     check.add_argument("--task-id", required=True)
@@ -148,7 +157,7 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
     if args.command == "turn":
         return lord.turn(args.task_id, read_text(args.message_file))
     if args.command == "accept":
-        return lord.accept(args.action_id, read_result(args.result_file))
+        return lord.accept(args.action_id, read_result(args.result_file), auto_read=args.auto_read)
     if args.command == "check":
         return lord.check(args.task_id)
     if args.command == "checkpoint":
@@ -159,9 +168,10 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
 
 
 def main() -> int:
-    parser = build_parser()
-    args = parser.parse_args()
     try:
+        # build_parser reads control config, so a corrupt config must still exit as one JSON object.
+        parser = build_parser()
+        args = parser.parse_args()
         result = run(args)
     except AgentLordError as error:
         status = "NEEDS_DECISION" if error.requires_authorization else "ERROR"
