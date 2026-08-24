@@ -13,6 +13,19 @@
     "operation_id": {"type": "string"},
     "provider": {"type": "string"},
     "endpoint_id": {"type": "string"},
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "source", "model"],
+        "properties": {
+          "code": {"type": "string"},
+          "source": {"type": "string"},
+          "model": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
     "action": {
       "type": "object",
       "required": ["action_id", "tool", "arguments"],

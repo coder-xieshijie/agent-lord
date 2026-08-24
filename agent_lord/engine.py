@@ -404,12 +404,18 @@ class AgentLord:
         model: str,
         status: str,
         error: Optional[AgentLordError] = None,
+        warnings: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         def mutate(value: Dict[str, Any]) -> Dict[str, Any]:
             history = list(value.get("attempt_history") or [])
             entry: Dict[str, Any] = {"number": attempt_number, "model": model, "status": status}
             if error is not None:
                 entry["error"] = error.as_dict()
+            if warnings:
+                entry["warnings"] = [
+                    {key: warning[key] for key in ("code", "source", "model") if key in warning}
+                    for warning in warnings
+                ]
             history.append(entry)
             value["attempt_history"] = history
             if status == "failed":
@@ -424,6 +430,17 @@ class AgentLord:
             operation["operation_id"],
             self.root,
         )
+        for warning in warnings or []:
+            append_event(
+                operation["task_id"],
+                "provider-attempt-warning",
+                {
+                    "attempt": attempt_number,
+                    **{key: warning[key] for key in ("code", "source", "model") if key in warning},
+                },
+                operation["operation_id"],
+                self.root,
+            )
         return updated
 
     def _raise_cli_failure(self, operation: Dict[str, Any], error: AgentLordError, exhausted: bool = False) -> Dict[str, Any]:
@@ -484,7 +501,13 @@ class AgentLord:
                 if not error.retryable or index + 1 >= len(models):
                     return self._raise_cli_failure(current, error, exhausted=error.retryable)
                 continue
-            current = self._record_claude_attempt(operation, index + 1, model, "succeeded")
+            current = self._record_claude_attempt(
+                operation,
+                index + 1,
+                model,
+                "succeeded",
+                warnings=result.get("observed", {}).get("warnings"),
+            )
             history = current.get("attempt_history") or []
             result["observed"].update(
                 {
@@ -1042,6 +1065,7 @@ class AgentLord:
                                 attempt_number,
                                 attempt_model,
                                 "succeeded",
+                                warnings=recovered.get("observed", {}).get("warnings"),
                             )
                             history = operation.get("attempt_history") or []
                         recovered["observed"].update(
@@ -1180,6 +1204,9 @@ class AgentLord:
             result["artifact"] = operation["artifact"]
         if operation.get("error"):
             result["error"] = operation["error"]
+        warnings = operation.get("observed", {}).get("warnings")
+        if isinstance(warnings, list) and warnings:
+            result["warnings"] = warnings
         if action:
             result["action"] = codex_adapter.action_public(action)
         return result

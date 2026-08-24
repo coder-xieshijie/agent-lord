@@ -34,7 +34,17 @@
     "message": {"type": "string"},
     "message_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "expected": {"type": "object"},
-    "observed": {"type": "object"},
+    "observed": {
+      "type": "object",
+      "properties": {
+        "main_model": {"type": "string"},
+        "main_model_verified": {"type": "boolean"},
+        "main_model_evidence": {"type": "array", "items": {"type": "string"}},
+        "auxiliary_models": {"type": "array", "items": {"type": "object"}},
+        "warnings": {"type": "array", "items": {"type": "object"}}
+      },
+      "additionalProperties": true
+    },
     "source": {"type": "object"},
     "read_only": {"type": "boolean"},
     "artifact": {"type": ["object", "null"]},

@@ -85,6 +85,57 @@ print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 1, "output
 '''
 
 
+class ClaudeAttemptResultTests(unittest.TestCase):
+    def test_valid_fable_result_with_auto_mode_failure_succeeds_with_warning(self) -> None:
+        from agent_lord.claude_attempt_result import evaluate_claude_attempt
+
+        session_id = "4fd57d1b-7b36-4dcd-a900-b90a65ffc538"
+        stdout = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "system",
+                        "subtype": "init",
+                        "session_id": session_id,
+                        "model": "claude-fable-5",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "session_id": session_id,
+                        "message": {"model": "claude-fable-5", "content": []},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "result",
+                        "subtype": "success",
+                        "session_id": session_id,
+                        "is_error": False,
+                        "result": "audit complete",
+                        "modelUsage": {"claude-fable-5": {"inputTokens": 1, "outputTokens": 1}},
+                    }
+                ),
+            ]
+        )
+        stderr = '[claude-code:unrecognized_model] {"model":"qw-mid-5","query_source":"auto_mode"}\n'
+
+        evaluation = evaluate_claude_attempt(
+            stdout,
+            stderr,
+            session_id=session_id,
+            expected_model="fable",
+            return_code=0,
+        )
+
+        self.assertEqual("claude-fable-5", evaluation.main_model)
+        self.assertTrue(evaluation.main_model_verified)
+        self.assertEqual("auto_mode", evaluation.auxiliary_models[0].source)
+        self.assertEqual("qw-mid-5", evaluation.auxiliary_models[0].model)
+        self.assertEqual("AUXILIARY_MODEL_UNRECOGNIZED", evaluation.warnings[0].code)
+
+
 class AgentLordTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()

@@ -8,46 +8,13 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Optional
 
 from .artifacts import extract_claude_result
-from .config import claude_binary, expected_model_matches, permission_mode_policy, permission_policy
+from .claude_attempt_result import evaluate_claude_attempt, last_result
+from .config import claude_binary, permission_mode_policy, permission_policy
 from .errors import AgentLordError
 from .state import ensure_layout, update_operation
-
-
-def _json_objects(text: str) -> Iterable[Dict[str, Any]]:
-    decoder = json.JSONDecoder()
-    cursor = 0
-    while cursor < len(text):
-        start = text.find("{", cursor)
-        if start < 0:
-            return
-        try:
-            value, consumed = decoder.raw_decode(text[start:])
-        except json.JSONDecodeError:
-            cursor = start + 1
-            continue
-        cursor = start + consumed
-        if isinstance(value, dict):
-            yield value
-
-
-def last_result(text: str) -> Dict[str, Any]:
-    candidates = [value for value in _json_objects(text) if value.get("type") == "result"]
-    if not candidates:
-        raise AgentLordError("RESULT_INVALID", "Claude output contains no type=result object")
-    return candidates[-1]
-
-
-def observed_models(result: Dict[str, Any]) -> List[str]:
-    usage = result.get("modelUsage")
-    if isinstance(usage, dict):
-        models = [key for key in usage if isinstance(key, str) and key]
-        if models:
-            return models
-    model = result.get("model")
-    return [model] if isinstance(model, str) and model else []
 
 
 def _binary_available(binary: str) -> bool:
@@ -78,58 +45,13 @@ def _validate_provider_output(
     permission_mode: Optional[str],
     return_code: Optional[int],
 ) -> Dict[str, Any]:
-    combined = stdout + "\n" + stderr
-    if "unrecognized_model" in combined:
-        raise AgentLordError(
-            "MODEL_UNRECOGNIZED",
-            "Claude provider rejected or rerouted the requested model",
-            retryable=True,
-            safe_recovery="RETRY_SAME_ENDPOINT_WITH_SAVED_EXECUTION_CONTRACT",
-            details={"diagnostic": combined[-500:]},
-        )
-    if return_code not in (None, 0):
-        raise AgentLordError(
-            "PROVIDER_FAILED",
-            "Claude CLI exited unsuccessfully",
-            retryable=True,
-            safe_recovery="RETRY_SAME_ENDPOINT",
-            details={"return_code": return_code, "stderr_tail": stderr[-500:]},
-        )
-
-    result = last_result(stdout)
-    if result.get("session_id") != session_id:
-        raise AgentLordError(
-            "ENDPOINT_MISMATCH",
-            "Claude result belongs to a different session",
-            details={"expected": session_id, "observed": result.get("session_id")},
-        )
-    if result.get("is_error") is not False:
-        raise AgentLordError(
-            "PROVIDER_FAILED",
-            "Claude returned an error result",
-            retryable=True,
-            safe_recovery="RETRY_SAME_ENDPOINT",
-            details={"subtype": result.get("subtype"), "result": str(result.get("result", ""))[-500:]},
-        )
-
-    models = observed_models(result)
-    if model:
-        if not models:
-            raise AgentLordError(
-                "MODEL_UNVERIFIED",
-                "Claude result did not expose an observable model",
-                retryable=True,
-                safe_recovery="RETRY_SAME_ENDPOINT_WITH_SAVED_EXECUTION_CONTRACT",
-                details={"expected": model},
-            )
-        if not all(expected_model_matches(model, observed) for observed in models):
-            raise AgentLordError(
-                "MODEL_MISMATCH",
-                "Claude used a model outside the saved execution contract",
-                retryable=True,
-                safe_recovery="RETRY_SAME_ENDPOINT_WITH_SAVED_EXECUTION_CONTRACT",
-                details={"expected": model, "observed": models},
-            )
+    evaluation = evaluate_claude_attempt(
+        stdout,
+        stderr,
+        session_id=session_id,
+        expected_model=model,
+        return_code=return_code,
+    )
 
     permission = (
         permission_mode_policy("claude-cli", permission_mode)
@@ -137,10 +59,15 @@ def _validate_provider_output(
         else permission_policy("claude-cli", read_only)
     )
     return {
-        "provider_result": result,
-        "assistant_text": extract_claude_result(result),
+        "provider_result": evaluation.result,
+        "assistant_text": extract_claude_result(evaluation.result),
         "observed": {
-            "models": models,
+            "models": [evaluation.main_model],
+            "main_model": evaluation.main_model,
+            "main_model_verified": evaluation.main_model_verified,
+            "main_model_evidence": list(evaluation.main_model_evidence),
+            "auxiliary_models": [item.as_dict() for item in evaluation.auxiliary_models],
+            "warnings": [warning.as_dict() for warning in evaluation.warnings],
             "effort": effort,
             "effort_verification": "argument-enforced" if effort else "not-requested",
             "permission_mode": permission["mode"],

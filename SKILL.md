@@ -41,7 +41,7 @@ Explicit user values override defaults. `--retry-attempts` overrides the primary
 
 ## Local CLI adapters
 
-Claude maps the default `dangerously_bypass` posture to `--dangerously-skip-permissions`; `--read-only` maps to `--permission-mode plan`. It launches from the saved working directory, captures private provider logs, validates the session and observed model, and journals every retry attempt. A later checkpoint can recover a completed attempt after controller loss.
+Claude maps the default `dangerously_bypass` posture to `--dangerously-skip-permissions`; `--read-only` maps to `--permission-mode plan`. It verifies the main model from same-session `system` / `assistant` / `result` metadata. A failed auxiliary `auto_mode` model is published as a sanitized warning when the matching main result succeeded; it does not consume retry budget or trigger fallback. It launches from the saved working directory, captures private provider logs, and journals every retry attempt. A later checkpoint can recover a completed attempt after controller loss.
 
 Codex CLI maps `dangerously_bypass` to `--dangerously-bypass-approvals-and-sandbox`; `--read-only` applies explicit sandbox and approval config arguments. It runs `codex exec --json`, stores `thread.started.thread_id` as endpoint identity, publishes only `--output-last-message`, and continues through `codex exec resume <session-id>` while reapplying model, effort, and permissions.
 

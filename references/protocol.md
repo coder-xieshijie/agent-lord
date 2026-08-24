@@ -52,7 +52,7 @@ The durable task record owns:
 - explicit permission posture (`dangerously_bypass` by default; `--read-only` is an explicit override);
 - fixed source head/base when supplied.
 
-Provider arguments enforce model and effort on every operation. Claude success also requires observable model metadata. Codex CLI stores the `thread.started` UUID and requires `turn.completed`; Codex App actions carry the explicit contract. Importing a Codex rollout with `export-artifact` additionally verifies `turn_context` model and effort.
+Provider arguments enforce model and effort on every operation. Claude success requires observable main-model metadata from the same session. `system.init.model` and `assistant.message.model` are authoritative; `result.modelUsage` is a fallback when it names one unambiguous model. Provider diagnostic lines are parsed separately from JSON message content. A failed `query_source=auto_mode` model becomes a sanitized `AUXILIARY_MODEL_UNRECOGNIZED` warning when the matching main result succeeded, without consuming retry budget or triggering fallback. Codex CLI stores the `thread.started` UUID and requires `turn.completed`; Codex App actions carry the explicit contract. Importing a Codex rollout with `export-artifact` additionally verifies `turn_context` model and effort.
 
 Permission policy lives in `config/providers.json`; the selected mode is frozen in the durable task contract and resolved again before every operation. Claude Code maps bypass to `--dangerously-skip-permissions`; Codex CLI maps it to `--dangerously-bypass-approvals-and-sandbox`. Codex App exposes no approval or sandbox argument, so it records bypass as `host-inherited-unverified` and read-only as `instruction-only`.
 
