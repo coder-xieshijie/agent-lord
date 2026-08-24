@@ -234,9 +234,14 @@ def normalize_task(value: Dict[str, Any]) -> Dict[str, Any]:
             "source",
         }
         contract_fields = legacy_contract_fields | {"retry_plan"}
+        optional_contract_fields = {"workspace", "parallel_plan"}
         if isinstance(contract, dict) and set(contract) == legacy_contract_fields:
             contract["retry_plan"] = resolve_retry_plan(value["provider"], contract.get("model"))
-        if not isinstance(contract, dict) or set(contract) != contract_fields:
+        if (
+            not isinstance(contract, dict)
+            or not contract_fields.issubset(contract)
+            or set(contract) - contract_fields - optional_contract_fields
+        ):
             raise AgentLordError("STATE_CORRUPT", "task record has an invalid execution contract")
         for name in ("model", "effort"):
             if contract[name] is not None and (not isinstance(contract[name], str) or not contract[name]):
@@ -265,6 +270,62 @@ def normalize_task(value: Dict[str, Any]) -> Dict[str, Any]:
                 or stage["attempts"] <= 0
             ):
                 raise AgentLordError("STATE_CORRUPT", "task contract has an invalid retry stage")
+        workspace = contract.get("workspace", {})
+        parallel_plan = contract.get("parallel_plan", {})
+        if not isinstance(workspace, dict) or not isinstance(parallel_plan, dict):
+            raise AgentLordError("STATE_CORRUPT", "task contract has invalid workspace metadata")
+        if workspace:
+            policy = workspace.get("policy")
+            if policy not in ("exact-target", "reuse-or-create", "shared-readonly", "isolated"):
+                raise AgentLordError("STATE_CORRUPT", "task contract has an invalid workspace policy")
+            expected_workspace_fields = (
+                {"policy"}
+                if policy == "exact-target"
+                else {"policy", "repository", "source_branch", "workspace_branch"}
+                if policy == "isolated"
+                else {"policy", "repository", "source_branch"}
+            )
+            if set(workspace) != expected_workspace_fields or any(
+                not isinstance(workspace.get(name), str) or not workspace[name]
+                for name in expected_workspace_fields
+            ):
+                raise AgentLordError("STATE_CORRUPT", "task contract has incomplete workspace metadata")
+        if parallel_plan:
+            role = parallel_plan.get("role")
+            expected_parallel_fields = (
+                {
+                    "group",
+                    "role",
+                    "integration_target_branch",
+                    "integrator_task_id",
+                    "integration_order",
+                }
+                if role == "worker"
+                else {"group", "role", "integration_target_branch", "integration_workers"}
+                if role == "integrator"
+                else set()
+            )
+            if not expected_parallel_fields or set(parallel_plan) != expected_parallel_fields:
+                raise AgentLordError("STATE_CORRUPT", "task contract has an invalid parallel plan")
+            string_fields = expected_parallel_fields - {"integration_order", "integration_workers"}
+            if any(
+                not isinstance(parallel_plan.get(name), str) or not parallel_plan[name]
+                for name in string_fields
+            ):
+                raise AgentLordError("STATE_CORRUPT", "task contract has invalid parallel identifiers")
+            if role == "worker" and (
+                not isinstance(parallel_plan["integration_order"], int)
+                or isinstance(parallel_plan["integration_order"], bool)
+                or parallel_plan["integration_order"] < 1
+            ):
+                raise AgentLordError("STATE_CORRUPT", "task contract has an invalid integration order")
+            if role == "integrator" and (
+                not isinstance(parallel_plan["integration_workers"], list)
+                or not parallel_plan["integration_workers"]
+                or any(not isinstance(worker, str) or not worker for worker in parallel_plan["integration_workers"])
+                or len(set(parallel_plan["integration_workers"])) != len(parallel_plan["integration_workers"])
+            ):
+                raise AgentLordError("STATE_CORRUPT", "task contract has an invalid integration worker list")
         last_operation_id = value.get("last_operation_id")
         if last_operation_id is not None and (
             not isinstance(last_operation_id, str) or not IDENTIFIER_PATTERN.fullmatch(last_operation_id)

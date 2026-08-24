@@ -73,6 +73,8 @@ The durable task record owns:
 - an ordered retry plan whose stages freeze model and attempt budget;
 - explicit permission posture (`dangerously_bypass` by default; `--read-only` is an explicit override);
 - fixed source head/base when supplied.
+- frozen workspace policy, repository, source branch, and isolated branch when supplied;
+- a caller-declared parallel worker/integrator contract when supplied.
 
 Provider arguments enforce model and effort on every operation. Claude success requires observable main-model metadata from the same session. `system.init.model` and `assistant.message.model` are authoritative; `result.modelUsage` is a fallback when it names one unambiguous model. Provider diagnostic lines are parsed separately from JSON message content. A failed `query_source=auto_mode` model becomes a sanitized `AUXILIARY_MODEL_UNRECOGNIZED` warning when the matching main result succeeded, without consuming retry budget or triggering fallback. Codex CLI stores the `thread.started` UUID and requires `turn.completed`; Codex App actions carry the explicit contract. Importing a Codex rollout with `export-artifact` additionally verifies `turn_context` model and effort.
 
@@ -84,9 +86,43 @@ Claude emits stream progress into the operation journal. Its supervision state i
 
 ### Local worktree preparation
 
-Local Claude and Codex CLI starts may replace `--target` with `--repo`, `--source-branch`, `--workspace-policy reuse-or-create`, and a fixed `--head-sha`. The control plane reuses the one clean worktree bound to the exact local branch or creates it from an already-available local, `origin` tracking, or commit ref. It performs no fetch and never removes the worktree. New worktrees default to `worktrees/<task-id>` under the Agent Lord state directory; `--worktree-root` overrides only that parent.
+Local Claude and Codex CLI starts may replace `--target` with `--repo`, `--source-branch`, one workspace policy, and a fixed `--head-sha`. The control plane performs no fetch and never removes a worktree. New worktrees default to `worktrees/<task-id>` under the Agent Lord state directory; `--worktree-root` overrides only that parent.
 
-The resolved worktree path becomes the operation and durable task target, so every later `turn` verifies and reuses the same checkout. A dirty worktree, conflicting branch head, unavailable fixed commit, ambiguous binding, or occupied destination fails with the existing `SOURCE_MISMATCH` or `SOURCE_UNVERIFIED` result. Existing `--target` starts keep their original behavior.
+The policies are structural:
+
+- `shared-readonly` accepts only `--read-only`, then shares or creates the clean source-branch worktree at the fixed head.
+- `reuse-or-create` reuses the one clean worktree bound to the source branch or creates it from an already-available local branch, `origin` tracking ref, or commit.
+- `isolated` accepts only writable tasks and requires a distinct explicit `--workspace-branch`. It creates or reuses that branch's worktree from the fixed source head without binding another worktree to the MR source branch.
+
+The resolved worktree path becomes the operation and durable task target. A dirty worktree, conflicting branch head, unavailable fixed commit, ambiguous binding, or occupied destination fails with `SOURCE_MISMATCH` or `SOURCE_UNVERIFIED`. Existing `--target` starts keep their original source behavior and receive an exact-target workspace contract.
+
+Every writable local CLI operation holds an exclusive workspace lease until provider completion. Repo-managed operations also hold an exclusive checkout-branch lease. The locks are kernel-managed and process-scoped, so controller death releases them; recovery must reacquire them before another provider operation. Contention returns `WORKSPACE_WRITE_CONFLICT` or `BRANCH_WRITE_CONFLICT`. Read-only operations acquire neither lease and may share one fixed-head checkout.
+
+### Declared same-MR parallel writes
+
+Parallel editing is a caller-owned workflow with a fail-closed execution contract. Agent Lord never infers the need for parallel writers and never adds an integration node. The caller declares each node when starting it:
+
+```text
+worker:
+  --workspace-policy isolated
+  --workspace-branch <explicit-temporary-branch>
+  --parallel-group <group>
+  --integration-role worker
+  --integration-target-branch <mr-source-branch>
+  --integrator-task-id <task-id>
+  --integration-order <positive-integer>
+
+integrator:
+  --workspace-policy reuse-or-create
+  --parallel-group <same-group>
+  --integration-role integrator
+  --integration-target-branch <mr-source-branch>
+  --integration-worker <task-id>  # repeat in declared order
+```
+
+The integration target must equal `--source-branch`; it is the original MR source branch, never the MR target branch. Worker order and temporary branch names must be unique within the group. The integrator start verifies that every listed worker has a successful terminal operation, names this integrator, belongs to the same group, targets the same MR source branch, and appears in its declared order. The endpoint assigned as integrator then refreshes/replays as instructed by the caller, integrates and tests the worker commits, and pushes the MR source branch. Agent Lord validates isolation and the barrier; it does not itself cherry-pick, push, force-push, create another MR, or merge.
+
+Missing, inconsistent, premature, or target-branch parallel metadata returns `PARALLEL_WRITE_PLAN_INCOMPLETE` as `NEEDS_DECISION` before endpoint dispatch.
 
 ## Error taxonomy
 
@@ -97,6 +133,8 @@ The resolved worktree path becomes the operation and durable task target, so eve
 | `EXECUTION_CONTRACT_REQUIRED` | A legacy handle lacks model, effort, permission, or source truth | Explicitly upgrade the same handle before continuing |
 | `OPERATION_IN_FLIGHT` | Previous turn is not terminal | Check the same operation |
 | `SOURCE_MISMATCH` / `SOURCE_UNVERIFIED` | Fixed source cannot be proven | Correct the checkout or obtain a decision |
+| `WORKSPACE_WRITE_CONFLICT` / `BRANCH_WRITE_CONFLICT` | Another writable local task owns the worktree or checkout branch | Wait for it or declare an isolated worker |
+| `PARALLEL_WRITE_PLAN_INCOMPLETE` | Same-MR parallel write metadata, barrier, or order is incomplete | `NEEDS_DECISION`; correct the caller-owned plan |
 | `MODEL_UNRECOGNIZED` | Provider did not recognize the requested main model and no valid matching main result exists | Retry the same endpoint with the saved contract |
 | `MODEL_MISMATCH` / `MODEL_UNVERIFIED` | Observed result does not prove the requested model | Invalidate the operation; retry the same endpoint |
 | `EFFORT_MISMATCH` / `EFFORT_UNVERIFIED` | Provider log contradicts or cannot prove saved effort | Invalidate and retry the same endpoint |

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack, contextmanager
 import hashlib
 import json
 import os
@@ -11,7 +12,7 @@ import subprocess
 import sys
 from threading import Thread
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 from uuid import uuid4
 
 from . import codex_adapter
@@ -60,6 +61,7 @@ from .state import (
 
 
 SHA_PATTERN = re.compile(r"[0-9a-fA-F]{40}\Z")
+WORKSPACE_POLICIES = {"reuse-or-create", "shared-readonly", "isolated"}
 
 
 class AgentLord:
@@ -175,16 +177,16 @@ class AgentLord:
         self,
         task_id: str,
         repository: str,
-        source_branch: str,
+        checkout_branch: str,
         worktree_root: Optional[str],
     ) -> str:
-        branch_ref = "refs/heads/" + source_branch
+        branch_ref = "refs/heads/" + checkout_branch
         matches = [item for item in self._worktrees(repository) if item.get("branch") == branch_ref]
         if len(matches) > 1:
             raise AgentLordError(
                 "SOURCE_UNVERIFIED",
-                "source branch is bound to more than one worktree",
-                details={"source_branch": source_branch, "worktrees": [item["worktree"] for item in matches]},
+                "checkout branch is bound to more than one worktree",
+                details={"checkout_branch": checkout_branch, "worktrees": [item["worktree"] for item in matches]},
             )
         if matches:
             return str(Path(matches[0]["worktree"]).expanduser().resolve())
@@ -197,14 +199,18 @@ class AgentLord:
         source_branch: str,
         expected_head: str,
         target: str,
+        workspace_policy: str,
+        workspace_branch: Optional[str],
     ) -> str:
-        branch_ref = "refs/heads/" + source_branch
+        checkout_branch = workspace_branch if workspace_policy == "isolated" else source_branch
+        assert checkout_branch is not None
+        branch_ref = "refs/heads/" + checkout_branch
         matches = [item for item in self._worktrees(repository) if item.get("branch") == branch_ref]
         if len(matches) > 1:
             raise AgentLordError(
                 "SOURCE_UNVERIFIED",
-                "source branch is bound to more than one worktree",
-                details={"source_branch": source_branch, "worktrees": [item["worktree"] for item in matches]},
+                "checkout branch is bound to more than one worktree",
+                details={"checkout_branch": checkout_branch, "worktrees": [item["worktree"] for item in matches]},
             )
         if matches:
             target = str(Path(matches[0]["worktree"]).expanduser().resolve())
@@ -221,11 +227,19 @@ class AgentLord:
             if local_head and local_head != expected_head:
                 raise AgentLordError(
                     "SOURCE_MISMATCH",
-                    "local source branch is not at the requested fixed head",
-                    details={"source_branch": source_branch, "expected_head": expected_head, "observed_head": local_head},
+                    "local checkout branch is not at the requested fixed head",
+                    details={"checkout_branch": checkout_branch, "expected_head": expected_head, "observed_head": local_head},
                 )
             if local_head:
-                arguments = ["worktree", "add", target, source_branch]
+                arguments = ["worktree", "add", target, checkout_branch]
+            elif workspace_policy == "isolated":
+                if self._ref_head(repository, expected_head) is None:
+                    raise AgentLordError(
+                        "SOURCE_UNVERIFIED",
+                        "fixed source commit is not available in the local repository",
+                        details={"repository": repository, "expected_head": expected_head},
+                    )
+                arguments = ["worktree", "add", "-b", checkout_branch, target, expected_head]
             else:
                 remote_ref = "refs/remotes/origin/" + source_branch
                 remote_head = self._ref_head(repository, remote_ref)
@@ -262,6 +276,273 @@ class AgentLord:
                 details={"target": target, "expected_head": expected_head, "observed_head": observed_head},
             )
         return target
+
+    @staticmethod
+    def _lease_id(prefix: str, value: str) -> str:
+        return prefix + "-" + hashlib.sha256(value.encode("utf-8")).hexdigest()[:32]
+
+    @classmethod
+    def _target_identity(cls, target: str) -> str:
+        result = subprocess.run(
+            ["git", "-C", target, "rev-parse", "--show-toplevel"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        path = result.stdout.strip() if result.returncode == 0 else target
+        return str(Path(path).expanduser().resolve())
+
+    @staticmethod
+    def _repository_identity(repository: str) -> str:
+        result = subprocess.run(
+            ["git", "-C", repository, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        path = result.stdout.strip() if result.returncode == 0 else repository
+        return str(Path(path).expanduser().resolve())
+
+    @contextmanager
+    def _write_leases(
+        self,
+        target: str,
+        read_only: bool,
+        workspace: Dict[str, Any],
+    ) -> Iterator[None]:
+        if read_only:
+            yield
+            return
+        workspace_identity = self._target_identity(target)
+        checkout_branch = workspace.get("workspace_branch") or workspace.get("source_branch")
+        repository = workspace.get("repository")
+        with ExitStack() as stack:
+            try:
+                stack.enter_context(
+                    record_lock(
+                        "workspace-write",
+                        self._lease_id("workspace", workspace_identity),
+                        self.root,
+                    )
+                )
+            except AgentLordError as error:
+                if error.code != "STATE_BUSY":
+                    raise
+                raise AgentLordError(
+                    "WORKSPACE_WRITE_CONFLICT",
+                    "another writable task owns this worktree",
+                    retryable=True,
+                    safe_recovery="WAIT_FOR_WRITER_OR_USE_ISOLATED_WORKTREE",
+                    details={"target": workspace_identity},
+                ) from error
+            if isinstance(repository, str) and repository and isinstance(checkout_branch, str) and checkout_branch:
+                branch_identity = self._repository_identity(repository) + "\0" + checkout_branch
+                try:
+                    stack.enter_context(
+                        record_lock(
+                            "branch-write",
+                            self._lease_id("branch", branch_identity),
+                            self.root,
+                        )
+                    )
+                except AgentLordError as error:
+                    if error.code != "STATE_BUSY":
+                        raise
+                    raise AgentLordError(
+                        "BRANCH_WRITE_CONFLICT",
+                        "another writable task owns this checkout branch",
+                        retryable=True,
+                        safe_recovery="WAIT_FOR_WRITER_OR_USE_ISOLATED_WORKTREE",
+                        details={"repository": repository, "branch": checkout_branch},
+                    ) from error
+            yield
+
+    def _parallel_plan(
+        self,
+        task_id: str,
+        read_only: bool,
+        workspace: Dict[str, Any],
+        parallel_group: Optional[str],
+        integration_role: Optional[str],
+        integration_target_branch: Optional[str],
+        integrator_task_id: Optional[str],
+        integration_order: Optional[int],
+        integration_workers: Optional[List[str]],
+    ) -> Dict[str, Any]:
+        values = (
+            parallel_group,
+            integration_role,
+            integration_target_branch,
+            integrator_task_id,
+            integration_order,
+            integration_workers,
+        )
+        if not any(value is not None and value != [] for value in values):
+            return {}
+        if read_only:
+            raise AgentLordError(
+                "CONFIG_INVALID",
+                "parallel integration metadata is only valid for writable tasks",
+                exit_code=2,
+            )
+        if not parallel_group or integration_role not in ("worker", "integrator") or not integration_target_branch:
+            raise AgentLordError(
+                "PARALLEL_WRITE_PLAN_INCOMPLETE",
+                "parallel writes require a group, role, and MR source integration target",
+                requires_authorization=True,
+                details={"task_id": task_id},
+                exit_code=2,
+            )
+        validate_identifier("parallel_group", parallel_group)
+        source_branch = workspace.get("source_branch")
+        if integration_target_branch != source_branch:
+            raise AgentLordError(
+                "PARALLEL_WRITE_PLAN_INCOMPLETE",
+                "integration target must equal the declared MR source branch",
+                requires_authorization=True,
+                details={"source_branch": source_branch, "integration_target_branch": integration_target_branch},
+                exit_code=2,
+            )
+        if integration_role == "worker":
+            if (
+                workspace.get("policy") != "isolated"
+                or not workspace.get("workspace_branch")
+                or not integrator_task_id
+                or not isinstance(integration_order, int)
+                or isinstance(integration_order, bool)
+                or integration_order < 1
+                or integration_workers
+            ):
+                raise AgentLordError(
+                    "PARALLEL_WRITE_PLAN_INCOMPLETE",
+                    "parallel workers require isolated workspace, integrator task id, and positive integration order",
+                    requires_authorization=True,
+                    details={"task_id": task_id},
+                    exit_code=2,
+                )
+            validate_identifier("integrator_task_id", integrator_task_id)
+            existing_specs = [
+                (
+                    existing.get("task_id"),
+                    existing.get("contract", {}).get("parallel_plan") or {},
+                    existing.get("contract", {}).get("workspace") or {},
+                )
+                for existing in list_tasks(self.root)
+            ]
+            existing_specs.extend(
+                (
+                    existing.get("task_id"),
+                    existing.get("parallel_plan") or {},
+                    existing.get("workspace") or {},
+                )
+                for existing in all_operations(self.root)
+            )
+            for existing_task_id, plan, existing_workspace in existing_specs:
+                if (
+                    existing_task_id != task_id
+                    and plan.get("group") == parallel_group
+                    and plan.get("role") == "worker"
+                    and (
+                        plan.get("integration_order") == integration_order
+                        or existing_workspace.get("workspace_branch") == workspace.get("workspace_branch")
+                    )
+                ):
+                    raise AgentLordError(
+                        "PARALLEL_WRITE_PLAN_INCOMPLETE",
+                        "parallel workers must have unique integration order and workspace branch",
+                        requires_authorization=True,
+                        details={"task_id": task_id, "conflicting_task_id": existing_task_id},
+                        exit_code=2,
+                    )
+            return {
+                "group": parallel_group,
+                "role": "worker",
+                "integration_target_branch": integration_target_branch,
+                "integrator_task_id": integrator_task_id,
+                "integration_order": integration_order,
+            }
+        if (
+            workspace.get("policy") != "reuse-or-create"
+            or integrator_task_id is not None
+            or integration_order is not None
+            or not isinstance(integration_workers, list)
+            or not integration_workers
+            or len(set(integration_workers)) != len(integration_workers)
+        ):
+            raise AgentLordError(
+                "PARALLEL_WRITE_PLAN_INCOMPLETE",
+                "integrator requires ordered unique worker task ids on the MR source worktree",
+                requires_authorization=True,
+                details={"task_id": task_id},
+                exit_code=2,
+            )
+        worker_heads = set()
+        for worker_id in integration_workers:
+            validate_identifier("integration_worker", worker_id)
+            try:
+                worker = load_task(worker_id, self.root)
+            except AgentLordError as error:
+                if error.code != "TASK_UNKNOWN":
+                    raise
+                raise AgentLordError(
+                    "PARALLEL_WRITE_PLAN_INCOMPLETE",
+                    "integrator references a worker without a completed task handle",
+                    requires_authorization=True,
+                    details={"task_id": task_id, "worker_task_id": worker_id},
+                    exit_code=2,
+                ) from error
+            worker_plan = worker.get("contract", {}).get("parallel_plan") or {}
+            worker_workspace = worker.get("contract", {}).get("workspace") or {}
+            worker_repository = worker_workspace.get("repository")
+            integrator_repository = workspace.get("repository")
+            worker_head = worker.get("contract", {}).get("source", {}).get("head_sha")
+            worker_heads.add(worker_head)
+            worker_operation_id = worker.get("last_operation_id")
+            worker_operation = load_operation(worker_operation_id, self.root) if worker_operation_id else None
+            if (
+                worker_plan.get("group") != parallel_group
+                or worker_plan.get("role") != "worker"
+                or worker_plan.get("integrator_task_id") != task_id
+                or worker_plan.get("integration_target_branch") != integration_target_branch
+                or not isinstance(worker_repository, str)
+                or not isinstance(integrator_repository, str)
+                or self._repository_identity(worker_repository) != self._repository_identity(integrator_repository)
+                or worker_operation is None
+                or worker_operation.get("status") != "succeeded"
+            ):
+                raise AgentLordError(
+                    "PARALLEL_WRITE_PLAN_INCOMPLETE",
+                    "integrator worker set is incomplete or inconsistent",
+                    requires_authorization=True,
+                    details={"task_id": task_id, "worker_task_id": worker_id},
+                    exit_code=2,
+                )
+        if None in worker_heads or len(worker_heads) != 1:
+            raise AgentLordError(
+                "PARALLEL_WRITE_PLAN_INCOMPLETE",
+                "parallel workers must share one fixed source head",
+                requires_authorization=True,
+                details={"worker_heads": sorted(str(head) for head in worker_heads)},
+                exit_code=2,
+            )
+        ordered_workers = sorted(
+            integration_workers,
+            key=lambda worker_id: load_task(worker_id, self.root)["contract"]["parallel_plan"]["integration_order"],
+        )
+        if ordered_workers != integration_workers:
+            raise AgentLordError(
+                "PARALLEL_WRITE_PLAN_INCOMPLETE",
+                "integration workers must be listed in declared integration order",
+                requires_authorization=True,
+                details={"expected_order": ordered_workers, "observed_order": integration_workers},
+                exit_code=2,
+            )
+        return {
+            "group": parallel_group,
+            "role": "integrator",
+            "integration_target_branch": integration_target_branch,
+            "integration_workers": integration_workers,
+        }
 
     def _task_exists(self, task_id: str) -> bool:
         return task_path(task_id, self.root).exists()
@@ -301,6 +582,8 @@ class AgentLord:
         expected: Dict[str, Any],
         source: Dict[str, str],
         read_only: bool,
+        workspace: Dict[str, Any],
+        parallel_plan: Dict[str, Any],
     ) -> bool:
         return all(
             (
@@ -311,6 +594,8 @@ class AgentLord:
                 operation.get("expected") == expected,
                 operation.get("source") == source,
                 bool(operation.get("read_only")) == bool(read_only),
+                operation.get("workspace", {}) == workspace,
+                operation.get("parallel_plan", {}) == parallel_plan,
             )
         )
 
@@ -324,6 +609,8 @@ class AgentLord:
         expected: Dict[str, Any],
         source: Dict[str, str],
         read_only: bool,
+        workspace: Optional[Dict[str, Any]] = None,
+        parallel_plan: Optional[Dict[str, Any]] = None,
         operation_id: Optional[str] = None,
         controller_pid: Optional[int] = None,
         endpoint_id: Optional[str] = None,
@@ -344,6 +631,8 @@ class AgentLord:
             "observed": {},
             "source": source,
             "read_only": bool(read_only),
+            "workspace": workspace or {},
+            "parallel_plan": parallel_plan or {},
             "artifact": None,
             "error": None,
             "created_at": now,
@@ -456,6 +745,8 @@ class AgentLord:
                 "permission_mode": permission_mode,
                 "source": operation.get("source", {}),
                 "retry_plan": expected.get("retry_plan") or resolve_retry_plan(operation["provider"], expected.get("model")),
+                "workspace": operation.get("workspace", {}),
+                "parallel_plan": operation.get("parallel_plan", {}),
             },
             "created_at": now,
             "updated_at": now,
@@ -827,7 +1118,14 @@ class AgentLord:
         repository: Optional[str] = None,
         source_branch: Optional[str] = None,
         workspace_policy: Optional[str] = None,
+        workspace_branch: Optional[str] = None,
         worktree_root: Optional[str] = None,
+        parallel_group: Optional[str] = None,
+        integration_role: Optional[str] = None,
+        integration_target_branch: Optional[str] = None,
+        integrator_task_id: Optional[str] = None,
+        integration_order: Optional[int] = None,
+        integration_workers: Optional[List[str]] = None,
         codex_environment: str = "worktree",
         starting_branch: Optional[str] = None,
         retry_attempts: Optional[int] = None,
@@ -842,6 +1140,7 @@ class AgentLord:
         message_hash = self._message_hash(message)
         source = self._validate_source(head_sha, base_sha)
         workspace_requested = repository is not None
+        workspace: Dict[str, Any] = {}
         if workspace_requested:
             if target is not None or provider not in ("claude-cli", "codex-cli"):
                 raise AgentLordError(
@@ -855,35 +1154,79 @@ class AgentLord:
                 or not isinstance(source_branch, str)
                 or not source_branch
                 or source_branch.startswith("-")
-                or workspace_policy != "reuse-or-create"
+                or workspace_policy not in WORKSPACE_POLICIES
                 or not source.get("head_sha")
             ):
                 raise AgentLordError(
                     "CONFIG_INVALID",
-                    "repo workspace preparation requires source-branch, reuse-or-create, and a full head-sha",
+                    "repo workspace preparation requires source-branch, a supported workspace policy, and a full head-sha",
+                    exit_code=2,
+                )
+            if workspace_policy == "shared-readonly" and not read_only:
+                raise AgentLordError(
+                    "CONFIG_INVALID",
+                    "shared-readonly workspace policy requires --read-only",
+                    exit_code=2,
+                )
+            if workspace_policy == "isolated":
+                if read_only or not isinstance(workspace_branch, str) or not workspace_branch or workspace_branch == source_branch:
+                    raise AgentLordError(
+                        "CONFIG_INVALID",
+                        "isolated workspace policy requires a writable task and a distinct workspace-branch",
+                        exit_code=2,
+                    )
+            elif workspace_branch is not None:
+                raise AgentLordError(
+                    "CONFIG_INVALID",
+                    "workspace-branch is accepted only with isolated workspace policy",
                     exit_code=2,
                 )
             repository = str(Path(repository).expanduser().resolve())
             self._git(repository, ["check-ref-format", "--branch", source_branch])
-            target = self._resolve_workspace_target(task_id, repository, source_branch, worktree_root)
-        elif source_branch is not None or workspace_policy is not None or worktree_root is not None:
+            if workspace_branch:
+                self._git(repository, ["check-ref-format", "--branch", workspace_branch])
+            checkout_branch = workspace_branch or source_branch
+            target = self._resolve_workspace_target(task_id, repository, checkout_branch, worktree_root)
+            workspace = {
+                "policy": workspace_policy,
+                "repository": repository,
+                "source_branch": source_branch,
+            }
+            if workspace_branch:
+                workspace["workspace_branch"] = workspace_branch
+        elif source_branch is not None or workspace_policy is not None or workspace_branch is not None or worktree_root is not None:
             raise AgentLordError(
                 "CONFIG_INVALID",
-                "source-branch, workspace-policy, and worktree-root require repo workspace preparation",
+                "source-branch, workspace-policy, workspace-branch, and worktree-root require repo workspace preparation",
                 exit_code=2,
             )
         if not isinstance(target, str) or not target:
             raise AgentLordError("CONFIG_INVALID", "target must be non-empty", exit_code=2)
         if provider in ("claude-cli", "codex-cli"):
             target = str(Path(target).expanduser().resolve())
+            if not workspace:
+                workspace = {"policy": "exact-target"}
             if not workspace_requested:
                 self._verify_checkout(target, source)
         elif codex_environment not in ("worktree", "local"):
             raise AgentLordError("CONFIG_INVALID", "Codex environment must be worktree or local", exit_code=2)
 
+        parallel_plan = self._parallel_plan(
+            task_id,
+            read_only,
+            workspace,
+            parallel_group,
+            integration_role,
+            integration_target_branch,
+            integrator_task_id,
+            integration_order,
+            integration_workers,
+        )
         expected = self._expected_contract(provider, model, effort, read_only, retry_plan=retry_plan)
         action: Optional[Dict[str, Any]] = None
         claude_lease = None
+        write_leases = None
+        workspace_prepare_lease = None
         session_id = str(uuid4()) if provider == "claude-cli" else None
         try:
             with record_lock("dispatch", self._dispatch_lock_id(task_id), self.root):
@@ -892,7 +1235,17 @@ class AgentLord:
                     last_operation_id = task.get("last_operation_id")
                     if last_operation_id:
                         last_operation = load_operation(last_operation_id, self.root)
-                        if self._same_start_spec(last_operation, provider, target, message_hash, expected, source, read_only):
+                        if self._same_start_spec(
+                            last_operation,
+                            provider,
+                            target,
+                            message_hash,
+                            expected,
+                            source,
+                            read_only,
+                            workspace,
+                            parallel_plan,
+                        ):
                             return self.envelope(last_operation)
                     raise AgentLordError(
                         "TASK_EXISTS",
@@ -902,7 +1255,17 @@ class AgentLord:
                     )
                 inflight = self._active_operation(task_id)
                 if inflight:
-                    if self._same_start_spec(inflight, provider, target, message_hash, expected, source, read_only):
+                    if self._same_start_spec(
+                        inflight,
+                        provider,
+                        target,
+                        message_hash,
+                        expected,
+                        source,
+                        read_only,
+                        workspace,
+                        parallel_plan,
+                    ):
                         return self.envelope(inflight)
                     raise AgentLordError(
                         "OPERATION_IN_FLIGHT",
@@ -913,13 +1276,34 @@ class AgentLord:
                     )
                 if workspace_requested:
                     assert repository is not None and source_branch is not None
+                    checkout_branch = workspace_branch or source_branch
+                    prepare_identity = self._repository_identity(repository) + "\0" + checkout_branch
+                    candidate_prepare_lease = record_lock(
+                        "workspace-prepare",
+                        self._lease_id("prepare", prepare_identity),
+                        self.root,
+                    )
+                    candidate_prepare_lease.__enter__()
+                    workspace_prepare_lease = candidate_prepare_lease
+                    target = self._resolve_workspace_target(task_id, repository, checkout_branch, worktree_root)
+                if provider in ("claude-cli", "codex-cli"):
+                    candidate_leases = self._write_leases(target, read_only, workspace)
+                    candidate_leases.__enter__()
+                    write_leases = candidate_leases
+                if workspace_requested:
+                    assert repository is not None and source_branch is not None
                     target = self._prepare_workspace(
                         repository,
                         source_branch,
                         source["head_sha"],
                         target,
+                        workspace_policy,
+                        workspace_branch,
                     )
                     self._verify_checkout(target, source)
+                    assert workspace_prepare_lease is not None
+                    workspace_prepare_lease.__exit__(None, None, None)
+                    workspace_prepare_lease = None
                 operation_id = self._operation_id(task_id, "start")
                 if provider == "claude-cli":
                     claude_lease = record_lock(
@@ -937,6 +1321,8 @@ class AgentLord:
                     expected,
                     source,
                     read_only,
+                    workspace,
+                    parallel_plan,
                     operation_id=operation_id,
                     controller_pid=os.getpid() if provider == "claude-cli" else None,
                     endpoint_id=session_id,
@@ -951,6 +1337,10 @@ class AgentLord:
         except BaseException:
             if claude_lease is not None:
                 claude_lease.__exit__(*sys.exc_info())
+            if write_leases is not None:
+                write_leases.__exit__(*sys.exc_info())
+            if workspace_prepare_lease is not None:
+                workspace_prepare_lease.__exit__(*sys.exc_info())
             raise
         if provider == "claude-cli":
             assert session_id is not None and claude_lease is not None
@@ -958,8 +1348,14 @@ class AgentLord:
                 return self._finish_claude(operation, session_id, resume=False)
             finally:
                 claude_lease.__exit__(None, None, None)
+                assert write_leases is not None
+                write_leases.__exit__(None, None, None)
         if provider == "codex-cli":
-            return self._finish_codex_cli(operation, endpoint_id=None, resume=False)
+            try:
+                return self._finish_codex_cli(operation, endpoint_id=None, resume=False)
+            finally:
+                assert write_leases is not None
+                write_leases.__exit__(None, None, None)
 
         assert action is not None
         append_event(task_id, "action-required", {"action_id": action["action_id"], "tool": action["tool"]}, operation["operation_id"], self.root)
@@ -971,6 +1367,7 @@ class AgentLord:
         message_hash = self._message_hash(message)
         action: Optional[Dict[str, Any]] = None
         claude_lease = None
+        write_leases = None
         try:
             with record_lock("dispatch", self._dispatch_lock_id(task_id), self.root):
                 task = load_task(task_id, self.root)
@@ -995,8 +1392,17 @@ class AgentLord:
                     )
                 contract = task.get("contract") or {}
                 source = contract.get("source") or {}
+                workspace = contract.get("workspace") or {"policy": "exact-target"}
+                parallel_plan = contract.get("parallel_plan") or {}
                 if task["provider"] in ("claude-cli", "codex-cli"):
                     self._verify_checkout(task["target"], source)
+                    candidate_leases = self._write_leases(
+                        task["target"],
+                        bool(contract.get("read_only")),
+                        workspace,
+                    )
+                    candidate_leases.__enter__()
+                    write_leases = candidate_leases
                 expected = self._expected_contract(
                     task["provider"],
                     contract.get("model"),
@@ -1022,6 +1428,8 @@ class AgentLord:
                     expected,
                     source,
                     bool(contract.get("read_only")),
+                    workspace,
+                    parallel_plan,
                     operation_id=operation_id,
                     controller_pid=os.getpid() if task["provider"] == "claude-cli" else None,
                     endpoint_id=task.get("endpoint_id") if task["provider"] == "claude-cli" else None,
@@ -1037,6 +1445,8 @@ class AgentLord:
         except BaseException:
             if claude_lease is not None:
                 claude_lease.__exit__(*sys.exc_info())
+            if write_leases is not None:
+                write_leases.__exit__(*sys.exc_info())
             raise
         if task["provider"] == "claude-cli":
             assert claude_lease is not None
@@ -1044,8 +1454,14 @@ class AgentLord:
                 return self._finish_claude(operation, task["endpoint_id"], resume=True)
             finally:
                 claude_lease.__exit__(None, None, None)
+                assert write_leases is not None
+                write_leases.__exit__(None, None, None)
         if task["provider"] == "codex-cli":
-            return self._finish_codex_cli(operation, task["endpoint_id"], resume=True)
+            try:
+                return self._finish_codex_cli(operation, task["endpoint_id"], resume=True)
+            finally:
+                assert write_leases is not None
+                write_leases.__exit__(None, None, None)
         assert action is not None
         return self.envelope(operation, action)
 
@@ -1428,16 +1844,21 @@ class AgentLord:
 
     def _finish_claimed_claude_recovery(self, operation: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         try:
-            return self._finish_claude(
-                operation,
-                operation["endpoint_id"],
-                resume=operation.get("kind") == "turn",
-            )
+            with self._write_leases(
+                operation["target"],
+                bool(operation.get("read_only")),
+                operation.get("workspace") or {"policy": "exact-target"},
+            ):
+                return self._finish_claude(
+                    operation,
+                    operation["endpoint_id"],
+                    resume=operation.get("kind") == "turn",
+                )
         except AgentLordError as error:
             current = load_operation(operation["operation_id"], self.root)
             if current.get("status") in TERMINAL_OPERATION_STATES:
                 return self.envelope(current)
-            if error.code == "STATE_BUSY":
+            if error.code in ("STATE_BUSY", "WORKSPACE_WRITE_CONFLICT", "BRANCH_WRITE_CONFLICT"):
                 return None
             raise
 
@@ -1966,6 +2387,9 @@ class AgentLord:
             "operation_status": operation.get("status"),
             "expected": operation.get("expected", {}),
             "observed": operation.get("observed", {}),
+            "source": operation.get("source", {}),
+            "workspace": operation.get("workspace", {}),
+            "parallel_plan": operation.get("parallel_plan", {}),
         }
         try:
             task = load_task(operation["task_id"], self.root)

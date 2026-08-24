@@ -40,6 +40,33 @@
         "read_only": {"type": "boolean"},
         "permission_mode": {"type": "string", "minLength": 1},
         "source": {"type": "object"},
+        "workspace": {
+          "type": "object",
+          "properties": {
+            "policy": {"enum": ["exact-target", "reuse-or-create", "shared-readonly", "isolated"]},
+            "repository": {"type": "string", "minLength": 1},
+            "source_branch": {"type": "string", "minLength": 1},
+            "workspace_branch": {"type": "string", "minLength": 1}
+          },
+          "additionalProperties": false
+        },
+        "parallel_plan": {
+          "type": "object",
+          "properties": {
+            "group": {"type": "string", "minLength": 1},
+            "role": {"enum": ["worker", "integrator"]},
+            "integration_target_branch": {"type": "string", "minLength": 1},
+            "integrator_task_id": {"type": "string", "minLength": 1},
+            "integration_order": {"type": "integer", "minimum": 1},
+            "integration_workers": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {"type": "string", "minLength": 1}
+            }
+          },
+          "additionalProperties": false
+        },
         "retry_plan": {
           "type": "array",
           "minItems": 1,

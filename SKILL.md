@@ -14,6 +14,7 @@ Route one logical task to one durable endpoint. Treat `scripts/agent_lord.py` as
 - Treat the user-specified endpoint set as part of the execution contract. Dispatch the requested Codex CLI, Claude Code CLI, or collaboration of both exactly; never drop a named provider or substitute two Codex endpoints for Codex plus Claude Code.
 - Keep one endpoint per `task_id` and one in-flight operation per task. Continue the saved endpoint; replacement requires an explicit decision.
 - Let the dispatch lock and operation journal enforce that invariant across concurrent controller processes; do not implement a second caller-side lock.
+- Let operation-scoped workspace and branch write leases serialize writable local CLI tasks. Read-only tasks may share one clean fixed-head worktree; writable tasks never share a worktree concurrently.
 - Store task, operation, action, event, log, and artifact state under `${AGENT_LORD_STATE_DIR:-$HOME/.codex/state/agent-lord}`, never in the target repository.
 - Freeze the resolved model, effort, retry plan, permission posture, and source contract when the task starts; every later turn reapplies them.
 - Use fixed full SHAs for revision-sensitive work. Local CLI providers refuse a working directory whose `HEAD` differs from the saved contract.
@@ -26,7 +27,7 @@ Route one logical task to one durable endpoint. Treat `scripts/agent_lord.py` as
 ## Deterministic loop
 
 1. Resolve the exact repository, source branch, fixed head/base, and write the task prompt to a private temporary file outside the repository. Remove caller-owned prompt/result files after the command has consumed them.
-2. Inspect `python3 scripts/agent_lord.py start --help`, then run `start` with every explicit user choice. For revision-sensitive local CLI work, use `--repo`, `--source-branch`, `--workspace-policy reuse-or-create`, and `--head-sha`; the control plane reuses or creates the source-branch worktree and freezes that resolved path as the target. Use `--target` when the exact working directory already is the contract. Do not recreate these preflight checks manually.
+2. Inspect `python3 scripts/agent_lord.py start --help`, then run `start` with every explicit user choice. For revision-sensitive local CLI work, use `--repo`, `--source-branch`, one explicit workspace policy, and `--head-sha`; the control plane freezes the resolved checkout as the target. Use `--target` when the exact working directory already is the contract. Do not recreate these preflight checks manually.
 3. Process the returned envelope until terminal:
    - `ACTION_REQUIRED`: invoke the exact model-side tool and arguments in `action`; save the raw return value outside the repository, then pass it to `accept`.
    - `RUNNING`: use `check`, or pass every selected `task_id` to one bounded `checkpoint` when the user requested supervision.
@@ -35,6 +36,15 @@ Route one logical task to one durable endpoint. Treat `scripts/agent_lord.py` as
    - `ERROR`: follow `safe_recovery` only when present; otherwise report the structured error.
    - `NEEDS_DECISION`: stop for the authority named by the error. Never convert it into an implicit replacement, model change, source change, or permission expansion.
 4. Start a later round with `turn` only after the previous operation is terminal. The script reapplies the saved execution contract and deduplicates an identical in-flight message.
+
+## Workspace and parallel-write policy
+
+- `shared-readonly`: share or create the source-branch worktree only for `--read-only` local reviews at one fixed head.
+- `reuse-or-create`: reuse the one clean source-branch worktree or create it; writable operations hold exclusive workspace and branch leases until the provider operation ends.
+- `isolated`: require a writable task plus an explicit distinct `--workspace-branch`; create or reuse that temporary branch worktree from the fixed source head.
+- Same-MR parallel writers require caller-declared `--parallel-group`, worker order, one integrator task id, and the original MR source branch as `--integration-target-branch`. Workers use `isolated`; the integrator uses `reuse-or-create` and lists successful worker task ids in order.
+- The caller starts the named integrator only after the workers are terminal. Agent Lord validates the declared barrier and isolation contract; it does not invent workers, an integrator, temporary branch names, merge order, or another MR.
+- A missing or inconsistent parallel plan returns `NEEDS_DECISION`. Read [references/protocol.md](references/protocol.md) before dispatching concurrent writable tasks.
 
 `checkpoint` wakes the caller only for terminal or model-actionable state. Its default quiet interval is 150 seconds; `CHECKPOINT_QUIET` with exit `124` is healthy and can be followed by another checkpoint. Read the protocol reference for multi-task selection, compact output, and recovery supervision semantics.
 

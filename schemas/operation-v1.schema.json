@@ -47,6 +47,8 @@
     },
     "source": {"type": "object"},
     "read_only": {"type": "boolean"},
+    "workspace": {"type": "object"},
+    "parallel_plan": {"type": "object"},
     "artifact": {"type": ["object", "null"]},
     "error": {"type": ["object", "null"]},
     "controller_pid": {"type": ["integer", "null"]},

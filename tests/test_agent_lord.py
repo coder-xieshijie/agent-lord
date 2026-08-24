@@ -279,6 +279,25 @@ class AgentLordTests(unittest.TestCase):
         self.assertEqual(1, len(result["actionable"]))
         return result["actionable"][0]
 
+    def _init_source_repo(self) -> str:
+        subprocess.run(["git", "init", "-q", str(self.target)], check=True)
+        subprocess.run(["git", "-C", str(self.target), "config", "user.name", "Agent Lord Test"], check=True)
+        subprocess.run(["git", "-C", str(self.target), "config", "user.email", "agent-lord@example.invalid"], check=True)
+        (self.target / "tracked.txt").write_text("source\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.target), "add", "tracked.txt"], check=True)
+        subprocess.run(
+            ["git", "-c", "core.hooksPath=/dev/null", "-C", str(self.target), "commit", "-q", "-m", "test source"],
+            check=True,
+        )
+        head = subprocess.run(
+            ["git", "-C", str(self.target), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        subprocess.run(["git", "-C", str(self.target), "branch", "feat/source"], check=True)
+        return head
+
     def test_record_lock_releases_when_holder_is_killed(self) -> None:
         repository = Path(__file__).resolve().parent.parent
         holder = subprocess.Popen(
@@ -1072,6 +1091,44 @@ class AgentLordTests(unittest.TestCase):
         )
         self.assertEqual(["task-a", "task-b"], multiple.task_ids)
 
+    def test_start_parser_preserves_declared_parallel_workspace_contract(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "start",
+                "--task-id",
+                "worker-one",
+                "--provider",
+                "claude-cli",
+                "--repo",
+                str(self.target),
+                "--message-file",
+                str(Path(self.temporary.name) / "prompt.txt"),
+                "--head-sha",
+                "0" * 40,
+                "--source-branch",
+                "feat/source",
+                "--workspace-policy",
+                "isolated",
+                "--workspace-branch",
+                "fix/part-one",
+                "--parallel-group",
+                "group-one",
+                "--integration-role",
+                "worker",
+                "--integration-target-branch",
+                "feat/source",
+                "--integrator-task-id",
+                "integrator",
+                "--integration-order",
+                "1",
+            ]
+        )
+
+        self.assertEqual("isolated", args.workspace_policy)
+        self.assertEqual("fix/part-one", args.workspace_branch)
+        self.assertEqual("worker", args.integration_role)
+        self.assertEqual(1, args.integration_order)
+
     def test_legacy_provider_config_gets_safe_claude_supervision_defaults(self) -> None:
         config_path = Path(self.temporary.name) / "legacy-providers.json"
         config = json.loads(DEFAULT_CONFIG.read_text(encoding="utf-8"))
@@ -1174,6 +1231,185 @@ class AgentLordTests(unittest.TestCase):
         ).stdout.strip()
         self.assertEqual("feat/source", branch)
         self.assertEqual(head, task["contract"]["source"]["head_sha"])
+
+    def test_shared_readonly_policy_rejects_writable_provider(self) -> None:
+        head = self._init_source_repo()
+
+        with self.assertRaises(AgentLordError) as raised:
+            self.lord.start(
+                "shared-writer",
+                "claude-cli",
+                None,
+                "edit",
+                head_sha=head,
+                repository=str(self.target),
+                source_branch="feat/source",
+                workspace_policy="shared-readonly",
+            )
+
+        self.assertEqual("CONFIG_INVALID", raised.exception.code)
+
+    def test_shared_readonly_tasks_reuse_one_fixed_head_worktree(self) -> None:
+        head = self._init_source_repo()
+        starts = []
+        for task_id in ("shared-review-one", "shared-review-two"):
+            starts.append(
+                self.lord.start(
+                    task_id,
+                    "claude-cli",
+                    None,
+                    "review",
+                    read_only=True,
+                    head_sha=head,
+                    repository=str(self.target),
+                    source_branch="feat/source",
+                    workspace_policy="shared-readonly",
+                )
+            )
+
+        self.assertEqual(starts[0]["target"], starts[1]["target"])
+        self.assertEqual("shared-readonly", starts[0]["workspace"]["policy"])
+
+    def test_parallel_workers_use_isolated_branches_and_integrator_uses_source_branch(self) -> None:
+        head = self._init_source_repo()
+        common = {
+            "provider": "claude-cli",
+            "target": None,
+            "message": "edit one disjoint area",
+            "head_sha": head,
+            "repository": str(self.target),
+            "source_branch": "feat/source",
+            "workspace_policy": "isolated",
+            "parallel_group": "parallel-goal-fix",
+            "integration_role": "worker",
+            "integration_target_branch": "feat/source",
+            "integrator_task_id": "goal-integrator",
+        }
+        first = self.lord.start(
+            "goal-worker-one",
+            workspace_branch="fix/goal-part-one",
+            integration_order=1,
+            **common,
+        )
+        second = self.lord.start(
+            "goal-worker-two",
+            workspace_branch="fix/goal-part-two",
+            integration_order=2,
+            **common,
+        )
+
+        self.assertEqual("SUCCEEDED", first["status"])
+        self.assertEqual("SUCCEEDED", second["status"])
+        self.assertEqual("isolated", first["workspace"]["policy"])
+        self.assertEqual("worker", first["parallel_plan"]["role"])
+        first_task = load_task("goal-worker-one", self.root)
+        first_contract = first_task["contract"]
+        self.assertEqual("isolated", first_contract["workspace"]["policy"])
+        self.assertEqual("fix/goal-part-one", first_contract["workspace"]["workspace_branch"])
+        self.assertEqual("worker", first_contract["parallel_plan"]["role"])
+        first_branch = subprocess.run(
+            ["git", "-C", first_task["target"], "branch", "--show-current"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        self.assertEqual("fix/goal-part-one", first_branch)
+
+        integrated = self.lord.start(
+            "goal-integrator",
+            "claude-cli",
+            None,
+            "integrate worker commits into the MR source branch",
+            head_sha=head,
+            repository=str(self.target),
+            source_branch="feat/source",
+            workspace_policy="reuse-or-create",
+            parallel_group="parallel-goal-fix",
+            integration_role="integrator",
+            integration_target_branch="feat/source",
+            integration_workers=["goal-worker-one", "goal-worker-two"],
+        )
+
+        self.assertEqual("SUCCEEDED", integrated["status"])
+        integrator_task = load_task("goal-integrator", self.root)
+        self.assertEqual(
+            ["goal-worker-one", "goal-worker-two"],
+            integrator_task["contract"]["parallel_plan"]["integration_workers"],
+        )
+        integration_branch = subprocess.run(
+            ["git", "-C", integrator_task["target"], "branch", "--show-current"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        self.assertEqual("feat/source", integration_branch)
+
+    def test_integrator_rejects_worker_list_outside_declared_order(self) -> None:
+        head = self._init_source_repo()
+        for task_id, workspace_branch, order in (
+            ("ordered-worker-one", "fix/ordered-one", 1),
+            ("ordered-worker-two", "fix/ordered-two", 2),
+        ):
+            self.lord.start(
+                task_id,
+                "claude-cli",
+                None,
+                "edit",
+                head_sha=head,
+                repository=str(self.target),
+                source_branch="feat/source",
+                workspace_policy="isolated",
+                workspace_branch=workspace_branch,
+                parallel_group="ordered-group",
+                integration_role="worker",
+                integration_target_branch="feat/source",
+                integrator_task_id="ordered-integrator",
+                integration_order=order,
+            )
+
+        with self.assertRaises(AgentLordError) as raised:
+            self.lord.start(
+                "ordered-integrator",
+                "claude-cli",
+                None,
+                "integrate",
+                head_sha=head,
+                repository=str(self.target),
+                source_branch="feat/source",
+                workspace_policy="reuse-or-create",
+                parallel_group="ordered-group",
+                integration_role="integrator",
+                integration_target_branch="feat/source",
+                integration_workers=["ordered-worker-two", "ordered-worker-one"],
+            )
+
+        self.assertEqual("PARALLEL_WRITE_PLAN_INCOMPLETE", raised.exception.code)
+        self.assertTrue(raised.exception.requires_authorization)
+
+    def test_writable_tasks_cannot_share_one_target_concurrently(self) -> None:
+        with patch.dict(os.environ, {"FAKE_CLAUDE_DELAY_SECONDS": "1"}, clear=False):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                first = executor.submit(
+                    self.lord.start,
+                    "lease-owner",
+                    "claude-cli",
+                    str(self.target),
+                    "edit",
+                )
+                deadline = time.time() + 5
+                while time.time() < deadline and not any((self.root / "operations").glob("lease-owner-*.json")):
+                    time.sleep(0.01)
+                with self.assertRaises(AgentLordError) as raised:
+                    self.lord.start(
+                        "lease-contender",
+                        "claude-cli",
+                        str(self.target),
+                        "edit concurrently",
+                    )
+                completed = first.result(timeout=5)
+
+        self.assertEqual("WORKSPACE_WRITE_CONFLICT", raised.exception.code)
+        self.assertEqual("SUCCEEDED", completed["status"])
 
     def test_claude_parser_tolerates_diagnostic_before_result(self) -> None:
         with patch.dict(os.environ, {"FAKE_CLAUDE_DIAGNOSTIC": "provider: warming route"}, clear=False):

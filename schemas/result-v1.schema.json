@@ -13,6 +13,9 @@
     "operation_id": {"type": "string"},
     "provider": {"type": "string"},
     "endpoint_id": {"type": "string"},
+    "source": {"type": "object"},
+    "workspace": {"type": "object"},
+    "parallel_plan": {"type": "object"},
     "warnings": {
       "type": "array",
       "items": {

@@ -59,8 +59,24 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--head-sha")
     start.add_argument("--base-sha")
     start.add_argument("--source-branch", help="source branch to reuse or create when --repo is used")
-    start.add_argument("--workspace-policy", choices=("reuse-or-create",))
+    start.add_argument(
+        "--workspace-policy",
+        choices=("reuse-or-create", "shared-readonly", "isolated"),
+        help="shared fixed-head review, canonical branch workspace, or isolated writable branch",
+    )
+    start.add_argument("--workspace-branch", help="explicit temporary branch for isolated writable work")
     start.add_argument("--worktree-root", help="optional parent directory for a newly created worktree")
+    start.add_argument("--parallel-group", help="caller-declared parallel write group")
+    start.add_argument("--integration-role", choices=("worker", "integrator"))
+    start.add_argument("--integration-target-branch", help="original MR source branch receiving integrated changes")
+    start.add_argument("--integrator-task-id", help="declared integrator for a parallel worker")
+    start.add_argument("--integration-order", type=int, help="positive worker integration position")
+    start.add_argument(
+        "--integration-worker",
+        action="append",
+        dest="integration_workers",
+        help="worker task id in integration order; repeat for the integrator",
+    )
     start.add_argument("--codex-environment", choices=("worktree", "local"), default="worktree")
     start.add_argument("--starting-branch")
 
@@ -118,7 +134,14 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
             repository=args.repo,
             source_branch=args.source_branch,
             workspace_policy=args.workspace_policy,
+            workspace_branch=args.workspace_branch,
             worktree_root=args.worktree_root,
+            parallel_group=args.parallel_group,
+            integration_role=args.integration_role,
+            integration_target_branch=args.integration_target_branch,
+            integrator_task_id=args.integrator_task_id,
+            integration_order=args.integration_order,
+            integration_workers=args.integration_workers,
             codex_environment=args.codex_environment,
             starting_branch=args.starting_branch,
         )
