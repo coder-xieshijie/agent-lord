@@ -137,12 +137,28 @@ def _read_json(path: Path, missing_code: str, missing_message: str) -> Dict[str,
 def record_lock(record_kind: str, record_id: str, root: Optional[Path] = None) -> Iterator[None]:
     root = ensure_layout(root)
     lock_path = root / "locks" / (validate_identifier(record_kind + "_id", record_id) + ".lock")
-    descriptor: Optional[int] = None
+    descriptor = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+    acquired = False
     try:
-        descriptor = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        if os.name == "nt":
+            import msvcrt
+
+            if os.fstat(descriptor).st_size == 0:
+                os.write(descriptor, b"\0")
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        acquired = True
+        os.ftruncate(descriptor, 0)
         os.write(descriptor, (str(os.getpid()) + "\n").encode("ascii"))
+        os.fsync(descriptor)
         yield
-    except FileExistsError as exc:
+    except (BlockingIOError, PermissionError, OSError) as exc:
+        if acquired:
+            raise
         raise AgentLordError(
             "STATE_BUSY",
             "another process is updating this record",
@@ -151,12 +167,20 @@ def record_lock(record_kind: str, record_id: str, root: Optional[Path] = None) -
             details={"record_kind": record_kind, "record_id": record_id},
         ) from exc
     finally:
-        if descriptor is not None:
-            os.close(descriptor)
+        if acquired:
             try:
-                lock_path.unlink()
-            except FileNotFoundError:
+                if os.name == "nt":
+                    import msvcrt
+
+                    os.lseek(descriptor, 0, os.SEEK_SET)
+                    msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+            except OSError:
                 pass
+        os.close(descriptor)
 
 
 def normalize_task(value: Dict[str, Any]) -> Dict[str, Any]:

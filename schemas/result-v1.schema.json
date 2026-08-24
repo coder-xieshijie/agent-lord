@@ -7,7 +7,7 @@
   "properties": {
     "version": {"const": 1},
     "status": {
-      "enum": ["RUNNING", "ACTION_REQUIRED", "SUCCEEDED", "ERROR", "NEEDS_DECISION", "CHECKPOINT_QUIET", "IDLE"]
+      "enum": ["RUNNING", "ACTION_REQUIRED", "SUCCEEDED", "ERROR", "NEEDS_DECISION", "CHECKPOINT_ACTIONABLE", "CHECKPOINT_QUIET", "IDLE"]
     },
     "task_id": {"type": "string"},
     "operation_id": {"type": "string"},
@@ -46,7 +46,39 @@
         "requires_authorization": {"type": "boolean"}
       },
       "additionalProperties": true
+    },
+    "actionable": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["version", "status"],
+        "properties": {
+          "version": {"const": 1},
+          "status": {"enum": ["ACTION_REQUIRED", "SUCCEEDED", "ERROR", "NEEDS_DECISION"]},
+          "task_id": {"type": "string"},
+          "operation_id": {"type": "string"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "active": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["task_id", "operation_id", "provider", "operation_status"],
+        "additionalProperties": true
+      }
     }
   },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "CHECKPOINT_ACTIONABLE"}}},
+      "then": {"required": ["actionable", "active"]}
+    },
+    {
+      "if": {"properties": {"status": {"const": "CHECKPOINT_QUIET"}}},
+      "then": {"required": ["active"]}
+    }
+  ],
   "additionalProperties": true
 }

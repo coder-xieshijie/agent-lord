@@ -70,7 +70,24 @@ def control_config() -> Dict[str, int]:
             "control configuration must contain positive integer timing and retry values",
             exit_code=2,
         )
-    return {name: value[name] for name in required}
+    optional_defaults = {
+        "claude_stall_seconds": 900,
+        "claude_tool_stall_seconds": 3600,
+        "claude_terminate_grace_seconds": 10,
+        "claude_progress_poll_interval_ms": 250,
+    }
+    if any(
+        name in value and (not isinstance(value[name], int) or isinstance(value[name], bool) or value[name] <= 0)
+        for name in optional_defaults
+    ):
+        raise AgentLordError(
+            "CONFIG_INVALID",
+            "optional Claude supervision values must be positive integers",
+            exit_code=2,
+        )
+    result = {name: value[name] for name in required}
+    result.update({name: value.get(name, default) for name, default in optional_defaults.items()})
+    return result
 
 
 def validate_effort(provider: str, effort: str) -> None:

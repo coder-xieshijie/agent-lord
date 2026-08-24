@@ -44,7 +44,9 @@ def build_parser() -> argparse.ArgumentParser:
     start = subparsers.add_parser("start", help="create one durable endpoint")
     start.add_argument("--task-id", required=True)
     start.add_argument("--provider", required=True, choices=("claude-cli", "codex", "codex-cli", "codex-app"))
-    start.add_argument("--target", required=True)
+    target = start.add_mutually_exclusive_group(required=True)
+    target.add_argument("--target", help="existing provider working directory")
+    target.add_argument("--repo", help="repository whose source-branch worktree should be prepared")
     start.add_argument("--message-file", required=True)
     start.add_argument("--model")
     start.add_argument("--effort")
@@ -56,6 +58,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     start.add_argument("--head-sha")
     start.add_argument("--base-sha")
+    start.add_argument("--source-branch", help="source branch to reuse or create when --repo is used")
+    start.add_argument("--workspace-policy", choices=("reuse-or-create",))
+    start.add_argument("--worktree-root", help="optional parent directory for a newly created worktree")
     start.add_argument("--codex-environment", choices=("worktree", "local"), default="worktree")
     start.add_argument("--starting-branch")
 
@@ -75,12 +80,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="run one bounded foreground supervision checkpoint",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    checkpoint.add_argument("--task-id", action="append", dest="task_ids")
+    checkpoint.add_argument(
+        "--task-id",
+        action="append",
+        dest="task_ids",
+        help="task to supervise; repeat for one multi-task checkpoint (default: all active tasks)",
+    )
     checkpoint.add_argument(
         "--seconds",
         type=int,
         default=control_config()["checkpoint_seconds"],
-        help="maximum foreground wait duration",
+        help="maximum quiet interval before exit 124",
     )
 
     export = subparsers.add_parser("export-artifact", help="extract only the last final assistant message from a provider JSONL")
@@ -105,6 +115,10 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
             read_only=args.read_only,
             head_sha=args.head_sha,
             base_sha=args.base_sha,
+            repository=args.repo,
+            source_branch=args.source_branch,
+            workspace_policy=args.workspace_policy,
+            worktree_root=args.worktree_root,
             codex_environment=args.codex_environment,
             starting_branch=args.starting_branch,
         )

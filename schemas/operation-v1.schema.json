@@ -29,7 +29,7 @@
     "kind": {"enum": ["start", "turn"]},
     "target": {"type": "string"},
     "status": {
-      "enum": ["preparing", "running", "awaiting_action", "submitted", "succeeded", "failed", "needs_decision"]
+      "enum": ["preparing", "running", "recovering", "awaiting_action", "submitted", "succeeded", "failed", "needs_decision"]
     },
     "message": {"type": "string"},
     "message_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
@@ -49,6 +49,18 @@
     "read_only": {"type": "boolean"},
     "artifact": {"type": ["object", "null"]},
     "error": {"type": ["object", "null"]},
+    "controller_pid": {"type": ["integer", "null"]},
+    "recovery_controller_pid": {"type": ["integer", "null"]},
+    "active_attempt": {
+      "type": ["object", "null"],
+      "properties": {
+        "controller_pid": {"type": ["integer", "null"]},
+        "pid": {"type": ["integer", "null"]},
+        "process_group_id": {"type": ["integer", "null"]},
+        "prompt_delivery": {"enum": ["not-delivered", "delivery-unknown", "stdin-attached"]}
+      },
+      "additionalProperties": true
+    },
     "created_at": {"type": "string"},
     "updated_at": {"type": "string"}
   },

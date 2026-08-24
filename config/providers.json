@@ -4,14 +4,18 @@
     "checkpoint_seconds": 150,
     "dead_process_result_grace_seconds": 5,
     "finalize_lock_attempts": 40,
-    "finalize_lock_retry_interval_ms": 50
+    "finalize_lock_retry_interval_ms": 50,
+    "claude_stall_seconds": 900,
+    "claude_tool_stall_seconds": 3600,
+    "claude_terminate_grace_seconds": 10,
+    "claude_progress_poll_interval_ms": 250
   },
   "providers": {
     "claude-cli": {
       "binary_env": "AGENT_LORD_CLAUDE_BIN",
       "default_binary": "claude",
       "default_model": "claude-opus-5",
-      "default_effort": "xhigh",
+      "default_effort": "high",
       "default_retry_attempts": 5,
       "efforts": ["low", "medium", "high", "xhigh", "max"],
       "model_family_aliases": {
@@ -47,7 +51,7 @@
       "binary_env": "AGENT_LORD_CODEX_BIN",
       "default_binary": "codex",
       "default_model": "gpt-5.6-sol",
-      "default_effort": "xhigh",
+      "default_effort": "high",
       "default_retry_attempts": 1,
       "efforts": ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
       "permissions": {
@@ -68,7 +72,7 @@
     },
     "codex-app": {
       "default_model": "gpt-5.6-sol",
-      "default_effort": "xhigh",
+      "default_effort": "high",
       "default_retry_attempts": 1,
       "efforts": ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
       "list_threads_limit": 50,

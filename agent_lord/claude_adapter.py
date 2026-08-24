@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 from pathlib import Path
+import signal
 import shutil
 import subprocess
 import tempfile
-from typing import Any, Dict, Optional
+import time
+from typing import Any, Callable, Dict, List, Optional
+from uuid import uuid4
 
 from .artifacts import extract_claude_result
-from .claude_attempt_result import evaluate_claude_attempt, last_result
+from .claude_attempt_result import _json_objects, evaluate_claude_attempt
 from .config import claude_binary, permission_mode_policy, permission_policy
 from .errors import AgentLordError
 from .state import ensure_layout, update_operation
@@ -121,10 +125,183 @@ def claude_session_observed(operation: Dict[str, Any]) -> bool:
         stdout = Path(stdout_value).read_text(encoding="utf-8")
     except OSError:
         return False
+    return any(value.get("session_id") == session_id for value in _json_objects(stdout))
+
+
+def claude_output_activity_ms(operation: Dict[str, Any]) -> Optional[int]:
+    """Return the newest journaled or on-disk Claude progress timestamp."""
+    active_attempt = operation.get("active_attempt") or {}
+    candidates = [active_attempt.get("last_progress_at_ms"), operation.get("last_progress_at_ms")]
+    stdout_value = active_attempt.get("stdout_path") or operation.get("stdout_path")
+    if isinstance(stdout_value, str):
+        try:
+            candidates.append(int(Path(stdout_value).stat().st_mtime * 1000))
+        except OSError:
+            pass
+    values = [value for value in candidates if isinstance(value, int)]
+    return max(values) if values else None
+
+
+def terminate_claude_process(
+    pid: int,
+    process_group_id: Optional[int],
+    grace_seconds: int,
+    process: Optional[subprocess.Popen] = None,
+) -> None:
+    """Fence one Claude attempt and confirm its whole provider process tree exited."""
+    if pid <= 0:
+        return
+
+    def pid_alive(value: int) -> bool:
+        try:
+            os.kill(value, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        except OSError as exc:
+            return exc.errno != errno.ESRCH
+        return True
+
+    def group_alive(value: int) -> bool:
+        try:
+            os.killpg(value, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        except OSError as exc:
+            return exc.errno != errno.ESRCH
+        return True
+
+    def reap_leader() -> None:
+        if process is None or process.poll() is None:
+            return
+        try:
+            process.wait(timeout=0)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+
+    def wait_until_gone(alive: Callable[[], bool], seconds: float) -> bool:
+        deadline = time.monotonic() + max(0.05, seconds)
+        while time.monotonic() < deadline:
+            reap_leader()
+            if not alive():
+                return True
+            time.sleep(0.05)
+        reap_leader()
+        return not alive()
+
+    grace = max(0, grace_seconds)
+    if os.name == "posix" and isinstance(process_group_id, int) and process_group_id > 0:
+        pgid = process_group_id
+        if not group_alive(pgid):
+            reap_leader()
+            return
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            reap_leader()
+            return
+        except OSError as exc:
+            raise AgentLordError(
+                "PROCESS_FENCE_FAILED",
+                "cannot signal Claude process group",
+                details={"pid": pid, "process_group_id": pgid, "error": str(exc)},
+            ) from exc
+        if wait_until_gone(lambda: group_alive(pgid), grace):
+            return
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            reap_leader()
+            return
+        except OSError as exc:
+            raise AgentLordError(
+                "PROCESS_FENCE_FAILED",
+                "cannot force-kill Claude process group",
+                details={"pid": pid, "process_group_id": pgid, "error": str(exc)},
+            ) from exc
+        if not wait_until_gone(lambda: group_alive(pgid), max(1, grace)):
+            raise AgentLordError(
+                "PROCESS_FENCE_FAILED",
+                "Claude process group did not terminate after SIGKILL",
+                details={"pid": pid, "process_group_id": pgid},
+            )
+        return
+
+    if os.name == "nt":
+        if process is not None and process.poll() is not None:
+            process.wait()
+            return
+        try:
+            completed = subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                timeout=max(1, grace),
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            completed = None
+        if completed is None or completed.returncode != 0:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except OSError:
+                pass
+        if wait_until_gone(lambda: pid_alive(pid), max(1, grace)):
+            return
+        raise AgentLordError(
+            "PROCESS_FENCE_FAILED",
+            "Claude process tree did not terminate",
+            details={"pid": pid},
+        )
+
+    if not pid_alive(pid):
+        reap_leader()
+        return
     try:
-        return last_result(stdout).get("session_id") == session_id
-    except AgentLordError:
-        return False
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        reap_leader()
+        return
+    except OSError as exc:
+        raise AgentLordError(
+            "PROCESS_FENCE_FAILED",
+            "cannot signal Claude process",
+            details={"pid": pid, "error": str(exc)},
+        ) from exc
+    if wait_until_gone(lambda: pid_alive(pid), grace):
+        return
+    try:
+        if process is not None:
+            try:
+                process.kill()
+            except OSError:
+                pass
+        else:
+            os.kill(pid, signal.SIGKILL)
+    except OSError:
+        pass
+    if not wait_until_gone(lambda: pid_alive(pid), max(1, grace)):
+        raise AgentLordError(
+            "PROCESS_FENCE_FAILED",
+            "Claude process did not terminate",
+            details={"pid": pid},
+        )
+
+
+def _progress_state(event: Dict[str, Any]) -> str:
+    event_type = str(event.get("type") or "provider-output")
+    subtype = str(event.get("subtype") or "")
+    nested = event.get("event")
+    nested_type = str(nested.get("type") or "") if isinstance(nested, dict) else ""
+    if any("hook" in value or "tool" in value for value in (event_type, subtype, nested_type)):
+        return "tool_wait"
+    if event_type == "system":
+        return "provider_wait"
+    return "progressing"
 
 
 def run_claude(
@@ -139,6 +316,12 @@ def run_claude(
     permission_mode: Optional[str] = None,
     attempt_number: Optional[int] = None,
     root: Optional[Path] = None,
+    stall_seconds: int = 900,
+    tool_stall_seconds: int = 3600,
+    terminate_grace_seconds: int = 10,
+    progress_poll_interval_ms: int = 250,
+    prompt_kind: str = "original",
+    recovery_marker: Optional[str] = None,
 ) -> Dict[str, Any]:
     root = ensure_layout(root)
     target_path = Path(target).expanduser().resolve()
@@ -154,7 +337,7 @@ def run_claude(
         command.extend(["--resume", session_id])
     else:
         command.extend(["--session-id", session_id])
-    command.extend(["--output-format", "json"])
+    command.extend(["--output-format", "stream-json", "--verbose", "--include-partial-messages", "--include-hook-events"])
     if model:
         command.extend(["--model", model])
     if effort:
@@ -185,12 +368,17 @@ def run_claude(
             os.fsync(prompt_file.fileno())
         os.chmod(str(prompt_path), 0o600)
 
+        attempt_id = uuid4().hex
+        started_at_ms = int(time.time() * 1000)
+
         def mark_prepared(value: Dict[str, Any]) -> Dict[str, Any]:
             value["endpoint_id"] = session_id
             value["resume"] = resume
             value["provider_command"] = command
             value["stdout_path"] = str(stdout_path)
             value["stderr_path"] = str(stderr_path)
+            value.pop("provider_return_code", None)
+            value.pop("dead_process_observed_at_ms", None)
             value["active_attempt"] = {
                 "number": attempt_number,
                 "model": model,
@@ -198,7 +386,21 @@ def run_claude(
                 "command": command,
                 "stdout_path": str(stdout_path),
                 "stderr_path": str(stderr_path),
+                "attempt_id": attempt_id,
+                "controller_pid": os.getpid(),
+                "prompt_kind": prompt_kind,
+                "recovery_marker": recovery_marker,
+                "prompt_delivery": "delivery-unknown",
+                "progress_state": "provider_wait",
+                "last_progress_at_ms": started_at_ms,
+                "progress_seq": 0,
             }
+            value["last_progress_at_ms"] = started_at_ms
+            value["observed"] = dict(value.get("observed") or {}, supervision={
+                "state": "provider_wait",
+                "attempt": attempt_number,
+                "last_progress_at_ms": started_at_ms,
+            })
             return value
 
         update_operation(operation_id, mark_prepared, root)
@@ -217,8 +419,17 @@ def run_claude(
                         stdout=stdout_handle,
                         stderr=stderr_handle,
                         text=True,
+                        start_new_session=os.name == "posix",
                     )
                 except OSError as exc:
+                    def mark_not_delivered(value: Dict[str, Any]) -> Dict[str, Any]:
+                        active = dict(value.get("active_attempt") or {})
+                        if active.get("attempt_id") == attempt_id:
+                            active["prompt_delivery"] = "not-delivered"
+                            value["active_attempt"] = active
+                        return value
+
+                    update_operation(operation_id, mark_not_delivered, root)
                     raise AgentLordError(
                         "PROVIDER_UNAVAILABLE",
                         "cannot launch Claude CLI",
@@ -233,9 +444,115 @@ def run_claude(
                     value["provider_command"] = command
                     value["stdout_path"] = str(stdout_path)
                     value["stderr_path"] = str(stderr_path)
+                    active = dict(value.get("active_attempt") or {})
+                    if active.get("attempt_id") == attempt_id:
+                        active["pid"] = process.pid
+                        active["process_group_id"] = process.pid if os.name == "posix" else None
+                        active["prompt_delivery"] = "stdin-attached"
+                        active["prompt_delivered_at_ms"] = int(time.time() * 1000)
+                        value["active_attempt"] = active
                     return value
 
                 update_operation(operation_id, mark_running, root)
+                read_offset = 0
+                remainder = ""
+                last_activity = time.monotonic()
+                last_journaled = 0.0
+                progress_seq = 0
+                session_observed = False
+                current_progress_state = "provider_wait"
+                while process.poll() is None:
+                    try:
+                        with stdout_path.open("rb") as progress_handle:
+                            progress_handle.seek(read_offset)
+                            chunk = progress_handle.read()
+                            read_offset = progress_handle.tell()
+                    except OSError:
+                        chunk = b""
+                    if chunk:
+                        last_activity = time.monotonic()
+                        remainder += chunk.decode("utf-8", errors="replace")
+                        lines = remainder.split("\n")
+                        remainder = lines.pop()
+                        events: List[Dict[str, Any]] = []
+                        for line in lines:
+                            try:
+                                event = json.loads(line)
+                            except json.JSONDecodeError:
+                                continue
+                            if isinstance(event, dict):
+                                events.append(event)
+                        if events:
+                            progress_seq += len(events)
+                            session_observed = session_observed or any(
+                                event.get("session_id") == session_id for event in events
+                            )
+                            now_ms = int(time.time() * 1000)
+                            event_type = str(events[-1].get("type") or "provider-output")
+                            state = _progress_state(events[-1])
+                            current_progress_state = state
+                            if time.monotonic() - last_journaled >= 1.0 or event_type == "result":
+                                def mark_progress(value: Dict[str, Any]) -> Dict[str, Any]:
+                                    active = dict(value.get("active_attempt") or {})
+                                    if active.get("attempt_id") != attempt_id:
+                                        return value
+                                    active.update({
+                                        "last_progress_at_ms": now_ms,
+                                        "last_progress_event": event_type,
+                                        "progress_state": state,
+                                        "progress_seq": progress_seq,
+                                        "session_observed": session_observed,
+                                    })
+                                    value["active_attempt"] = active
+                                    value["last_progress_at_ms"] = now_ms
+                                    value["observed"] = dict(value.get("observed") or {}, supervision={
+                                        "state": state,
+                                        "attempt": attempt_number,
+                                        "last_progress_at_ms": now_ms,
+                                        "last_event": event_type,
+                                        "progress_seq": progress_seq,
+                                    })
+                                    return value
+
+                                update_operation(operation_id, mark_progress, root)
+                                last_journaled = time.monotonic()
+                    active_stall_seconds = tool_stall_seconds if current_progress_state == "tool_wait" else stall_seconds
+                    if time.monotonic() - last_activity >= active_stall_seconds:
+                        now_ms = int(time.time() * 1000)
+
+                        def mark_stalled(value: Dict[str, Any]) -> Dict[str, Any]:
+                            active = dict(value.get("active_attempt") or {})
+                            if active.get("attempt_id") != attempt_id:
+                                return value
+                            active["progress_state"] = "suspected_stall"
+                            active["stalled_at_ms"] = now_ms
+                            value["active_attempt"] = active
+                            value["observed"] = dict(value.get("observed") or {}, supervision={
+                                "state": "suspected_stall",
+                                "attempt": attempt_number,
+                                "last_progress_at_ms": active.get("last_progress_at_ms"),
+                            })
+                            return value
+
+                        update_operation(operation_id, mark_stalled, root)
+                        terminate_claude_process(
+                            process.pid,
+                            process.pid if os.name == "posix" else None,
+                            terminate_grace_seconds,
+                            process,
+                        )
+                        raise AgentLordError(
+                            "PROVIDER_STALLED",
+                            "Claude produced no stream progress before the supervision deadline",
+                            retryable=True,
+                            safe_recovery="RESUME_SAME_ENDPOINT_WITH_CONTINUATION_QUERY",
+                            details={
+                                "attempt": attempt_number,
+                                "stall_seconds": active_stall_seconds,
+                                "session_observed": session_observed,
+                            },
+                        )
+                    time.sleep(progress_poll_interval_ms / 1000)
                 return_code = process.wait()
 
                 def mark_exited(value: Dict[str, Any]) -> Dict[str, Any]:

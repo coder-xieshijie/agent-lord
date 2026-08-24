@@ -8,13 +8,21 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
+from threading import Thread
 import time
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
 from . import codex_adapter
 from .artifacts import extract_codex_result, extract_jsonl_with_metadata, write_artifact
-from .claude_adapter import claude_session_observed, recover_claude, run_claude
+from .claude_adapter import (
+    claude_output_activity_ms,
+    claude_session_observed,
+    recover_claude,
+    run_claude,
+    terminate_claude_process,
+)
 from .codex_cli_adapter import recover_codex_cli, run_codex_cli
 from .config import (
     control_config,
@@ -123,6 +131,138 @@ class AgentLord:
                     details={"target": target, "expected_base": expected_base, "error": str(exc)},
                 ) from exc
 
+    @staticmethod
+    def _git(repository: str, arguments: List[str], *, check: bool = True) -> subprocess.CompletedProcess:
+        try:
+            return subprocess.run(
+                ["git", "-C", repository] + arguments,
+                check=check,
+                capture_output=True,
+                text=True,
+            )
+        except (OSError, subprocess.CalledProcessError) as exc:
+            stderr = exc.stderr.strip() if isinstance(exc, subprocess.CalledProcessError) and exc.stderr else str(exc)
+            raise AgentLordError(
+                "SOURCE_UNVERIFIED",
+                "git could not prepare the requested source worktree",
+                details={"repository": repository, "arguments": arguments, "error": stderr},
+            ) from exc
+
+    @classmethod
+    def _worktrees(cls, repository: str) -> List[Dict[str, str]]:
+        result = cls._git(repository, ["worktree", "list", "--porcelain"])
+        worktrees: List[Dict[str, str]] = []
+        for record in result.stdout.strip().split("\n\n"):
+            if not record:
+                continue
+            item: Dict[str, str] = {}
+            for line in record.splitlines():
+                if " " in line:
+                    key, value = line.split(" ", 1)
+                    item[key] = value
+            if item.get("worktree"):
+                worktrees.append(item)
+        return worktrees
+
+    @classmethod
+    def _ref_head(cls, repository: str, ref: str) -> Optional[str]:
+        result = cls._git(repository, ["rev-parse", "--verify", ref + "^{commit}"], check=False)
+        if result.returncode != 0:
+            return None
+        return result.stdout.strip().lower()
+
+    def _resolve_workspace_target(
+        self,
+        task_id: str,
+        repository: str,
+        source_branch: str,
+        worktree_root: Optional[str],
+    ) -> str:
+        branch_ref = "refs/heads/" + source_branch
+        matches = [item for item in self._worktrees(repository) if item.get("branch") == branch_ref]
+        if len(matches) > 1:
+            raise AgentLordError(
+                "SOURCE_UNVERIFIED",
+                "source branch is bound to more than one worktree",
+                details={"source_branch": source_branch, "worktrees": [item["worktree"] for item in matches]},
+            )
+        if matches:
+            return str(Path(matches[0]["worktree"]).expanduser().resolve())
+        parent = Path(worktree_root).expanduser().resolve() if worktree_root else self.root / "worktrees"
+        return str((parent / task_id).resolve())
+
+    def _prepare_workspace(
+        self,
+        repository: str,
+        source_branch: str,
+        expected_head: str,
+        target: str,
+    ) -> str:
+        branch_ref = "refs/heads/" + source_branch
+        matches = [item for item in self._worktrees(repository) if item.get("branch") == branch_ref]
+        if len(matches) > 1:
+            raise AgentLordError(
+                "SOURCE_UNVERIFIED",
+                "source branch is bound to more than one worktree",
+                details={"source_branch": source_branch, "worktrees": [item["worktree"] for item in matches]},
+            )
+        if matches:
+            target = str(Path(matches[0]["worktree"]).expanduser().resolve())
+        else:
+            target_path = Path(target)
+            if target_path.exists():
+                raise AgentLordError(
+                    "SOURCE_UNVERIFIED",
+                    "planned worktree path already exists",
+                    details={"target": target},
+                )
+            target_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            local_head = self._ref_head(repository, branch_ref)
+            if local_head and local_head != expected_head:
+                raise AgentLordError(
+                    "SOURCE_MISMATCH",
+                    "local source branch is not at the requested fixed head",
+                    details={"source_branch": source_branch, "expected_head": expected_head, "observed_head": local_head},
+                )
+            if local_head:
+                arguments = ["worktree", "add", target, source_branch]
+            else:
+                remote_ref = "refs/remotes/origin/" + source_branch
+                remote_head = self._ref_head(repository, remote_ref)
+                if remote_head and remote_head != expected_head:
+                    raise AgentLordError(
+                        "SOURCE_MISMATCH",
+                        "local remote-tracking source branch is not at the requested fixed head",
+                        details={"source_branch": source_branch, "expected_head": expected_head, "observed_head": remote_head},
+                    )
+                if remote_head:
+                    arguments = ["worktree", "add", "--track", "-b", source_branch, target, remote_ref]
+                else:
+                    if self._ref_head(repository, expected_head) is None:
+                        raise AgentLordError(
+                            "SOURCE_UNVERIFIED",
+                            "fixed source commit is not available in the local repository",
+                            details={"repository": repository, "expected_head": expected_head},
+                        )
+                    arguments = ["worktree", "add", "-b", source_branch, target, expected_head]
+            self._git(repository, arguments)
+
+        status = self._git(target, ["status", "--porcelain", "--untracked-files=normal"])
+        if status.stdout.strip():
+            raise AgentLordError(
+                "SOURCE_MISMATCH",
+                "source worktree has uncommitted changes",
+                details={"target": target},
+            )
+        observed_head = self._ref_head(target, "HEAD")
+        if observed_head != expected_head:
+            raise AgentLordError(
+                "SOURCE_MISMATCH",
+                "source worktree is not at the requested fixed head",
+                details={"target": target, "expected_head": expected_head, "observed_head": observed_head},
+            )
+        return target
+
     def _task_exists(self, task_id: str) -> bool:
         return task_path(task_id, self.root).exists()
 
@@ -133,6 +273,10 @@ class AgentLord:
     @staticmethod
     def _operation_control_lock_id(operation_id: str) -> str:
         return "control-" + hashlib.sha256(operation_id.encode("utf-8")).hexdigest()[:32]
+
+    @staticmethod
+    def _controller_lease_lock_id(operation_id: str) -> str:
+        return "controller-" + hashlib.sha256(operation_id.encode("utf-8")).hexdigest()[:32]
 
     def _active_operation(self, task_id: str) -> Optional[Dict[str, Any]]:
         active = [
@@ -180,8 +324,11 @@ class AgentLord:
         expected: Dict[str, Any],
         source: Dict[str, str],
         read_only: bool,
+        operation_id: Optional[str] = None,
+        controller_pid: Optional[int] = None,
+        endpoint_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        operation_id = self._operation_id(task_id, kind)
+        operation_id = operation_id or self._operation_id(task_id, kind)
         now = utc_now()
         value: Dict[str, Any] = {
             "version": 1,
@@ -202,6 +349,10 @@ class AgentLord:
             "created_at": now,
             "updated_at": now,
         }
+        if controller_pid is not None:
+            value["controller_pid"] = controller_pid
+        if endpoint_id is not None:
+            value["endpoint_id"] = endpoint_id
         create_operation(value, self.root)
         append_event(task_id, "operation-created", {"kind": kind, "provider": provider}, operation_id, self.root)
         return value
@@ -404,13 +555,29 @@ class AgentLord:
         model: str,
         status: str,
         error: Optional[AgentLordError] = None,
+        session_observed: Optional[bool] = None,
+        retrying: bool = False,
+        claim_controller: bool = True,
         warnings: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         def mutate(value: Dict[str, Any]) -> Dict[str, Any]:
             history = list(value.get("attempt_history") or [])
             entry: Dict[str, Any] = {"number": attempt_number, "model": model, "status": status}
+            active = value.get("active_attempt") or {}
+            for name in (
+                "attempt_id",
+                "prompt_kind",
+                "recovery_marker",
+                "prompt_delivery",
+                "prompt_delivered_at_ms",
+                "progress_seq",
+            ):
+                if active.get(name) is not None:
+                    entry[name] = active[name]
             if error is not None:
                 entry["error"] = error.as_dict()
+            if session_observed is not None:
+                entry["session_observed"] = session_observed
             if warnings:
                 entry["warnings"] = [
                     {key: warning[key] for key in ("code", "source", "model") if key in warning}
@@ -420,6 +587,18 @@ class AgentLord:
             value["attempt_history"] = history
             if status == "failed":
                 value["active_attempt"] = None
+                if retrying:
+                    value["status"] = "recovering"
+                    controller_pid = os.getpid() if claim_controller else None
+                    value["controller_pid"] = controller_pid
+                    value["recovery_controller_pid"] = controller_pid
+                value["observed"] = dict(value.get("observed") or {}, supervision={
+                    "state": "recovering" if retrying else (
+                        "provider_failed" if error and error.code != "PROVIDER_STALLED" else "suspected_stall"
+                    ),
+                    "attempt": attempt_number,
+                    "error_code": error.code if error else None,
+                })
             return value
 
         updated = update_operation(operation["operation_id"], mutate, self.root)
@@ -443,22 +622,19 @@ class AgentLord:
             )
         return updated
 
-    def _raise_cli_failure(self, operation: Dict[str, Any], error: AgentLordError, exhausted: bool = False) -> Dict[str, Any]:
-        history = operation.get("attempt_history") or []
-        terminal_error = AgentLordError(
-            error.code,
-            error.message,
-            retryable=False if exhausted else error.retryable,
-            safe_recovery=None if exhausted else error.safe_recovery,
-            requires_authorization=error.requires_authorization,
-            details=dict(
-                error.details,
-                attempts=history,
-                retry_exhausted=exhausted,
-            ),
-            exit_code=error.exit_code,
+    @staticmethod
+    def _claude_recovery_message(operation_id: str, attempt_number: int, reason: str) -> Tuple[str, str]:
+        marker = "agent-lord-recovery:%s:%d" % (operation_id, attempt_number)
+        return (
+            "[%s]\n"
+            "Continue the same task in this existing Claude session after the previous provider attempt ended "
+            "with %s. Inspect the conversation and current worktree first, do not repeat work that is already "
+            "complete, then finish the original request and return its final answer.\n" % (marker, reason),
+            marker,
         )
-        failed = self._fail_operation(operation, terminal_error)
+
+    def _raise_cli_failure(self, operation: Dict[str, Any], error: AgentLordError, exhausted: bool = False) -> Dict[str, Any]:
+        failed, terminal_error = self._terminalize_cli_failure(operation, error, exhausted)
         raise AgentLordError(
             terminal_error.code,
             terminal_error.message,
@@ -469,20 +645,91 @@ class AgentLord:
             exit_code=terminal_error.exit_code,
         ) from error
 
+    def _terminalize_cli_failure(
+        self,
+        operation: Dict[str, Any],
+        error: AgentLordError,
+        exhausted: bool,
+    ) -> Tuple[Dict[str, Any], AgentLordError]:
+        terminal_error = AgentLordError(
+            error.code,
+            error.message,
+            retryable=False if exhausted else error.retryable,
+            safe_recovery=None if exhausted else error.safe_recovery,
+            requires_authorization=error.requires_authorization,
+            details=dict(
+                error.details,
+                attempts=operation.get("attempt_history") or [],
+                retry_exhausted=exhausted,
+            ),
+            exit_code=error.exit_code,
+        )
+        return self._fail_operation(operation, terminal_error), terminal_error
+
+    @staticmethod
+    def _claude_delivery_requires_continuation(operation: Dict[str, Any]) -> bool:
+        attempts = list(operation.get("attempt_history") or [])
+        active = operation.get("active_attempt")
+        if isinstance(active, dict):
+            attempts.append(active)
+        return any(
+            attempt.get("prompt_delivery") in ("delivery-unknown", "stdin-attached")
+            for attempt in attempts
+            if isinstance(attempt, dict)
+        )
+
     def _finish_claude(self, operation: Dict[str, Any], session_id: str, resume: bool) -> Dict[str, Any]:
         models = self._expanded_retry_models(operation)
         if not models:
             raise AgentLordError("STATE_CORRUPT", "Claude operation has no retry plan")
         current = load_operation(operation["operation_id"], self.root)
         start_index = len(current.get("attempt_history") or [])
-        attempt_resume = resume or start_index > 0
+        attempt_resume = (
+            resume
+            or (start_index > 0 and claude_session_observed(current))
+            or self._claude_delivery_requires_continuation(current)
+        )
+        prior_history = current.get("attempt_history") or []
+        previous_reason = (
+            prior_history[-1].get("error", {}).get("code", "PROVIDER_FAILED")
+            if prior_history
+            else "PROVIDER_FAILED"
+        )
         for index in range(start_index, len(models)):
             model = models[index]
+            prompt = operation["message"]
+            prompt_kind = "original"
+            recovery_marker: Optional[str] = None
+            if index > 0 and attempt_resume:
+                prompt, recovery_marker = self._claude_recovery_message(
+                    operation["operation_id"],
+                    index + 1,
+                    previous_reason,
+                )
+                prompt_kind = "continuation"
+                current = self._set_operation_status(
+                    operation["operation_id"],
+                    "recovering",
+                    recovery_controller_pid=os.getpid(),
+                    observed=dict(current.get("observed") or {}, supervision={
+                        "state": "recovering",
+                        "attempt": index + 1,
+                        "reason": previous_reason,
+                        "recovery_marker": recovery_marker,
+                    }),
+                )
+                append_event(
+                    operation["task_id"],
+                    "provider-recovery-query-prepared",
+                    {"attempt": index + 1, "reason": previous_reason, "recovery_marker": recovery_marker},
+                    operation["operation_id"],
+                    self.root,
+                )
             try:
                 result = run_claude(
                     operation["operation_id"],
                     operation["target"],
-                    operation["message"],
+                    prompt,
                     session_id,
                     attempt_resume,
                     model,
@@ -491,14 +738,35 @@ class AgentLord:
                     operation.get("expected", {}).get("permission_mode"),
                     index + 1,
                     self.root,
+                    self.control["claude_stall_seconds"],
+                    self.control["claude_tool_stall_seconds"],
+                    self.control["claude_terminate_grace_seconds"],
+                    self.control["claude_progress_poll_interval_ms"],
+                    prompt_kind,
+                    recovery_marker,
                 )
             except AgentLordError as error:
                 if error.code == "STATE_BUSY":
                     raise
                 current = load_operation(operation["operation_id"], self.root)
-                attempt_resume = attempt_resume or claude_session_observed(current)
-                current = self._record_claude_attempt(current, index + 1, model, "failed", error)
-                if not error.retryable or index + 1 >= len(models):
+                session_observed = claude_session_observed(current)
+                attempt_resume = (
+                    attempt_resume
+                    or session_observed
+                    or self._claude_delivery_requires_continuation(current)
+                )
+                retrying = error.retryable and index + 1 < len(models)
+                current = self._record_claude_attempt(
+                    current,
+                    index + 1,
+                    model,
+                    "failed",
+                    error,
+                    session_observed=session_observed,
+                    retrying=retrying,
+                )
+                previous_reason = error.code
+                if not retrying:
                     return self._raise_cli_failure(current, error, exhausted=error.retryable)
                 continue
             current = self._record_claude_attempt(
@@ -549,13 +817,17 @@ class AgentLord:
         self,
         task_id: str,
         provider: str,
-        target: str,
+        target: Optional[str],
         message: str,
         model: Optional[str] = None,
         effort: Optional[str] = None,
         read_only: bool = False,
         head_sha: Optional[str] = None,
         base_sha: Optional[str] = None,
+        repository: Optional[str] = None,
+        source_branch: Optional[str] = None,
+        workspace_policy: Optional[str] = None,
+        worktree_root: Optional[str] = None,
         codex_environment: str = "worktree",
         starting_branch: Optional[str] = None,
         retry_attempts: Optional[int] = None,
@@ -565,53 +837,127 @@ class AgentLord:
         provider_config(provider)
         model, effort = resolve_execution_defaults(provider, model, effort)
         retry_plan = resolve_retry_plan(provider, model, retry_attempts)
-        if not isinstance(target, str) or not target or not isinstance(message, str) or not message:
-            raise AgentLordError("CONFIG_INVALID", "target and message must be non-empty", exit_code=2)
+        if not isinstance(message, str) or not message:
+            raise AgentLordError("CONFIG_INVALID", "message must be non-empty", exit_code=2)
         message_hash = self._message_hash(message)
         source = self._validate_source(head_sha, base_sha)
+        workspace_requested = repository is not None
+        if workspace_requested:
+            if target is not None or provider not in ("claude-cli", "codex-cli"):
+                raise AgentLordError(
+                    "CONFIG_INVALID",
+                    "repository workspace preparation requires a local CLI provider and no target",
+                    exit_code=2,
+                )
+            if (
+                not isinstance(repository, str)
+                or not repository
+                or not isinstance(source_branch, str)
+                or not source_branch
+                or source_branch.startswith("-")
+                or workspace_policy != "reuse-or-create"
+                or not source.get("head_sha")
+            ):
+                raise AgentLordError(
+                    "CONFIG_INVALID",
+                    "repo workspace preparation requires source-branch, reuse-or-create, and a full head-sha",
+                    exit_code=2,
+                )
+            repository = str(Path(repository).expanduser().resolve())
+            self._git(repository, ["check-ref-format", "--branch", source_branch])
+            target = self._resolve_workspace_target(task_id, repository, source_branch, worktree_root)
+        elif source_branch is not None or workspace_policy is not None or worktree_root is not None:
+            raise AgentLordError(
+                "CONFIG_INVALID",
+                "source-branch, workspace-policy, and worktree-root require repo workspace preparation",
+                exit_code=2,
+            )
+        if not isinstance(target, str) or not target:
+            raise AgentLordError("CONFIG_INVALID", "target must be non-empty", exit_code=2)
         if provider in ("claude-cli", "codex-cli"):
             target = str(Path(target).expanduser().resolve())
-            self._verify_checkout(target, source)
+            if not workspace_requested:
+                self._verify_checkout(target, source)
         elif codex_environment not in ("worktree", "local"):
             raise AgentLordError("CONFIG_INVALID", "Codex environment must be worktree or local", exit_code=2)
 
         expected = self._expected_contract(provider, model, effort, read_only, retry_plan=retry_plan)
         action: Optional[Dict[str, Any]] = None
-        with record_lock("dispatch", self._dispatch_lock_id(task_id), self.root):
-            if self._task_exists(task_id):
-                task = load_task(task_id, self.root)
-                last_operation_id = task.get("last_operation_id")
-                if last_operation_id:
-                    last_operation = load_operation(last_operation_id, self.root)
-                    if self._same_start_spec(last_operation, provider, target, message_hash, expected, source, read_only):
-                        return self.envelope(last_operation)
-                raise AgentLordError(
-                    "TASK_EXISTS",
-                    "task_id already has a durable endpoint",
-                    details={"task_id": task_id},
-                    exit_code=2,
+        claude_lease = None
+        session_id = str(uuid4()) if provider == "claude-cli" else None
+        try:
+            with record_lock("dispatch", self._dispatch_lock_id(task_id), self.root):
+                if self._task_exists(task_id):
+                    task = load_task(task_id, self.root)
+                    last_operation_id = task.get("last_operation_id")
+                    if last_operation_id:
+                        last_operation = load_operation(last_operation_id, self.root)
+                        if self._same_start_spec(last_operation, provider, target, message_hash, expected, source, read_only):
+                            return self.envelope(last_operation)
+                    raise AgentLordError(
+                        "TASK_EXISTS",
+                        "task_id already has a durable endpoint",
+                        details={"task_id": task_id},
+                        exit_code=2,
+                    )
+                inflight = self._active_operation(task_id)
+                if inflight:
+                    if self._same_start_spec(inflight, provider, target, message_hash, expected, source, read_only):
+                        return self.envelope(inflight)
+                    raise AgentLordError(
+                        "OPERATION_IN_FLIGHT",
+                        "task_id already has a different start in flight",
+                        retryable=True,
+                        safe_recovery="CHECK_SAME_OPERATION",
+                        details={"operation_id": inflight["operation_id"], "status": inflight.get("status")},
+                    )
+                if workspace_requested:
+                    assert repository is not None and source_branch is not None
+                    target = self._prepare_workspace(
+                        repository,
+                        source_branch,
+                        source["head_sha"],
+                        target,
+                    )
+                    self._verify_checkout(target, source)
+                operation_id = self._operation_id(task_id, "start")
+                if provider == "claude-cli":
+                    claude_lease = record_lock(
+                        "controller-lease",
+                        self._controller_lease_lock_id(operation_id),
+                        self.root,
+                    )
+                    claude_lease.__enter__()
+                operation = self._new_operation(
+                    task_id,
+                    provider,
+                    "start",
+                    target,
+                    message,
+                    expected,
+                    source,
+                    read_only,
+                    operation_id=operation_id,
+                    controller_pid=os.getpid() if provider == "claude-cli" else None,
+                    endpoint_id=session_id,
                 )
-            inflight = self._active_operation(task_id)
-            if inflight:
-                if self._same_start_spec(inflight, provider, target, message_hash, expected, source, read_only):
-                    return self.envelope(inflight)
-                raise AgentLordError(
-                    "OPERATION_IN_FLIGHT",
-                    "task_id already has a different start in flight",
-                    retryable=True,
-                    safe_recovery="CHECK_SAME_OPERATION",
-                    details={"operation_id": inflight["operation_id"], "status": inflight.get("status")},
-                )
-            operation = self._new_operation(task_id, provider, "start", target, message, expected, source, read_only)
-            if provider == "codex-app":
-                action = codex_adapter.create_thread_action(operation, codex_environment, starting_branch, self.root)
-                operation = self._set_operation_status(
-                    operation["operation_id"],
-                    "awaiting_action",
-                    action_id=action["action_id"],
-                )
+                if provider == "codex-app":
+                    action = codex_adapter.create_thread_action(operation, codex_environment, starting_branch, self.root)
+                    operation = self._set_operation_status(
+                        operation["operation_id"],
+                        "awaiting_action",
+                        action_id=action["action_id"],
+                    )
+        except BaseException:
+            if claude_lease is not None:
+                claude_lease.__exit__(*sys.exc_info())
+            raise
         if provider == "claude-cli":
-            return self._finish_claude(operation, str(uuid4()), resume=False)
+            assert session_id is not None and claude_lease is not None
+            try:
+                return self._finish_claude(operation, session_id, resume=False)
+            finally:
+                claude_lease.__exit__(None, None, None)
         if provider == "codex-cli":
             return self._finish_codex_cli(operation, endpoint_id=None, resume=False)
 
@@ -624,59 +970,80 @@ class AgentLord:
             raise AgentLordError("CONFIG_INVALID", "message must be non-empty", exit_code=2)
         message_hash = self._message_hash(message)
         action: Optional[Dict[str, Any]] = None
-        with record_lock("dispatch", self._dispatch_lock_id(task_id), self.root):
-            task = load_task(task_id, self.root)
-            if task.get("legacy_version") == 1:
-                raise AgentLordError(
-                    "EXECUTION_CONTRACT_REQUIRED",
-                    "version 1 task must be explicitly upgraded before another turn",
-                    requires_authorization=True,
-                    details={"task_id": task_id, "recovery": "scripts/task_store.py upgrade"},
-                    exit_code=2,
+        claude_lease = None
+        try:
+            with record_lock("dispatch", self._dispatch_lock_id(task_id), self.root):
+                task = load_task(task_id, self.root)
+                if task.get("legacy_version") == 1:
+                    raise AgentLordError(
+                        "EXECUTION_CONTRACT_REQUIRED",
+                        "version 1 task must be explicitly upgraded before another turn",
+                        requires_authorization=True,
+                        details={"task_id": task_id, "recovery": "scripts/task_store.py upgrade"},
+                        exit_code=2,
+                    )
+                inflight = self._active_operation(task_id)
+                if inflight:
+                    if inflight.get("message_sha256") == message_hash:
+                        return self.envelope(inflight)
+                    raise AgentLordError(
+                        "OPERATION_IN_FLIGHT",
+                        "the previous turn has not reached a terminal state",
+                        retryable=True,
+                        safe_recovery="CHECK_SAME_OPERATION",
+                        details={"operation_id": inflight["operation_id"], "status": inflight.get("status")},
+                    )
+                contract = task.get("contract") or {}
+                source = contract.get("source") or {}
+                if task["provider"] in ("claude-cli", "codex-cli"):
+                    self._verify_checkout(task["target"], source)
+                expected = self._expected_contract(
+                    task["provider"],
+                    contract.get("model"),
+                    contract.get("effort"),
+                    bool(contract.get("read_only")),
+                    contract.get("permission_mode"),
+                    contract.get("retry_plan"),
                 )
-            inflight = self._active_operation(task_id)
-            if inflight:
-                if inflight.get("message_sha256") == message_hash:
-                    return self.envelope(inflight)
-                raise AgentLordError(
-                    "OPERATION_IN_FLIGHT",
-                    "the previous turn has not reached a terminal state",
-                    retryable=True,
-                    safe_recovery="CHECK_SAME_OPERATION",
-                    details={"operation_id": inflight["operation_id"], "status": inflight.get("status")},
+                operation_id = self._operation_id(task_id, "turn")
+                if task["provider"] == "claude-cli":
+                    claude_lease = record_lock(
+                        "controller-lease",
+                        self._controller_lease_lock_id(operation_id),
+                        self.root,
+                    )
+                    claude_lease.__enter__()
+                operation = self._new_operation(
+                    task_id,
+                    task["provider"],
+                    "turn",
+                    task["target"],
+                    message,
+                    expected,
+                    source,
+                    bool(contract.get("read_only")),
+                    operation_id=operation_id,
+                    controller_pid=os.getpid() if task["provider"] == "claude-cli" else None,
+                    endpoint_id=task.get("endpoint_id") if task["provider"] == "claude-cli" else None,
                 )
-            contract = task.get("contract") or {}
-            source = contract.get("source") or {}
-            if task["provider"] in ("claude-cli", "codex-cli"):
-                self._verify_checkout(task["target"], source)
-            expected = self._expected_contract(
-                task["provider"],
-                contract.get("model"),
-                contract.get("effort"),
-                bool(contract.get("read_only")),
-                contract.get("permission_mode"),
-                contract.get("retry_plan"),
-            )
-            operation = self._new_operation(
-                task_id,
-                task["provider"],
-                "turn",
-                task["target"],
-                message,
-                expected,
-                source,
-                bool(contract.get("read_only")),
-            )
-            if task["provider"] == "codex-app":
-                action = codex_adapter.send_action(operation, task, self.root)
-                operation = self._set_operation_status(
-                    operation["operation_id"],
-                    "awaiting_action",
-                    action_id=action["action_id"],
-                )
-            self._set_task_last_operation(task_id, operation["operation_id"])
+                if task["provider"] == "codex-app":
+                    action = codex_adapter.send_action(operation, task, self.root)
+                    operation = self._set_operation_status(
+                        operation["operation_id"],
+                        "awaiting_action",
+                        action_id=action["action_id"],
+                    )
+                self._set_task_last_operation(task_id, operation["operation_id"])
+        except BaseException:
+            if claude_lease is not None:
+                claude_lease.__exit__(*sys.exc_info())
+            raise
         if task["provider"] == "claude-cli":
-            return self._finish_claude(operation, task["endpoint_id"], resume=True)
+            assert claude_lease is not None
+            try:
+                return self._finish_claude(operation, task["endpoint_id"], resume=True)
+            finally:
+                claude_lease.__exit__(None, None, None)
         if task["provider"] == "codex-cli":
             return self._finish_codex_cli(operation, task["endpoint_id"], resume=True)
         assert action is not None
@@ -919,9 +1286,18 @@ class AgentLord:
             return False
         return True
 
+    @staticmethod
+    def _claude_controller_pid(operation: Dict[str, Any]) -> Any:
+        active_attempt = operation.get("active_attempt") or {}
+        return (
+            active_attempt.get("controller_pid")
+            or operation.get("recovery_controller_pid")
+            or operation.get("controller_pid")
+        )
+
     def _active_task_operations(self, task_ids: Optional[List[str]]) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
         tasks: List[Dict[str, Any]] = []
-        if task_ids:
+        if task_ids is not None:
             for task_id in task_ids:
                 try:
                     tasks.append(load_task(task_id, self.root))
@@ -934,7 +1310,7 @@ class AgentLord:
         result: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
         operations = all_operations(self.root)
         known_task_ids = set(tasks_by_id) | {operation.get("task_id") for operation in operations}
-        if task_ids:
+        if task_ids is not None:
             unknown = [task_id for task_id in task_ids if task_id not in known_task_ids]
             if unknown:
                 raise AgentLordError(
@@ -946,7 +1322,7 @@ class AgentLord:
         for operation in operations:
             if operation.get("status") in TERMINAL_OPERATION_STATES:
                 continue
-            if task_ids and operation.get("task_id") not in task_ids:
+            if task_ids is not None and operation.get("task_id") not in task_ids:
                 continue
             task = tasks_by_id.get(operation["task_id"])
             if task is not None and task.get("last_operation_id") != operation["operation_id"]:
@@ -963,103 +1339,435 @@ class AgentLord:
             result.append((task, operation))
         return result
 
-    def checkpoint(self, task_ids: Optional[List[str]], seconds: int) -> Tuple[Dict[str, Any], bool]:
-        if seconds <= 0:
-            raise AgentLordError("CONFIG_INVALID", "checkpoint seconds must be greater than zero", exit_code=2)
-        active = self._active_task_operations(task_ids)
-        if task_ids:
-            for task_id in task_ids:
-                operations = list_operations(task_id, self.root)
-                if operations and operations[-1].get("status") in TERMINAL_OPERATION_STATES:
-                    return self.envelope(operations[-1]), False
-        for _, operation in active:
+    @staticmethod
+    def _checkpoint_progress_seq(operation: Dict[str, Any]) -> Optional[int]:
+        active_attempt = operation.get("active_attempt") or {}
+        supervision = operation.get("observed", {}).get("supervision") or {}
+        for value in (active_attempt.get("progress_seq"), supervision.get("progress_seq")):
+            if isinstance(value, int) and not isinstance(value, bool):
+                return value
+        return None
+
+    @classmethod
+    def _compact_checkpoint_active(
+        cls,
+        active: List[Tuple[Dict[str, Any], Dict[str, Any]]],
+    ) -> List[Dict[str, Any]]:
+        result: List[Dict[str, Any]] = []
+        for task, operation in active:
+            active_attempt = operation.get("active_attempt") or {}
+            supervision = operation.get("observed", {}).get("supervision") or {}
+            result.append(
+                {
+                    "task_id": task["task_id"],
+                    "operation_id": operation["operation_id"],
+                    "provider": task["provider"],
+                    "operation_status": operation.get("status"),
+                    "supervision_state": supervision.get("state") or active_attempt.get("progress_state"),
+                    "progress_seq": cls._checkpoint_progress_seq(operation),
+                }
+            )
+        return result
+
+    def _checkpoint_batch(
+        self,
+        envelopes: List[Dict[str, Any]],
+        active: List[Tuple[Dict[str, Any], Dict[str, Any]]],
+    ) -> Dict[str, Any]:
+        actionable_ids = {item.get("operation_id") for item in envelopes}
+        return {
+            "version": 1,
+            "status": "CHECKPOINT_ACTIONABLE",
+            "actionable": envelopes,
+            "active": self._compact_checkpoint_active(
+                [pair for pair in active if pair[1].get("operation_id") not in actionable_ids]
+            ),
+        }
+
+    def _checkpoint_actionable(
+        self,
+        task_ids: Optional[List[str]],
+        active: List[Tuple[Dict[str, Any], Dict[str, Any]]],
+    ) -> Optional[Dict[str, Any]]:
+        latest_by_task: Dict[str, Dict[str, Any]] = {}
+        durable_tasks = list_tasks(self.root)
+        durable_task_ids = {task.get("task_id") for task in durable_tasks}
+        for task in durable_tasks:
+            task_id = task.get("task_id")
+            operation_id = task.get("last_operation_id")
+            if (
+                isinstance(task_id, str)
+                and isinstance(operation_id, str)
+                and (task_ids is None or task_id in task_ids)
+            ):
+                latest_by_task[task_id] = load_operation(operation_id, self.root)
+        for operation in all_operations(self.root):
+            task_id = operation.get("task_id")
+            if not isinstance(task_id, str) or (task_ids is not None and task_id not in task_ids):
+                continue
+            current = latest_by_task.get(task_id)
+            if current is None:
+                latest_by_task[task_id] = operation
+            elif task_id not in durable_task_ids and (
+                operation.get("created_at", ""), operation.get("operation_id", "")
+            ) > (
+                current.get("created_at", ""), current.get("operation_id", "")
+            ):
+                latest_by_task[task_id] = operation
+
+        envelopes: List[Dict[str, Any]] = []
+        for task_id in sorted(latest_by_task):
+            operation = latest_by_task[task_id]
+            if operation.get("status") in TERMINAL_OPERATION_STATES:
+                envelopes.append(self.envelope(operation))
+                continue
             action = pending_action(operation["operation_id"], self.root)
-            if action:
-                return self.envelope(operation, action), False
-        initial = {operation["operation_id"]: operation.get("updated_at") for _, operation in active}
-        deadline = time.monotonic() + seconds
-        while time.monotonic() < deadline:
-            current_active = self._active_task_operations(task_ids)
-            current_ids = {operation["operation_id"] for _, operation in current_active}
-            completed_ids = [operation_id for operation_id in initial if operation_id not in current_ids]
-            if completed_ids:
-                return self.envelope(load_operation(completed_ids[0], self.root)), False
-            for task, operation in current_active:
-                if (
-                    operation.get("status") == "running"
-                    and task["provider"] in ("claude-cli", "codex-cli")
-                    and not self._pid_alive(operation.get("pid"))
+            if action is not None:
+                envelopes.append(self.envelope(operation, action))
+        return self._checkpoint_batch(envelopes, active) if envelopes else None
+
+    def _finish_claimed_claude_recovery(self, operation: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        try:
+            return self._finish_claude(
+                operation,
+                operation["endpoint_id"],
+                resume=operation.get("kind") == "turn",
+            )
+        except AgentLordError as error:
+            current = load_operation(operation["operation_id"], self.root)
+            if current.get("status") in TERMINAL_OPERATION_STATES:
+                return self.envelope(current)
+            if error.code == "STATE_BUSY":
+                return None
+            raise
+
+    def _recover_claude_operation(self, operation_id: str) -> Dict[str, Any]:
+        """Run one already-claimed Claude recovery from a script-only controller."""
+        validate_identifier("operation_id", operation_id)
+        busy_error: Optional[AgentLordError] = None
+        for _ in range(self.control["finalize_lock_attempts"]):
+            try:
+                with record_lock(
+                    "controller-lease",
+                    self._controller_lease_lock_id(operation_id),
+                    self.root,
                 ):
-                    if (
-                        task["provider"] == "claude-cli"
-                        and not operation.get("active_attempt")
-                        and len(operation.get("attempt_history") or []) < len(self._expanded_retry_models(operation))
-                    ):
-                        return self._finish_claude(
+                    current = load_operation(operation_id, self.root)
+                    if current.get("status") in TERMINAL_OPERATION_STATES:
+                        return self.envelope(current)
+                    if current.get("provider") != "claude-cli" or current.get("status") != "recovering":
+                        raise AgentLordError(
+                            "STATE_CONFLICT",
+                            "operation is not awaiting Claude recovery",
+                            details={"operation_id": operation_id, "status": current.get("status")},
+                        )
+                    owner_pid = current.get("recovery_controller_pid")
+                    if owner_pid != os.getpid():
+                        if self._pid_alive(owner_pid):
+                            return self.envelope(current)
+                        current = self._set_operation_status(
+                            operation_id,
+                            "recovering",
+                            recovery_controller_pid=os.getpid(),
+                            controller_pid=os.getpid(),
+                        )
+                    recovered = self._finish_claimed_claude_recovery(current)
+                    return recovered if recovered is not None else self.envelope(load_operation(operation_id, self.root))
+            except AgentLordError as error:
+                if error.code != "STATE_BUSY":
+                    raise
+                busy_error = error
+                time.sleep(self.control["finalize_lock_retry_interval_ms"] / 1000)
+        else:
+            assert busy_error is not None
+            raise busy_error
+
+    def _launch_claude_recovery(self, operation_id: str) -> Optional[Dict[str, Any]]:
+        try:
+            with record_lock(
+                "controller-lease",
+                self._controller_lease_lock_id(operation_id),
+                self.root,
+            ):
+                operation = load_operation(operation_id, self.root)
+                if operation.get("status") in TERMINAL_OPERATION_STATES:
+                    return self.envelope(operation)
+                if operation.get("provider") != "claude-cli" or operation.get("status") != "recovering":
+                    return None
+                owner_pid = operation.get("recovery_controller_pid")
+                if self._pid_alive(owner_pid):
+                    return None
+                models = self._expanded_retry_models(operation)
+                attempts = len(operation.get("attempt_history") or [])
+                launches = operation.get("recovery_controller_launches", 0)
+                if not isinstance(launches, int) or isinstance(launches, bool) or launches < 0:
+                    launches = 0
+                if attempts >= len(models) or launches >= max(1, len(models)):
+                    error = AgentLordError(
+                        "PROVIDER_FAILED",
+                        "Claude recovery budget is exhausted",
+                        details={
+                            "attempts": attempts,
+                            "retry_budget": len(models),
+                            "controller_launches": launches,
+                        },
+                    )
+                    failed, _ = self._terminalize_cli_failure(operation, error, exhausted=True)
+                    return self.envelope(failed)
+                endpoint_id = operation.get("endpoint_id")
+                if not isinstance(endpoint_id, str) or not endpoint_id:
+                    error = AgentLordError(
+                        "PROCESS_EXITED_WITHOUT_RESULT",
+                        "Claude recovery cannot continue without the original session identity",
+                        details={"operation_id": operation_id},
+                    )
+                    failed, _ = self._terminalize_cli_failure(operation, error, exhausted=False)
+                    return self.envelope(failed)
+                worker = Path(__file__).resolve().parent.parent / "scripts" / "recovery_worker.py"
+                try:
+                    process = subprocess.Popen(
+                        [
+                            sys.executable,
+                            str(worker),
+                            "--state-dir",
+                            str(self.root),
+                            "--operation-id",
+                            operation_id,
+                        ],
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        start_new_session=os.name == "posix",
+                    )
+                except OSError as exc:
+                    error = AgentLordError(
+                        "PROVIDER_UNAVAILABLE",
+                        "cannot launch the deterministic Claude recovery controller",
+                        details={"error": str(exc)},
+                    )
+                    failed, _ = self._terminalize_cli_failure(operation, error, exhausted=False)
+                    return self.envelope(failed)
+                self._set_operation_status(
+                    operation_id,
+                    "recovering",
+                    recovery_controller_pid=process.pid,
+                    controller_pid=process.pid,
+                    recovery_controller_launches=launches + 1,
+                )
+                append_event(
+                    operation["task_id"],
+                    "provider-recovery-controller-launched",
+                    {"controller_pid": process.pid, "launch": launches + 1},
+                    operation_id,
+                    self.root,
+                )
+                Thread(
+                    target=process.wait,
+                    name="agent-lord-recovery-reaper-%d" % process.pid,
+                    daemon=True,
+                ).start()
+                return None
+        except AgentLordError as error:
+            if error.code == "STATE_BUSY":
+                return None
+            raise
+
+    def _retry_or_terminalize_claude(
+        self,
+        operation: Dict[str, Any],
+        error: AgentLordError,
+        session_observed: bool = False,
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        active_attempt = operation.get("active_attempt") or {}
+        attempt_number = active_attempt.get("number")
+        attempt_model = active_attempt.get("model")
+        models = self._expanded_retry_models(operation)
+        if not isinstance(attempt_number, int) or not isinstance(attempt_model, str):
+            failed, _ = self._terminalize_cli_failure(operation, error, exhausted=False)
+            return None, self.envelope(failed)
+        retrying = error.retryable and len(operation.get("attempt_history") or []) + 1 < len(models)
+        updated = self._record_claude_attempt(
+            operation,
+            attempt_number,
+            attempt_model,
+            "failed",
+            error,
+            session_observed=session_observed,
+            retrying=retrying,
+            claim_controller=False,
+        )
+        if retrying:
+            return updated, None
+        failed, _ = self._terminalize_cli_failure(updated, error, exhausted=error.retryable)
+        return None, self.envelope(failed)
+
+    def _supervise_claude(self, operation: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        operation_id = operation["operation_id"]
+        if operation.get("status") == "recovering" and not operation.get("active_attempt"):
+            return self._launch_claude_recovery(operation_id)
+        if self._pid_alive(self._claude_controller_pid(operation)):
+            return None
+
+        recovery_claim: Optional[Dict[str, Any]] = None
+        try:
+            with record_lock(
+                "controller-lease",
+                self._controller_lease_lock_id(operation_id),
+                self.root,
+            ):
+                operation = load_operation(operation_id, self.root)
+                if operation.get("status") in TERMINAL_OPERATION_STATES:
+                    return self.envelope(operation)
+                if self._pid_alive(self._claude_controller_pid(operation)):
+                    return None
+                active_attempt = operation.get("active_attempt") or {}
+                provider_pid = active_attempt.get("pid") or operation.get("pid")
+
+                if operation.get("status") == "preparing":
+                    delivery = active_attempt.get("prompt_delivery")
+                    if delivery in ("delivery-unknown", "stdin-attached") and not isinstance(provider_pid, int):
+                        error = AgentLordError(
+                            "DELIVERY_UNKNOWN",
+                            "Claude may have received the prompt but its provider process cannot be fenced",
+                            details={"operation_id": operation_id, "prompt_delivery": delivery},
+                        )
+                        failed, _ = self._terminalize_cli_failure(operation, error, exhausted=False)
+                        return self.envelope(failed)
+                    if isinstance(provider_pid, int) and self._pid_alive(provider_pid):
+                        try:
+                            terminate_claude_process(
+                                provider_pid,
+                                active_attempt.get("process_group_id"),
+                                self.control["claude_terminate_grace_seconds"],
+                            )
+                        except AgentLordError as error:
+                            failed, _ = self._terminalize_cli_failure(operation, error, exhausted=False)
+                            return self.envelope(failed)
+                    if active_attempt:
+                        error = AgentLordError(
+                            "CONTROLLER_EXITED_DURING_DELIVERY",
+                            "Claude controller exited before attempt delivery was resolved",
+                            retryable=True,
+                            safe_recovery=(
+                                "RETRY_ORIGINAL_PROMPT"
+                                if delivery == "not-delivered"
+                                else "RESUME_SAME_ENDPOINT_WITH_CONTINUATION_QUERY"
+                            ),
+                            details={"prompt_delivery": delivery},
+                        )
+                        recovery_claim, terminal = self._retry_or_terminalize_claude(
                             operation,
-                            operation["endpoint_id"],
-                            resume=operation.get("kind") == "turn",
-                        ), False
+                            error,
+                            session_observed=claude_session_observed(operation),
+                        )
+                        if terminal is not None:
+                            return terminal
+                    elif self._expanded_retry_models(operation) and isinstance(operation.get("endpoint_id"), str):
+                        recovery_claim = self._set_operation_status(
+                            operation_id,
+                            "recovering",
+                            controller_pid=None,
+                            recovery_controller_pid=None,
+                        )
+                    else:
+                        error = AgentLordError(
+                            "PROCESS_EXITED_WITHOUT_RESULT",
+                            "Claude controller exited before a recoverable attempt was prepared",
+                        )
+                        failed, _ = self._terminalize_cli_failure(operation, error, exhausted=False)
+                        return self.envelope(failed)
+                elif self._pid_alive(provider_pid):
+                    activity_ms = claude_output_activity_ms(operation)
+                    progress_state = active_attempt.get("progress_state")
+                    stall_seconds = (
+                        self.control["claude_tool_stall_seconds"]
+                        if progress_state == "tool_wait"
+                        else self.control["claude_stall_seconds"]
+                    )
+                    if not isinstance(activity_ms, int) or int(time.time() * 1000) - activity_ms < stall_seconds * 1000:
+                        return None
+                    self._set_operation_status(
+                        operation_id,
+                        operation.get("status", "running"),
+                        observed=dict(operation.get("observed") or {}, supervision={
+                            "state": "suspected_stall",
+                            "attempt": active_attempt.get("number"),
+                            "last_progress_at_ms": activity_ms,
+                            "controller_state": "dead",
+                        }),
+                    )
                     try:
-                        recovered = recover_claude(operation) if task["provider"] == "claude-cli" else recover_codex_cli(operation)
+                        terminate_claude_process(
+                            provider_pid,
+                            active_attempt.get("process_group_id"),
+                            self.control["claude_terminate_grace_seconds"],
+                        )
+                    except AgentLordError as error:
+                        failed, _ = self._terminalize_cli_failure(operation, error, exhausted=False)
+                        return self.envelope(failed)
+                    error = AgentLordError(
+                        "PROVIDER_STALLED",
+                        "Claude controller disappeared and the live provider attempt stopped making progress",
+                        retryable=True,
+                        safe_recovery="RESUME_SAME_ENDPOINT_WITH_CONTINUATION_QUERY",
+                        details={"provider_pid": provider_pid},
+                    )
+                    recovery_claim, terminal = self._retry_or_terminalize_claude(
+                        operation,
+                        error,
+                        session_observed=bool(active_attempt.get("session_observed")) or claude_session_observed(operation),
+                    )
+                    if terminal is not None:
+                        return terminal
+                else:
+                    if isinstance(provider_pid, int):
+                        try:
+                            terminate_claude_process(
+                                provider_pid,
+                                active_attempt.get("process_group_id"),
+                                self.control["claude_terminate_grace_seconds"],
+                            )
+                        except AgentLordError as error:
+                            failed, _ = self._terminalize_cli_failure(operation, error, exhausted=False)
+                            return self.envelope(failed)
+                    try:
+                        recovered = recover_claude(operation)
                     except AgentLordError as error:
                         if error.code == "RESULT_INVALID":
                             first_seen = operation.get("dead_process_observed_at_ms")
                             now_ms = int(time.time() * 1000)
                             if not isinstance(first_seen, int):
                                 self._set_operation_status(
-                                    operation["operation_id"],
-                                    "running",
+                                    operation_id,
+                                    operation.get("status", "running"),
                                     dead_process_observed_at_ms=now_ms,
                                 )
-                                continue
+                                return None
                             if now_ms - first_seen < self.control["dead_process_result_grace_seconds"] * 1000:
-                                continue
+                                return None
                             error = AgentLordError(
                                 "PROCESS_EXITED_WITHOUT_RESULT",
-                                "CLI process exited without publishing a recoverable terminal result",
+                                "Claude process exited without publishing a recoverable terminal result",
                                 retryable=True,
-                                safe_recovery="INSPECT_LOGS_THEN_RETRY_SAME_ENDPOINT",
+                                safe_recovery="RESUME_SAME_ENDPOINT_WITH_CONTINUATION_QUERY",
                                 details={"provider_error": error.as_dict()},
                             )
-                        if task["provider"] == "claude-cli":
-                            active_attempt = operation.get("active_attempt") or {}
-                            attempt_number = active_attempt.get("number")
-                            attempt_model = active_attempt.get("model")
-                            if isinstance(attempt_number, int) and isinstance(attempt_model, str):
-                                operation = self._record_claude_attempt(
-                                    operation,
-                                    attempt_number,
-                                    attempt_model,
-                                    "failed",
-                                    error,
-                                )
-                                if error.retryable and len(operation.get("attempt_history") or []) < len(
-                                    self._expanded_retry_models(operation)
-                                ):
-                                    return self._finish_claude(
-                                        operation,
-                                        operation["endpoint_id"],
-                                        resume=operation.get("kind") == "turn",
-                                    ), False
-                        failed = self._fail_operation(operation, error)
-                        return self.envelope(failed), False
-                    endpoint_id = recovered.get("endpoint_id") or operation.get("endpoint_id")
-                    if not isinstance(endpoint_id, str) or not endpoint_id:
-                        error = AgentLordError("RESULT_INVALID", "recovered CLI result lacks endpoint identity")
-                        failed = self._fail_operation(operation, error)
-                        return self.envelope(failed), False
-                    if task["provider"] == "claude-cli":
-                        active_attempt = operation.get("active_attempt") or {}
+                        recovery_claim, terminal = self._retry_or_terminalize_claude(
+                            operation,
+                            error,
+                            session_observed=claude_session_observed(operation),
+                        )
+                        if terminal is not None:
+                            return terminal
+                    else:
+                        endpoint_id = recovered.get("endpoint_id") or operation.get("endpoint_id")
+                        if not isinstance(endpoint_id, str) or not endpoint_id:
+                            error = AgentLordError("RESULT_INVALID", "recovered Claude result lacks endpoint identity")
+                            failed, _ = self._terminalize_cli_failure(operation, error, exhausted=False)
+                            return self.envelope(failed)
                         attempt_number = active_attempt.get("number")
                         attempt_model = active_attempt.get("model")
-                        history = operation.get("attempt_history") or []
-                        already_recorded = bool(
-                            history
-                            and history[-1].get("number") == attempt_number
-                            and history[-1].get("status") == "succeeded"
-                        )
-                        if isinstance(attempt_number, int) and isinstance(attempt_model, str) and not already_recorded:
+                        if isinstance(attempt_number, int) and isinstance(attempt_model, str):
                             operation = self._record_claude_attempt(
                                 operation,
                                 attempt_number,
@@ -1067,7 +1775,7 @@ class AgentLord:
                                 "succeeded",
                                 warnings=recovered.get("observed", {}).get("warnings"),
                             )
-                            history = operation.get("attempt_history") or []
+                        history = operation.get("attempt_history") or []
                         recovered["observed"].update(
                             {
                                 "attempts": len(history),
@@ -1079,36 +1787,103 @@ class AgentLord:
                                 ),
                             }
                         )
-                    recovered_result = self._publish_cli_result(
-                        operation,
-                        endpoint_id,
-                        operation.get("kind") == "turn",
-                        recovered,
-                    )
-                    return recovered_result, False
-                if initial.get(operation["operation_id"]) != operation.get("updated_at"):
-                    if self._task_exists(task["task_id"]):
-                        return self.check(task["task_id"]), False
-                    return self.envelope(operation), False
-            time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
+                        return self._publish_cli_result(
+                            operation,
+                            endpoint_id,
+                            operation.get("kind") == "turn",
+                            recovered,
+                        )
+        except AgentLordError as error:
+            if error.code == "STATE_BUSY":
+                return None
+            raise
+        return self._launch_claude_recovery(recovery_claim["operation_id"]) if recovery_claim else None
 
+    def _supervise_codex_cli(self, operation: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if self._pid_alive(operation.get("pid")):
+            return None
+        try:
+            with record_lock(
+                "operation-control",
+                self._operation_control_lock_id(operation["operation_id"]),
+                self.root,
+            ):
+                operation = load_operation(operation["operation_id"], self.root)
+                if operation.get("status") != "running" or self._pid_alive(operation.get("pid")):
+                    return None
+                try:
+                    recovered = recover_codex_cli(operation)
+                except AgentLordError as error:
+                    if error.code == "RESULT_INVALID":
+                        first_seen = operation.get("dead_process_observed_at_ms")
+                        now_ms = int(time.time() * 1000)
+                        if not isinstance(first_seen, int):
+                            self._set_operation_status(
+                                operation["operation_id"],
+                                "running",
+                                dead_process_observed_at_ms=now_ms,
+                            )
+                            return None
+                        if now_ms - first_seen < self.control["dead_process_result_grace_seconds"] * 1000:
+                            return None
+                        error = AgentLordError(
+                            "PROCESS_EXITED_WITHOUT_RESULT",
+                            "Codex CLI process exited without publishing a recoverable terminal result",
+                            retryable=True,
+                            safe_recovery="INSPECT_LOGS_THEN_RETRY_SAME_ENDPOINT",
+                            details={"provider_error": error.as_dict()},
+                        )
+                    return self.envelope(self._fail_operation(operation, error))
+                endpoint_id = recovered.get("endpoint_id") or operation.get("endpoint_id")
+                if not isinstance(endpoint_id, str) or not endpoint_id:
+                    error = AgentLordError("RESULT_INVALID", "recovered Codex CLI result lacks endpoint identity")
+                    return self.envelope(self._fail_operation(operation, error))
+                return self._publish_cli_result(
+                    operation,
+                    endpoint_id,
+                    operation.get("kind") == "turn",
+                    recovered,
+                )
+        except AgentLordError as error:
+            if error.code == "STATE_BUSY":
+                return None
+            raise
+
+    def checkpoint(self, task_ids: Optional[List[str]], seconds: int) -> Tuple[Dict[str, Any], bool]:
+        if seconds <= 0:
+            raise AgentLordError("CONFIG_INVALID", "checkpoint seconds must be greater than zero", exit_code=2)
         active = self._active_task_operations(task_ids)
-        for task, operation in active:
-            if task["provider"] == "codex-app":
-                return self.check(task["task_id"]), False
+        selected_task_ids = task_ids if task_ids is not None else [task["task_id"] for task, _ in active]
+        actionable = self._checkpoint_actionable(selected_task_ids, active)
+        if actionable is not None:
+            return actionable, False
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            current_active = self._active_task_operations(selected_task_ids)
+            actionable = self._checkpoint_actionable(selected_task_ids, current_active)
+            if actionable is not None:
+                return actionable, False
+            for task, operation in current_active:
+                if task["provider"] == "claude-cli":
+                    envelope = self._supervise_claude(operation)
+                elif task["provider"] == "codex-cli" and operation.get("status") == "running":
+                    envelope = self._supervise_codex_cli(operation)
+                else:
+                    envelope = None
+                if envelope is not None:
+                    return self._checkpoint_batch([envelope], current_active), False
+            poll_seconds = min(0.25, max(0.05, self.control["claude_progress_poll_interval_ms"] / 1000))
+            time.sleep(min(poll_seconds, max(0.0, deadline - time.monotonic())))
+
+        active = self._active_task_operations(selected_task_ids)
+        actionable = self._checkpoint_actionable(selected_task_ids, active)
+        if actionable is not None:
+            return actionable, False
         return {
             "version": 1,
             "status": "CHECKPOINT_QUIET",
             "seconds": seconds,
-            "active": [
-                {
-                    "task_id": task["task_id"],
-                    "operation_id": operation["operation_id"],
-                    "provider": task["provider"],
-                    "operation_status": operation.get("status"),
-                }
-                for task, operation in active
-            ],
+            "active": self._compact_checkpoint_active(active),
         }, True
 
     def export_artifact(self, task_id: str, operation_id: str, source_file: str, source_format: str) -> Dict[str, Any]:
@@ -1175,6 +1950,7 @@ class AgentLord:
         status_map = {
             "preparing": "RUNNING",
             "running": "RUNNING",
+            "recovering": "RUNNING",
             "submitted": "RUNNING",
             "awaiting_action": "ACTION_REQUIRED" if action else "RUNNING",
             "succeeded": "SUCCEEDED",
