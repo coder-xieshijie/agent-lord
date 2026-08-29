@@ -787,6 +787,37 @@ class AgentLord:
     def _controller_lease_lock_id(operation_id: str) -> str:
         return "controller-" + hashlib.sha256(operation_id.encode("utf-8")).hexdigest()[:32]
 
+    def _acquire_record_lease(
+        self,
+        record_kind: str,
+        record_id: str,
+        *,
+        busy_message: str,
+        details: Dict[str, Any],
+    ) -> Any:
+        """Acquire a short state-record lease with the configured bounded retry budget."""
+        busy: Optional[AgentLordError] = None
+        for attempt in range(self.control["finalize_lock_attempts"]):
+            candidate = record_lock(record_kind, record_id, self.root)
+            try:
+                candidate.__enter__()
+            except AgentLordError as error:
+                if error.code != "STATE_BUSY":
+                    raise
+                busy = error
+                if attempt + 1 < self.control["finalize_lock_attempts"]:
+                    time.sleep(self.control["finalize_lock_retry_interval_ms"] / 1000)
+                continue
+            return candidate
+        assert busy is not None
+        raise AgentLordError(
+            "STATE_BUSY",
+            busy_message,
+            retryable=True,
+            safe_recovery="RETRY_SAME_COMMAND",
+            details=details,
+        ) from busy
+
     @contextmanager
     def _parallel_group_lease(self, parallel_group: Optional[str]) -> Iterator[None]:
         """Serialize one declared parallel group across its uniqueness scan and journal write.
@@ -797,30 +828,12 @@ class AgentLord:
         if not parallel_group:
             yield
             return
-        lease = None
-        busy: Optional[AgentLordError] = None
-        for attempt in range(self.control["finalize_lock_attempts"]):
-            candidate = record_lock("parallel-group", self._lease_id("group", parallel_group), self.root)
-            try:
-                candidate.__enter__()
-            except AgentLordError as error:
-                if error.code != "STATE_BUSY":
-                    raise
-                busy = error
-                if attempt + 1 < self.control["finalize_lock_attempts"]:
-                    time.sleep(self.control["finalize_lock_retry_interval_ms"] / 1000)
-                continue
-            lease = candidate
-            break
-        if lease is None:
-            assert busy is not None
-            raise AgentLordError(
-                "STATE_BUSY",
-                "another member of this parallel write group is being journaled",
-                retryable=True,
-                safe_recovery="RETRY_SAME_COMMAND",
-                details={"parallel_group": parallel_group},
-            ) from busy
+        lease = self._acquire_record_lease(
+            "parallel-group",
+            self._lease_id("group", parallel_group),
+            busy_message="another member of this parallel write group is being journaled",
+            details={"parallel_group": parallel_group},
+        )
         try:
             yield
         finally:
@@ -1520,13 +1533,15 @@ class AgentLord:
                     if workspace_requested:
                         assert repository is not None and source_branch is not None and checkout_branch is not None
                         prepare_identity = self._repository_identity(repository) + "\0" + checkout_branch
-                        candidate_prepare_lease = record_lock(
+                        workspace_prepare_lease = self._acquire_record_lease(
                             "workspace-prepare",
                             self._lease_id("prepare", prepare_identity),
-                            self.root,
+                            busy_message="another task is preparing this repository checkout",
+                            details={
+                                "repository": repository,
+                                "checkout_branch": checkout_branch,
+                            },
                         )
-                        candidate_prepare_lease.__enter__()
-                        workspace_prepare_lease = candidate_prepare_lease
                         target, existing_checkout = self._resolve_workspace_target(
                             task_id, repository, checkout_branch, worktree_root
                         )

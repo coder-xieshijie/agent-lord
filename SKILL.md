@@ -1,6 +1,6 @@
 ---
 name: agent-lord
-description: Dispatch and supervise durable Codex CLI, Codex App, or Claude Code endpoints through deterministic scripts that enforce execution contracts, source identity, recovery, and sanitized results. Use when a Codex Desktop user asks to start or continue external Codex or Claude work; not for in-process subagents, CI jobs, or general DAG workflows.
+description: Dispatch and supervise durable Codex CLI, Codex App, or Claude Code endpoints through deterministic scripts that enforce execution contracts, source identity, recovery, and sanitized results. Preserve explicit dependencies and run independent named actions concurrently when the workspace contract permits; surface any required isolation or integration decision before dispatch. Route explicit cross-review or 交叉 Review requests through the built-in cross-review policy. Use when a Codex Desktop user asks to start or continue external Codex or Claude work; not for in-process subagents, CI jobs, or general DAG workflows.
 ---
 
 # Agent Lord
@@ -19,10 +19,16 @@ Route one logical task to one durable endpoint. Treat `scripts/agent_lord.py` as
 - Freeze the resolved model, effort, retry plan, permission posture, and source contract when the task starts; every later turn reapplies them.
 - Use fixed full SHAs for revision-sensitive work. Read-only tasks refuse any working directory whose `HEAD` differs from the frozen head. A writable repo-managed task may advance: its `HEAD` must stay on the contract checkout branch and remain a descendant of the last verified head, which the control plane then records as the new verification baseline.
 - Exchange sanitized artifacts, not raw provider logs or reasoning traces.
-- Treat the caller's task set and next-step policy as inputs. Agent Lord supervises endpoint operations; it does not infer dependencies or dispatch a workflow.
-- The workflow is user input, not a built-in Agent Lord process. Take parallelism, sequencing, node order, roles, and completion conditions exactly as the user specified them, and run only the nodes the user named.
+- Treat the caller's task set, dependencies, disjoint output boundaries, next-step policy, or explicitly named built-in pipeline as inputs. Agent Lord supervises endpoint operations; it does not invent an unnamed workflow.
+- The workflow is user input unless the user invokes a documented named pipeline. Preserve every explicit dependency, sequence, node, role, and completion condition. Multiple named actions that the caller identifies as independent, or whose dependency relationship is genuinely unclear, create a dispatch decision before execution: run confirmed-independent actions concurrently under a valid workspace contract; ask the caller when independence is unclear. Absence of an explicit parallel keyword is not a reason to silently serialize confirmed-independent actions.
+- Resolve that dispatch decision before starting the first execution endpoint. When safe concurrency would require isolated worktrees, temporary branches, an integrator, or another user-visible node that the caller did not authorize, report the exact required expansion and obtain the caller's decision. Do not choose serial execution merely to avoid that decision.
 - Add no planner, reviewer, tester, audit, acceptance, or other “best practice” node on your own. Ordinary risk judgement is grounds for reporting a concern to the user, never for extending the workflow.
 - Internal `task_id` and endpoint operations are execution-control handles only. Creating, retrying, or recovering one grants no authority to add a user-visible workflow node; a new node requires an explicit user flow or a later explicit instruction.
+
+## Pipeline routing
+
+- For every multi-endpoint or named pipeline, read [references/pipelines/common.md](references/pipelines/common.md) and freeze its run manifest, barriers, role checks, convergence bound, and final deliverable before dispatch.
+- When the request says “交叉 Review”, “交叉审查”, or `cross-review`, also read [references/pipelines/cross-review.md](references/pipelines/cross-review.md) and execute that exact Opus + Codex mutual-review → independent Fable-check policy. The phrase authorizes only the nodes documented there; explicit user overrides still win.
 
 ## Deterministic loop
 
@@ -30,7 +36,7 @@ Route one logical task to one durable endpoint. Treat `scripts/agent_lord.py` as
 2. Inspect `python3 scripts/agent_lord.py start --help`, then run `start` with every explicit user choice. For revision-sensitive local CLI work, use `--repo`, `--source-branch`, one explicit workspace policy, and `--head-sha`; the control plane freezes the resolved checkout as the target. Use `--target` when the exact working directory already is the contract. Do not recreate these preflight checks manually.
 3. Process the returned envelope until terminal:
    - `ACTION_REQUIRED`: invoke the exact model-side tool and arguments in `action`; save the raw return value outside the repository, then pass it to `accept`. Add `--auto-read` to `accept` when the next step would only be another polling read; the envelope then carries that read action directly instead of requiring a separate `check`.
-   - `RUNNING`: use `check` for one task's full current state, or pass every selected `task_id` to one bounded `checkpoint` when the user requested supervision. Only `checkpoint` performs recovery; `check` reports state and, when the recorded controller process is gone, an `observed.supervision.recovery_command` hint.
+   - `RUNNING`: for a pipeline, pass every active and newly starting `task_id` to one bounded `checkpoint`, including the pre-task window in which an operation may exist before its task record. Use `check` only for one established task's full current state. Only `checkpoint` performs recovery; `check` reports state and, when the recorded controller process is gone, an `observed.supervision.recovery_command` hint.
    - `CHECKPOINT_ACTIONABLE`: process every ordinary envelope in `actionable`.
    - `SUCCEEDED`: use the returned artifact as the canonical response.
    - `ERROR`: follow `safe_recovery` only when present; otherwise report the structured error.

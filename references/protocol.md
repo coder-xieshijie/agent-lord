@@ -113,7 +113,7 @@ The policies are structural:
 - `reuse-or-create` reuses the one clean worktree bound to the source branch or creates it from an already-available local branch, `origin` tracking ref, or commit.
 - `isolated` accepts only writable tasks and requires a distinct explicit `--workspace-branch`. It creates or reuses that branch's worktree from the fixed source head without binding another worktree to the MR source branch.
 
-The resolved worktree path becomes the operation and durable task target. A dirty worktree, conflicting branch head, unavailable fixed commit, ambiguous binding, or occupied destination fails with `SOURCE_MISMATCH` or `SOURCE_UNVERIFIED`. Existing `--target` starts keep their original source behavior and receive an exact-target workspace contract. Preparation runs under a per-`(repository, checkout branch)` lease and lists worktrees once; the final proof is the target's own clean status and head, not a repeated listing.
+The resolved worktree path becomes the operation and durable task target. A dirty worktree, conflicting branch head, unavailable fixed commit, ambiguous binding, or occupied destination fails with `SOURCE_MISMATCH` or `SOURCE_UNVERIFIED`. Existing `--target` starts keep their original source behavior and receive an exact-target workspace contract. Preparation runs under a per-`(repository, checkout branch)` lease and lists worktrees once; brief lease contention uses the configured bounded lock retry budget before returning retryable `STATE_BUSY`. The final proof is the target's own clean status and head, not a repeated listing.
 
 #### Source verification across turns
 

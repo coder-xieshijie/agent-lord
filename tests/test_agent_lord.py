@@ -1438,6 +1438,52 @@ class AgentLordTests(unittest.TestCase):
         self.assertEqual(starts[0]["target"], starts[1]["target"])
         self.assertEqual("shared-readonly", starts[0]["workspace"]["policy"])
 
+    def test_concurrent_shared_readonly_starts_retry_workspace_preparation_lock(self) -> None:
+        head = self._init_source_repo()
+        entered = Event()
+        release = Event()
+        original = self.lord._resolve_workspace_target
+
+        def slow_first_resolution(task_id, *args, **kwargs):
+            if task_id == "shared-concurrent-one":
+                entered.set()
+                release.wait(2)
+            return original(task_id, *args, **kwargs)
+
+        with patch.object(self.lord, "_resolve_workspace_target", side_effect=slow_first_resolution):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                first = executor.submit(
+                    self.lord.start,
+                    "shared-concurrent-one",
+                    "claude-cli",
+                    None,
+                    "review",
+                    read_only=True,
+                    head_sha=head,
+                    repository=str(self.target),
+                    source_branch="feat/source",
+                    workspace_policy="shared-readonly",
+                )
+                self.assertTrue(entered.wait(1))
+                second = executor.submit(
+                    self.lord.start,
+                    "shared-concurrent-two",
+                    "claude-cli",
+                    None,
+                    "review",
+                    read_only=True,
+                    head_sha=head,
+                    repository=str(self.target),
+                    source_branch="feat/source",
+                    workspace_policy="shared-readonly",
+                )
+                time.sleep(0.1)
+                release.set()
+                results = [first.result(timeout=3), second.result(timeout=3)]
+
+        self.assertEqual(["SUCCEEDED", "SUCCEEDED"], [result["status"] for result in results])
+        self.assertEqual(results[0]["target"], results[1]["target"])
+
     def test_parallel_workers_use_isolated_branches_and_integrator_uses_source_branch(self) -> None:
         head = self._init_source_repo()
         common = {
