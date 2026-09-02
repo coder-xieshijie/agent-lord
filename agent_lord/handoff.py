@@ -174,7 +174,7 @@ def validate_handoff_packet(packet: Dict[str, Any]) -> Dict[str, Any]:
             "sanitization",
             "integrity",
         ),
-        optional=("key_decisions", "open_questions", "contract_request"),
+        optional=("key_decisions", "open_questions", "suggested_skills", "contract_request"),
     )
     if packet["schema"] != PACKET_SCHEMA:
         raise _packet_error("unsupported handoff packet schema", field="schema", observed=packet.get("schema"), expected=PACKET_SCHEMA)
@@ -208,7 +208,7 @@ def validate_handoff_packet(packet: Dict[str, Any]) -> Dict[str, Any]:
     _require_string("objective", packet["objective"])
     for name in ("completed_work", "remaining_work", "constraints", "acceptance_criteria"):
         _require_string_list(name, packet[name])
-    for name in ("key_decisions", "open_questions"):
+    for name in ("key_decisions", "open_questions", "suggested_skills"):
         if name in packet:
             _require_string_list(name, packet[name])
     _validate_evidence(packet["evidence"])
@@ -405,6 +405,7 @@ def render_handoff_prompt(packet: Dict[str, Any], packet_sha256: str, expected: 
         for item in packet["evidence"]
     ]
     lines.extend(_prompt_section("Evidence (workspace-relative paths)", evidence))
+    lines.extend(_prompt_section("Suggested skills", packet.get("suggested_skills") or []))
     if packet.get("open_questions"):
         lines.extend(_prompt_section("Open questions", packet["open_questions"]))
     lines.extend(

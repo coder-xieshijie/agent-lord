@@ -1,6 +1,6 @@
 # Handoff Pipeline
 
-Load this reference when the user asks to hand the current session's work off to a new local CLI endpoint. It defines the handoff policy only; `scripts/agent_lord.py handoff` remains the durable runtime, and [common.md](common.md) plus [../protocol.md](../protocol.md) keep owning supervision, envelope, and recovery semantics.
+Load this reference when the user asks to hand the current session's work off to a new local CLI endpoint. Handoff is one Agent Lord pipeline branch, and this file is its complete authoring and execution contract. `scripts/agent_lord.py handoff` remains the durable runtime, while [common.md](common.md) and [../protocol.md](../protocol.md) keep owning supervision, envelope, and recovery semantics.
 
 ## Selection and authorization
 
@@ -17,7 +17,9 @@ A handoff is a sanitized context transfer plus new-endpoint lineage — never a 
 
 ## Packet authoring contract
 
-The source session writes one `handoff-v1` JSON file to a private path outside the target repository. `schemas/handoff-v1.schema.json` is the authoritative shape; the control plane enforces it with closed objects, 64 KiB canonical bytes, 8 KiB strings, 64-item lists, workspace-relative evidence paths, an all-false sanitization attestation, an `integrity.sha256` self-digest, and a high-confidence secret-pattern scan. The scan cannot prove secrets are absent — sanitizing the content remains the author's obligation. Raw provider logs, transcripts, and reasoning traces never belong in a packet.
+Treat the `handoff-v1` packet as a compact handoff document for a fresh agent. Author it from the current session's visible context and tailor `objective`, `remaining_work`, and `acceptance_criteria` to the user's named continuation task. Include `suggested_skills` that materially help the continuation. Reference existing work through `evidence` instead of duplicating specs, plans, decisions, diffs, or other durable artifacts. Redact secrets and personally identifiable information; raw provider logs, transcripts, and hidden reasoning never belong in the packet.
+
+Write the caller-owned JSON file to a private path in the operating system's temporary directory, never into the target repository. `schemas/handoff-v1.schema.json` is the authoritative shape; the control plane enforces it with closed objects, 64 KiB canonical bytes, 8 KiB strings, 64-item lists, workspace-relative evidence paths, an all-false sanitization attestation, an `integrity.sha256` self-digest, and a high-confidence secret-pattern scan. The scan cannot prove secrets are absent, so sanitizing the content remains the source session's obligation.
 
 ## Deterministic loop
 

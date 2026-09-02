@@ -3649,6 +3649,7 @@ class AgentLordTests(unittest.TestCase):
             "remaining_work": ["add focused tests for the new module"],
             "constraints": ["do not commit, push, or publish"],
             "acceptance_criteria": ["focused tests pass"],
+            "suggested_skills": ["tdd"],
             "evidence": [{"path": "tracked.txt", "note": "existing source file"}],
             "sanitization": {"raw_provider_logs": False, "hidden_reasoning": False, "secrets": False},
         }
@@ -3701,6 +3702,7 @@ class AgentLordTests(unittest.TestCase):
         self.assertEqual("handoff", operation["kind"])
         self.assertIn("packet_sha256: " + packet_sha, operation["message"])
         self.assertIn(packet["objective"], operation["message"])
+        self.assertIn("## Suggested skills\n- tdd", operation["message"])
         self.assertIn("external_writes: forbidden", operation["message"])
         self.assertEqual("codex final", Path(result["artifact"]["path"]).read_text(encoding="utf-8").strip())
 
@@ -3782,6 +3784,7 @@ class AgentLordTests(unittest.TestCase):
             },
             "absolute-evidence-path": self._handoff_packet("t1", evidence=[{"path": "/etc/passwd"}]),
             "escaping-evidence-path": self._handoff_packet("t1", evidence=[{"path": "../outside.txt"}]),
+            "invalid-suggested-skills": self._handoff_packet("t1", suggested_skills="tdd"),
             "oversize-string": self._handoff_packet("t1", objective="x" * 9000),
             "oversize-packet": self._handoff_packet("t1", completed_work=["y" * 8000 for _ in range(9)]),
             "secret-token": self._handoff_packet("t1", completed_work=["token ghp_" + "a" * 36]),

@@ -58,6 +58,7 @@
     "constraints": {"type": "array", "maxItems": 64, "items": {"type": "string", "minLength": 1}},
     "acceptance_criteria": {"type": "array", "maxItems": 64, "items": {"type": "string", "minLength": 1}},
     "open_questions": {"type": "array", "maxItems": 64, "items": {"type": "string", "minLength": 1}},
+    "suggested_skills": {"type": "array", "maxItems": 64, "items": {"type": "string", "minLength": 1}, "description": "skills that materially help the fresh continuation endpoint"},
     "evidence": {
       "type": "array",
       "maxItems": 64,
