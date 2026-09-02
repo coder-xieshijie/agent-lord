@@ -11,7 +11,7 @@ Every command prints one JSON object. `schemas/result-v1.schema.json` is the mai
 | `ACTION_REQUIRED` | A Codex App host-tool action is durably pending | Invoke the exact tool and arguments, then `accept` its raw result |
 | `RUNNING` | The provider operation is preparing, progressing, waiting, stalled, or recovering | Inspect `observed.supervision`; use `check` or a bounded `checkpoint` |
 | `SUCCEEDED` | Endpoint, execution contract, and final artifact passed the available checks | Consume the artifact |
-| `ERROR` | Deterministic validation or provider execution failed | Use only the emitted safe recovery, if any |
+| `ERROR` | Deterministic validation or provider execution failed | Use only the emitted safe recovery, if any, plus the caller-owned Claude `RESULT_INVALID` retry in `SKILL.md` |
 | `NEEDS_DECISION` | Recovery changes identity, authority, source, or delivery semantics | Stop for an explicit decision |
 | `CHECKPOINT_ACTIONABLE` | One or more selected tasks have durable actionable state | Process every envelope in `actionable` |
 | `CHECKPOINT_QUIET` | No actionable state change occurred in the bounded interval | Exit `124`; resume the foreground checkpoint loop later |
@@ -63,6 +63,7 @@ operations/<operation-id>.json
 actions/<action-id>.json       model-mediated Codex tool request
 events/<task-id>.jsonl         append-only transitions
 artifacts/<task-id>/<operation-id>.md
+artifacts/<task-id>/<operation-id>.handoff-v1.json   canonical sanitized handoff input packet
 logs/<operation-id>[.attempt-N].stdout
 logs/<operation-id>[.attempt-N].stderr
 logs/<operation-id>.final       Codex CLI final response only
@@ -74,6 +75,8 @@ worktrees/<task-id>/            default local source-branch worktree location
 Current state comes from task, operation, and provider truth. `events/*.jsonl` is a wake/audit log, not current-state authority.
 
 Task handles follow `schemas/task-v2.schema.json`. Version 1 records are normalized for inspection, but another turn is blocked until `scripts/task_store.py upgrade` attaches an explicit model, effort, retry, permission, and optional source contract. Operations and actions follow their corresponding schemas.
+
+A `handoff` operation is a third initial-operation kind beside `start` and `turn`-continued work: it consumes one validated `handoff-v1` packet (`schemas/handoff-v1.schema.json`), stores the canonical packet as an input artifact, freezes the workspace snapshot in its `handoff` manifest, and writes an immutable `lineage` record into the continuation task it creates. Lineage means `continues_user_task` on a brand-new endpoint; source-session identity stays `caller-declared` or `unavailable`, never `verified`. Policy, authorization, and the packet contract live in `references/pipelines/handoff.md`.
 
 ## Execution contract
 
@@ -89,13 +92,15 @@ The durable task record owns:
 - frozen workspace policy, repository, source branch, and isolated branch when supplied;
 - a caller-declared parallel worker/integrator contract when supplied.
 
-Provider arguments enforce model and effort on every operation. Claude success requires observable main-model metadata from the same session. `system.init.model` and `assistant.message.model` are authoritative; `result.modelUsage` is a fallback when it names one unambiguous model. Provider diagnostic lines are parsed separately from JSON message content. A failed `query_source=auto_mode` model becomes a sanitized `AUXILIARY_MODEL_UNRECOGNIZED` warning when the matching main result succeeded, without consuming retry budget or triggering fallback. Codex CLI stores the `thread.started` UUID and requires `turn.completed`; Codex App actions carry the explicit contract.
+Provider arguments enforce the frozen model and effort on every operation. Claude success requires observable main-model metadata from the same session. `system.init.model` and `assistant.message.model` are authoritative; `result.modelUsage` is a fallback when it names one unambiguous model. Same-model canonical and context-modified spellings may coexist, but every usage/canonical id must match the verified family and version. A requested context modifier such as `[1m]` requires matching modifier or `contextWindow` evidence; absent or contradictory evidence fails closed. Provider diagnostic lines are parsed separately from JSON message content. A failed `query_source=auto_mode` model becomes a sanitized `AUXILIARY_MODEL_UNRECOGNIZED` warning when the matching main result succeeded, without consuming retry budget or triggering fallback. Codex CLI stores the `thread.started` UUID and requires `turn.completed`; Codex App actions carry the explicit contract.
 
 `export-artifact` is an auxiliary import path, not a delivery. It never rewrites an already-terminal operation, so a rejected export leaves a `succeeded` operation and its canonical artifact intact; only a non-terminal operation is invalidated. A Codex rollout import must contain the exact operation marker and additionally verifies `turn_context` model and effort. A Claude import must be `claude-jsonl` and every candidate assistant record must carry this operation's own session id; a log with no such record is `RESULT_INVALID`. A Claude session log carries no effort field, so effort cannot be proven from it. Rather than fabricate a value or reject a valid transcript, the export publishes `{"code": "EFFORT_UNVERIFIABLE_FORMAT", "source_format": ..., "expected_effort": ...}` — the second declared warning variant in `schemas/result-v1.schema.json`. Effort itself remains argument-enforced at dispatch and recorded as `effort_verification`.
 
 Permission policy lives in `config/providers.json`; the selected mode is frozen in the durable task contract and resolved again before every operation. Claude Code maps bypass to `--dangerously-skip-permissions`; Codex CLI maps it to `--dangerously-bypass-approvals-and-sandbox`. Codex App exposes no approval or sandbox argument, so it records bypass as `host-inherited-unverified` and read-only as `instruction-only`.
 
-Claude defaults to `claude-opus-5` and `high` with five primary attempts. Fable-family tasks append a five-attempt `claude-opus-5` fallback stage. `--retry-attempts` overrides only the primary stage; the configured fallback budget is independent and is not scaled by it. The primary and fallback stages reuse the same session UUID, and `--resume` on that session means a failed attempt's partial work stays in the transcript the next attempt reads — that is the deliberate trade-off for preserving endpoint identity, not a defect. After the frozen plan is exhausted, the terminal error has no automatic recovery. Codex CLI and Codex App default to `gpt-5.6-sol` with `high`; unqualified `codex` resolves to `codex-cli`.
+For Claude, each unspecified field resolves at task start from the active user `settings.json` (`CLAUDE_CONFIG_DIR` when set, otherwise `~/.claude`): `model` supplies the model and `effortLevel` supplies effort. The configured `claude-opus-5` and `high` remain per-field fallbacks. Explicit model and effort arguments override independently, and the resolved pair is stored in the task contract, so later settings changes cannot rewrite it. Fable-family tasks append a five-attempt `claude-opus-5` fallback stage. `--retry-attempts` overrides only the primary stage; the configured fallback budget is independent and is not scaled by it. The primary and fallback stages reuse the same session UUID, and `--resume` on that session means a failed attempt's partial work stays in the transcript the next attempt reads — that is the deliberate trade-off for preserving endpoint identity, not a defect. After the frozen plan is exhausted, the terminal error has no automatic recovery. Codex CLI and Codex App defaults are unchanged: `gpt-5.6-sol` with `high`, and unqualified `codex` resolves to `codex-cli`.
+
+At every Claude process launch, including retry and recovery, the adapter builds a child environment without mutating its parent. It removes only inherited model/route/effort keys for which the selected Claude settings file is authoritative; environment-only credentials and unrelated Claude/Anthropic values remain intact, as do `CLAUDE_CONFIG_DIR`, the configured binary override, base URL, custom headers, and credential-helper settings. Settings values other than the resolved model/effort are neither copied into task records nor emitted in artifacts.
 
 Claude emits stream progress into the operation journal. Its supervision state is `provider_wait`, `progressing`, `tool_wait`, `suspected_stall`, `provider_failed`, or `recovering`. The default provider no-progress deadline is 900 seconds; known tool activity receives a separate 3600-second deadline. Provider configuration also owns the progress poll and termination grace intervals.
 
@@ -164,6 +169,8 @@ Missing, inconsistent, premature, or target-branch parallel metadata returns `PA
 | `SOURCE_MISMATCH` / `SOURCE_UNVERIFIED` | Fixed source cannot be proven | Correct the checkout or obtain a decision |
 | `WORKSPACE_WRITE_CONFLICT` / `BRANCH_WRITE_CONFLICT` | Another live or unfenced writable local task owns the worktree or checkout branch | Wait for it, run `checkpoint` to fence it, or declare an isolated worker |
 | `PARALLEL_WRITE_PLAN_INCOMPLETE` | Same-MR parallel write metadata, barrier, or order is incomplete or not unique | `NEEDS_DECISION`; correct the caller-owned plan |
+| `HANDOFF_PACKET_INVALID` | Handoff packet fails schema, bounds, sanitization, integrity, or secret checks | Fix the packet; nothing was dispatched |
+| `HANDOFF_CONFLICT` | Handoff arguments, packet binding, or an existing continuation task disagree | Fail closed; a different continuation needs a new `task_id` or corrected inputs |
 | `MODEL_UNRECOGNIZED` | Provider did not recognize the requested main model and no valid matching main result exists | Retry the same endpoint with the saved contract |
 | `MODEL_MISMATCH` / `MODEL_UNVERIFIED` | Observed result does not prove the requested model | Invalidate a non-terminal operation; retry the same endpoint |
 | `EFFORT_MISMATCH` / `EFFORT_UNVERIFIED` | Provider log contradicts saved effort, or a format that could prove it did not | Invalidate a non-terminal operation and retry the same endpoint |
@@ -171,7 +178,7 @@ Missing, inconsistent, premature, or target-branch parallel metadata returns `PA
 | `ENDPOINT_GONE` | Same endpoint cannot be rediscovered | `NEEDS_DECISION`; replacement is a new identity |
 | `DELIVERY_UNKNOWN` | Send lacks a trustworthy receipt | Read the same endpoint for the operation marker before resend |
 | `ENDPOINT_MISMATCH` | Provider result belongs to another endpoint | Fail closed |
-| `RESULT_INVALID` | Provider output lacks the required result shape | Fail closed and preserve private logs |
+| `RESULT_INVALID` | Provider output lacks the required result shape | Fail closed and preserve private logs; a terminal `claude-cli` one additionally allows the caller-owned bounded retry in `SKILL.md` |
 | `PROCESS_EXITED_WITHOUT_RESULT` | Local provider process disappeared before terminal publication | Inspect private logs, then retry the same endpoint if safe |
 | `PROVIDER_STALLED` | Claude stayed alive but produced no stream progress before the saved control deadline | Fence the old process group, then resume the same session with a continuation query |
 | `IDENTITY_CONFLICT` / `STATE_CONFLICT` | Durable records disagree about endpoint or terminal identity | Stop and repair explicitly |
@@ -192,6 +199,8 @@ The implementation may perform only identity-preserving recovery automatically:
 - let the private recovery controller claim that same recovery when the original controller is dead.
 
 The implementation returns `NEEDS_DECISION` before creating a replacement endpoint, changing provider/model/effort/source, widening permissions, or performing external writes.
+
+The Claude `RESULT_INVALID` retry in `SKILL.md` is not part of this line: it is caller-owned, so such an operation still terminalizes with no `safe_recovery`, and its replacement session is a new `task_id` with caller-recorded lineage rather than a rebound endpoint.
 
 ## Codex transports
 
@@ -217,4 +226,4 @@ A `codex.read` whose result is not ready yet is not an error either: `accept` ke
 
 App routing is independent of the CLI session namespace. Never migrate an existing `codex-app` task handle to `codex-cli` implicitly.
 
-`config/providers.json` owns provider capabilities plus checkpoint, stall, termination grace, progress poll, dead-process grace, and lock retry constants. Dynamic facts such as `hostId`, PID, process group, controller lease/launch count, recovery marker, operation state, and observed model never belong in configuration.
+`config/providers.json` owns provider capabilities, Claude default-resolution and child-environment policy, plus checkpoint, stall, termination grace, progress poll, dead-process grace, and lock retry constants. Dynamic facts such as `hostId`, PID, process group, controller lease/launch count, recovery marker, operation state, and observed model never belong in configuration.

@@ -206,13 +206,47 @@ def normalize_task(value: Dict[str, Any]) -> Dict[str, Any]:
         }
         if not required.issubset(value):
             raise AgentLordError("STATE_CORRUPT", "version 2 task record is incomplete")
-        allowed = required | {"version", "last_operation_id"}
+        allowed = required | {"version", "last_operation_id", "lineage"}
         if set(value) - allowed:
             raise AgentLordError(
                 "STATE_CORRUPT",
                 "version 2 task record has unexpected fields",
                 details={"fields": sorted(set(value) - allowed)},
             )
+        lineage = value.get("lineage")
+        if lineage is not None:
+            # Written once at task creation by a handoff operation; no mutator may change it.
+            lineage_fields = {
+                "kind",
+                "handoff_id",
+                "handoff_operation_id",
+                "packet_sha256",
+                "source_session_kind",
+                "source_session_id",
+                "source_session_identity",
+                "relationship",
+            }
+            if (
+                not isinstance(lineage, dict)
+                or set(lineage) != lineage_fields
+                or lineage["kind"] != "handoff"
+                or lineage["relationship"] != "continues_user_task"
+                or not isinstance(lineage["handoff_id"], str)
+                or not IDENTIFIER_PATTERN.fullmatch(lineage["handoff_id"])
+                or not isinstance(lineage["handoff_operation_id"], str)
+                or not IDENTIFIER_PATTERN.fullmatch(lineage["handoff_operation_id"])
+                or not isinstance(lineage["packet_sha256"], str)
+                or not re.fullmatch(r"[0-9a-f]{64}", lineage["packet_sha256"])
+                or not isinstance(lineage["source_session_kind"], str)
+                or not lineage["source_session_kind"]
+                or lineage["source_session_identity"] not in ("caller-declared", "unavailable")
+                or not (
+                    lineage["source_session_id"] is None
+                    or (isinstance(lineage["source_session_id"], str) and lineage["source_session_id"])
+                )
+                or (lineage["source_session_identity"] == "caller-declared") != (lineage["source_session_id"] is not None)
+            ):
+                raise AgentLordError("STATE_CORRUPT", "task record has an invalid handoff lineage")
         if not isinstance(value.get("task_id"), str) or not IDENTIFIER_PATTERN.fullmatch(value["task_id"]):
             raise AgentLordError("STATE_CORRUPT", "task record has an invalid task_id")
         if value.get("provider") not in ("claude-cli", "codex-cli", "codex-app"):

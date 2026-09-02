@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from argparse import Namespace
 from concurrent.futures import ThreadPoolExecutor
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -20,8 +21,14 @@ from agent_lord import AgentLord, AgentLordError
 from agent_lord.claude_adapter import claude_session_observed, terminate_claude_process
 from agent_lord.claude_attempt_result import evaluate_claude_attempt, last_result
 from agent_lord.codex_adapter import operation_marker
-from agent_lord.config import DEFAULT_CONFIG, control_config, expected_model_matches
+from agent_lord.config import (
+    DEFAULT_CONFIG,
+    claude_child_environment,
+    control_config,
+    expected_model_matches,
+)
 from agent_lord.engine import _CheckpointScan
+from agent_lord.handoff import canonical_packet_bytes
 import agent_lord.state
 from agent_lord.state import (
     create_action,
@@ -50,6 +57,15 @@ log = os.environ.get("FAKE_CLAUDE_ARGV_LOG")
 if log:
     with open(log, "a", encoding="utf-8") as handle:
         handle.write(json.dumps(args) + "\n")
+environment_log = os.environ.get("FAKE_CLAUDE_ENV_LOG")
+if environment_log:
+    with open(environment_log, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps({
+            "anthropic_model_present": "ANTHROPIC_MODEL" in os.environ,
+            "opus_mapping_present": "ANTHROPIC_DEFAULT_OPUS_MODEL" in os.environ,
+            "credential_present": "ANTHROPIC_API_KEY" in os.environ,
+            "custom_config_present": "CLAUDE_CONFIG_DIR" in os.environ,
+        }) + "\n")
 session_id = args[args.index("--resume") + 1] if "--resume" in args else args[args.index("--session-id") + 1]
 if os.environ.get("FAKE_CLAUDE_DIAGNOSTIC"):
     diagnostic_stream = sys.stderr if os.environ.get("FAKE_CLAUDE_DIAGNOSTIC_STDERR") == "1" else sys.stdout
@@ -89,12 +105,16 @@ delay_seconds = float(os.environ.get("FAKE_CLAUDE_DELAY_SECONDS", "0"))
 if delay_seconds:
     print(json.dumps({"type": "assistant", "session_id": session_id, "message": {"content": []}}), flush=True)
     time.sleep(delay_seconds)
+usage = {"inputTokens": 1, "outputTokens": 1}
+if "[1m]" in model:
+    usage["canonicalModel"] = model.replace("[1m]", "")
+    usage["contextWindow"] = 1000000
 print(json.dumps({
     "type": "result",
     "session_id": session_id,
     "is_error": attempt <= failures,
     "result": ("failed attempt " + str(attempt)) if attempt <= failures else ("final: " + message),
-    "modelUsage": {model: {"inputTokens": 1, "outputTokens": 1}}
+    "modelUsage": {model: usage}
 }))
 '''
 
@@ -179,6 +199,192 @@ class ClaudeAttemptResultTests(unittest.TestCase):
         self.assertEqual("qw-mid-5", evaluation.auxiliary_models[0].model)
         self.assertEqual("AUXILIARY_MODEL_UNRECOGNIZED", evaluation.warnings[0].code)
 
+    def test_opus_1m_accepts_real_same_model_metadata_shape(self) -> None:
+        session_id = "11111111-2222-4333-8444-555555555555"
+        stdout = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "system",
+                        "subtype": "init",
+                        "session_id": session_id,
+                        "claude_code_version": "2.1.247",
+                        "model": "claude-opus-5[1m]",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "session_id": session_id,
+                        "message": {"model": "claude-opus-5", "content": []},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "result",
+                        "session_id": session_id,
+                        "is_error": False,
+                        "result": "CC_PROBE_OK",
+                        "modelUsage": {
+                            "claude-opus-5[1m]": {
+                                "canonicalModel": "claude-opus-5",
+                                "contextWindow": 1_000_000,
+                            }
+                        },
+                    }
+                ),
+            ]
+        )
+
+        evaluation = evaluate_claude_attempt(
+            stdout,
+            "",
+            session_id=session_id,
+            expected_model="opus[1m]",
+            return_code=0,
+        )
+
+        self.assertEqual("claude-opus-5[1m]", evaluation.main_model)
+        self.assertIn("result.modelUsage.contextWindow", evaluation.main_model_evidence)
+
+    def test_opus_1m_rejects_a_true_model_family_or_version_mismatch(self) -> None:
+        session_id = "11111111-2222-4333-8444-666666666666"
+        stdout = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "system",
+                        "subtype": "init",
+                        "session_id": session_id,
+                        "model": "claude-opus-5[1m]",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "session_id": session_id,
+                        "message": {"model": "claude-opus-4", "content": []},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "result",
+                        "session_id": session_id,
+                        "is_error": False,
+                        "result": "wrong model",
+                        "modelUsage": {"claude-opus-5[1m]": {"contextWindow": 1_000_000}},
+                    }
+                ),
+            ]
+        )
+
+        with self.assertRaises(AgentLordError) as raised:
+            evaluate_claude_attempt(
+                stdout,
+                "",
+                session_id=session_id,
+                expected_model="opus[1m]",
+                return_code=0,
+            )
+        self.assertEqual("MODEL_MISMATCH", raised.exception.code)
+
+    def test_opus_1m_rejects_wrong_context_evidence(self) -> None:
+        session_id = "11111111-2222-4333-8444-777777777777"
+        stdout = json.dumps(
+            {
+                "type": "result",
+                "session_id": session_id,
+                "is_error": False,
+                "result": "downgraded",
+                "modelUsage": {
+                    "claude-opus-5": {
+                        "canonicalModel": "claude-opus-5",
+                        "contextWindow": 200_000,
+                    }
+                },
+            }
+        )
+
+        with self.assertRaises(AgentLordError) as raised:
+            evaluate_claude_attempt(
+                stdout,
+                "",
+                session_id=session_id,
+                expected_model="opus[1m]",
+                return_code=0,
+            )
+        self.assertEqual("MODEL_MISMATCH", raised.exception.code)
+
+    def test_opus_1m_rejects_unrelated_model_usage(self) -> None:
+        session_id = "11111111-2222-4333-8444-888888888888"
+        stdout = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "system",
+                        "subtype": "init",
+                        "session_id": session_id,
+                        "model": "claude-opus-5[1m]",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "result",
+                        "session_id": session_id,
+                        "is_error": False,
+                        "result": "mixed usage",
+                        "modelUsage": {
+                            "claude-opus-5[1m]": {"contextWindow": 1_000_000},
+                            "claude-sonnet-5": {"contextWindow": 200_000},
+                        },
+                    }
+                ),
+            ]
+        )
+
+        with self.assertRaises(AgentLordError) as raised:
+            evaluate_claude_attempt(
+                stdout,
+                "",
+                session_id=session_id,
+                expected_model="opus[1m]",
+                return_code=0,
+            )
+        self.assertEqual("MODEL_MISMATCH", raised.exception.code)
+
+    def test_model_metadata_from_another_session_is_not_evidence(self) -> None:
+        session_id = "11111111-2222-4333-8444-999999999999"
+        stdout = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "system",
+                        "subtype": "init",
+                        "session_id": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+                        "model": "claude-opus-5[1m]",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "result",
+                        "session_id": session_id,
+                        "is_error": False,
+                        "result": "foreign metadata",
+                    }
+                ),
+            ]
+        )
+
+        with self.assertRaises(AgentLordError) as raised:
+            evaluate_claude_attempt(
+                stdout,
+                "",
+                session_id=session_id,
+                expected_model="opus[1m]",
+                return_code=0,
+            )
+        self.assertEqual("MODEL_UNVERIFIED", raised.exception.code)
+
 
 class AgentLordTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -186,6 +392,8 @@ class AgentLordTests(unittest.TestCase):
         self.root = Path(self.temporary.name) / "state"
         self.target = Path(self.temporary.name) / "repo"
         self.target.mkdir()
+        self.claude_config = Path(self.temporary.name) / "claude-config"
+        self.claude_config.mkdir()
         self.fake_claude = Path(self.temporary.name) / "fake-claude"
         self.fake_claude.write_text(FAKE_CLAUDE, encoding="utf-8")
         self.fake_claude.chmod(self.fake_claude.stat().st_mode | stat.S_IXUSR)
@@ -200,6 +408,7 @@ class AgentLordTests(unittest.TestCase):
             os.environ,
             {
                 "AGENT_LORD_STATE_DIR": str(self.root),
+                "CLAUDE_CONFIG_DIR": str(self.claude_config),
                 "AGENT_LORD_CLAUDE_BIN": str(self.fake_claude),
                 "FAKE_CLAUDE_ARGV_LOG": str(self.argv_log),
                 "FAKE_CLAUDE_MODEL": "claude-opus-5",
@@ -212,6 +421,9 @@ class AgentLordTests(unittest.TestCase):
         )
         self.environment.start()
         self.lord = AgentLord(self.root)
+
+    def _write_claude_settings(self, value: Dict[str, Any]) -> None:
+        (self.claude_config / "settings.json").write_text(json.dumps(value), encoding="utf-8")
 
     def tearDown(self) -> None:
         self.environment.stop()
@@ -565,7 +777,30 @@ class AgentLordTests(unittest.TestCase):
             self.assertEqual("plan", arguments[arguments.index("--permission-mode") + 1])
         self.assertEqual(endpoint_id, invocations[1][invocations[1].index("--resume") + 1])
 
-    def test_claude_defaults_to_opus_high_and_five_attempts(self) -> None:
+    def test_claude_uses_terminal_aligned_settings_defaults(self) -> None:
+        self._write_claude_settings(
+            {
+                "model": "opus[1m]",
+                "effortLevel": "xhigh",
+                "env": {
+                    "ANTHROPIC_MODEL": "opus[1m]",
+                    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5",
+                },
+            }
+        )
+        with patch.dict(os.environ, {"FAKE_CLAUDE_MODEL": "claude-opus-5[1m]"}, clear=False):
+            result = self.lord.start("claude-terminal-defaults", "claude-cli", str(self.target), "review")
+
+        self.assertEqual("SUCCEEDED", result["status"])
+        self.assertEqual("opus[1m]", result["expected"]["model"])
+        self.assertEqual("xhigh", result["expected"]["effort"])
+        self.assertEqual([{"model": "opus[1m]", "attempts": 5}], result["expected"]["retry_plan"])
+        self.assertEqual("claude-opus-5[1m]", result["observed"]["main_model"])
+        arguments = json.loads(self.argv_log.read_text(encoding="utf-8").splitlines()[0])
+        self.assertEqual("opus[1m]", arguments[arguments.index("--model") + 1])
+        self.assertEqual("xhigh", arguments[arguments.index("--effort") + 1])
+
+    def test_claude_absent_settings_fall_back_to_provider_defaults(self) -> None:
         result = self.lord.start("claude-defaults", "claude-cli", str(self.target), "review")
 
         self.assertEqual("SUCCEEDED", result["status"])
@@ -589,6 +824,121 @@ class AgentLordTests(unittest.TestCase):
         self.assertEqual("SUCCEEDED", result["status"])
         self.assertEqual("sonnet", result["expected"]["model"])
         self.assertEqual("high", result["expected"]["effort"])
+
+    def test_claude_model_only_override_keeps_settings_effort(self) -> None:
+        self._write_claude_settings({"model": "opus[1m]", "effortLevel": "xhigh"})
+        for index, requested in enumerate(("fable", "claude-fable-5"), start=1):
+            with self.subTest(model=requested), patch.dict(
+                os.environ,
+                {"FAKE_CLAUDE_MODEL": "claude-fable-5"},
+                clear=False,
+            ):
+                result = self.lord.start(
+                    "claude-model-override-%d" % index,
+                    "claude-cli",
+                    str(self.target),
+                    "judge",
+                    model=requested,
+                )
+            self.assertEqual(requested, result["expected"]["model"])
+            self.assertEqual("xhigh", result["expected"]["effort"])
+            self.assertFalse(result["observed"]["fallback_used"])
+
+    def test_claude_effort_only_override_keeps_settings_model(self) -> None:
+        self._write_claude_settings({"model": "opus[1m]", "effortLevel": "xhigh"})
+        with patch.dict(os.environ, {"FAKE_CLAUDE_MODEL": "claude-opus-5[1m]"}, clear=False):
+            result = self.lord.start(
+                "claude-effort-override",
+                "claude-cli",
+                str(self.target),
+                "review",
+                effort="high",
+            )
+
+        self.assertEqual("opus[1m]", result["expected"]["model"])
+        self.assertEqual("high", result["expected"]["effort"])
+
+    def test_claude_model_and_effort_overrides_both_win(self) -> None:
+        self._write_claude_settings({"model": "opus[1m]", "effortLevel": "xhigh"})
+        with patch.dict(os.environ, {"FAKE_CLAUDE_MODEL": "claude-fable-5"}, clear=False):
+            result = self.lord.start(
+                "claude-both-overrides",
+                "claude-cli",
+                str(self.target),
+                "judge",
+                model="fable",
+                effort="high",
+            )
+
+        self.assertEqual("fable", result["expected"]["model"])
+        self.assertEqual("high", result["expected"]["effort"])
+        self.assertFalse(result["observed"]["fallback_used"])
+
+    def test_claude_launch_environment_removes_only_settings_owned_stale_routes(self) -> None:
+        settings = {
+            "model": "opus[1m]",
+            "effortLevel": "xhigh",
+            "apiKeyHelper": "/example/credential-helper",
+            "env": {
+                "ANTHROPIC_MODEL": "opus[1m]",
+                "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5",
+            },
+        }
+        self._write_claude_settings(settings)
+        environment_log = Path(self.temporary.name) / "claude-environment.jsonl"
+        inherited = {
+            "ANTHROPIC_MODEL": "stale-mid",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": "stale-opus",
+            "ANTHROPIC_API_KEY": "synthetic-test-credential",
+            "ANTHROPIC_BASE_URL": "https://example.invalid",
+            "ANTHROPIC_CUSTOM_HEADERS": "x-test: preserved",
+            "FAKE_CLAUDE_ENV_LOG": str(environment_log),
+            "FAKE_CLAUDE_FAILURES": "1",
+            "FAKE_CLAUDE_MODEL": "claude-opus-5[1m]",
+        }
+        with patch.dict(os.environ, inherited, clear=False):
+            child = claude_child_environment()
+            self.assertNotIn("ANTHROPIC_MODEL", child)
+            self.assertNotIn("ANTHROPIC_DEFAULT_OPUS_MODEL", child)
+            self.assertEqual(inherited["ANTHROPIC_API_KEY"], child["ANTHROPIC_API_KEY"])
+            self.assertEqual(inherited["ANTHROPIC_BASE_URL"], child["ANTHROPIC_BASE_URL"])
+            self.assertEqual(inherited["ANTHROPIC_CUSTOM_HEADERS"], child["ANTHROPIC_CUSTOM_HEADERS"])
+            self.assertEqual(str(self.claude_config), child["CLAUDE_CONFIG_DIR"])
+
+            result = self.lord.start(
+                "claude-sanitized-launch",
+                "claude-cli",
+                str(self.target),
+                "review",
+                retry_attempts=2,
+            )
+            self.assertEqual("stale-mid", os.environ["ANTHROPIC_MODEL"])
+
+        self.assertEqual("SUCCEEDED", result["status"])
+        launches = [json.loads(line) for line in environment_log.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(2, len(launches))
+        for launch in launches:
+            self.assertFalse(launch["anthropic_model_present"])
+            self.assertFalse(launch["opus_mapping_present"])
+            self.assertTrue(launch["credential_present"])
+            self.assertTrue(launch["custom_config_present"])
+        self.assertEqual(settings, json.loads((self.claude_config / "settings.json").read_text(encoding="utf-8")))
+
+    def test_claude_settings_defaults_are_frozen_across_turns(self) -> None:
+        self._write_claude_settings({"model": "opus[1m]", "effortLevel": "xhigh"})
+        with patch.dict(os.environ, {"FAKE_CLAUDE_MODEL": "claude-opus-5[1m]"}, clear=False):
+            start = self.lord.start("claude-frozen-defaults", "claude-cli", str(self.target), "first")
+            self._write_claude_settings({"model": "fable", "effortLevel": "low"})
+            turn = self.lord.turn("claude-frozen-defaults", "second")
+
+        self.assertEqual(start["endpoint_id"], turn["endpoint_id"])
+        self.assertEqual("opus[1m]", turn["expected"]["model"])
+        self.assertEqual("xhigh", turn["expected"]["effort"])
+        invocations = [json.loads(line) for line in self.argv_log.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(2, len(invocations))
+        for arguments in invocations:
+            self.assertEqual("opus[1m]", arguments[arguments.index("--model") + 1])
+            self.assertEqual("xhigh", arguments[arguments.index("--effort") + 1])
 
     def test_claude_full_model_contract_accepts_a_versioned_provider_id(self) -> None:
         self.assertTrue(expected_model_matches("claude-opus-5", "claude-opus-5-20260801"))
@@ -3281,6 +3631,363 @@ class AgentLordTests(unittest.TestCase):
         for path in schema_dir.glob("*.json"):
             value = json.loads(path.read_text(encoding="utf-8"))
             self.assertIn("$schema", value)
+
+    def _handoff_packet(self, task_id: str, **overrides: Any) -> Dict[str, Any]:
+        packet: Dict[str, Any] = {
+            "schema": "handoff-v1",
+            "handoff_id": "handoff-20260902-a",
+            "created_at": "2026-09-02T10:00:00+00:00",
+            "source_session": {"kind": "codex-desktop"},
+            "continuation": {"task_id": task_id},
+            "authorization": {
+                "task": "continue the authorized refactor and add its tests",
+                "workspace_writes": True,
+                "external_writes": False,
+            },
+            "objective": "finish the user-specified continuation task",
+            "completed_work": ["implemented the core module"],
+            "remaining_work": ["add focused tests for the new module"],
+            "constraints": ["do not commit, push, or publish"],
+            "acceptance_criteria": ["focused tests pass"],
+            "evidence": [{"path": "tracked.txt", "note": "existing source file"}],
+            "sanitization": {"raw_provider_logs": False, "hidden_reasoning": False, "secrets": False},
+        }
+        packet.update({name: value for name, value in overrides.items() if name != "integrity"})
+        if "integrity" in overrides:
+            packet["integrity"] = overrides["integrity"]
+        else:
+            packet["integrity"] = {"sha256": hashlib.sha256(canonical_packet_bytes(packet)).hexdigest()}
+        return packet
+
+    def _write_packet(self, packet: Dict[str, Any], name: str = "packet.json") -> str:
+        path = Path(self.temporary.name) / name
+        path.write_text(json.dumps(packet, ensure_ascii=False), encoding="utf-8")
+        return str(path)
+
+    def _dirty_workspace(self) -> None:
+        (self.target / "tracked.txt").write_text("source\nlocal work in progress\n", encoding="utf-8")
+        (self.target / "wip.txt").write_text("uncommitted continuation evidence\n", encoding="utf-8")
+
+    def test_handoff_starts_codex_continuation_with_lineage_and_snapshot(self) -> None:
+        head = self._init_source_repo()
+        self._dirty_workspace()
+        packet = self._handoff_packet("xx-continuation")
+        result = self.lord.handoff(
+            "xx-continuation",
+            self._write_packet(packet),
+            provider="codex-cli",
+            target=str(self.target),
+            model="gpt-5.6-sol",
+            effort="high",
+            head_sha=head,
+        )
+
+        self.assertEqual("SUCCEEDED", result["status"])
+        canonical = canonical_packet_bytes(packet)
+        packet_sha = hashlib.sha256(canonical).hexdigest()
+        self.assertEqual(packet_sha, result["handoff"]["packet_sha256"])
+        self.assertEqual("continues_user_task", result["handoff"]["relationship"])
+        self.assertTrue(result["handoff"]["workspace_snapshot"]["dirty"])
+        self.assertEqual(2, result["handoff"]["workspace_snapshot"]["changed_path_count"])
+        self.assertEqual(head, result["handoff"]["workspace_snapshot"]["head_sha"])
+
+        task = load_task("xx-continuation", self.root)
+        self.assertEqual("handoff", task["lineage"]["kind"])
+        self.assertEqual(packet_sha, task["lineage"]["packet_sha256"])
+        self.assertEqual("codex-desktop", task["lineage"]["source_session_kind"])
+        self.assertEqual(result["endpoint_id"], task["endpoint_id"])
+
+        operation = load_operation(result["operation_id"], self.root)
+        self.assertEqual("handoff", operation["kind"])
+        self.assertIn("packet_sha256: " + packet_sha, operation["message"])
+        self.assertIn(packet["objective"], operation["message"])
+        self.assertIn("external_writes: forbidden", operation["message"])
+        self.assertEqual("codex final", Path(result["artifact"]["path"]).read_text(encoding="utf-8").strip())
+
+        stored = Path(operation["handoff"]["packet"]["path"])
+        self.assertEqual(str(self.root / "artifacts" / "xx-continuation" / (result["operation_id"] + ".handoff-v1.json")), str(stored))
+        self.assertEqual(canonical, stored.read_bytes())
+
+    def test_handoff_claude_continuation_delivers_packet_prompt_to_new_session(self) -> None:
+        self._init_source_repo()
+        self._dirty_workspace()
+        packet = self._handoff_packet("cc-continuation", handoff_id="handoff-20260902-b")
+        result = self.lord.handoff(
+            "cc-continuation",
+            self._write_packet(packet),
+            provider="claude-cli",
+            target=str(self.target),
+        )
+
+        self.assertEqual("SUCCEEDED", result["status"])
+        arguments = json.loads(self.argv_log.read_text(encoding="utf-8").splitlines()[0])
+        self.assertIn("--session-id", arguments)
+        self.assertEqual(result["endpoint_id"], arguments[arguments.index("--session-id") + 1])
+        packet_sha = hashlib.sha256(canonical_packet_bytes(packet)).hexdigest()
+        artifact_text = Path(result["artifact"]["path"]).read_text(encoding="utf-8")
+        self.assertIn("packet_sha256: " + packet_sha, artifact_text)
+        self.assertIn(packet["objective"], artifact_text)
+        task = load_task("cc-continuation", self.root)
+        self.assertEqual(packet_sha, task["lineage"]["packet_sha256"])
+
+    def test_handoff_replay_is_idempotent_and_starts_no_second_endpoint(self) -> None:
+        self._init_source_repo()
+        self._dirty_workspace()
+        packet_path = self._write_packet(self._handoff_packet("replay-continuation"))
+        first = self.lord.handoff(
+            "replay-continuation",
+            packet_path,
+            provider="codex-cli",
+            target=str(self.target),
+        )
+        second = self.lord.handoff(
+            "replay-continuation",
+            packet_path,
+            provider="codex-cli",
+            target=str(self.target),
+        )
+
+        self.assertEqual("SUCCEEDED", first["status"])
+        self.assertEqual(first["operation_id"], second["operation_id"])
+        self.assertEqual(first["endpoint_id"], second["endpoint_id"])
+        self.assertEqual(1, len(self.codex_argv_log.read_text(encoding="utf-8").splitlines()))
+
+    def test_handoff_same_task_with_a_different_packet_fails_closed(self) -> None:
+        self._init_source_repo()
+        self._dirty_workspace()
+        self.lord.handoff(
+            "conflict-continuation",
+            self._write_packet(self._handoff_packet("conflict-continuation")),
+            provider="codex-cli",
+            target=str(self.target),
+        )
+        changed = self._handoff_packet("conflict-continuation", remaining_work=["a different follow-up task"])
+
+        with self.assertRaises(AgentLordError) as raised:
+            self.lord.handoff(
+                "conflict-continuation",
+                self._write_packet(changed, name="packet-2.json"),
+                provider="codex-cli",
+                target=str(self.target),
+            )
+        self.assertEqual("HANDOFF_CONFLICT", raised.exception.code)
+        self.assertEqual(1, len(self.codex_argv_log.read_text(encoding="utf-8").splitlines()))
+
+    def test_handoff_rejects_invalid_packets_before_any_dispatch(self) -> None:
+        bad_packets = {
+            "wrong-schema": self._handoff_packet("t1", schema="handoff-v2"),
+            "unknown-field": self._handoff_packet("t1", transcript="raw provider text"),
+            "missing-objective": {
+                name: value for name, value in self._handoff_packet("t1").items() if name != "objective"
+            },
+            "absolute-evidence-path": self._handoff_packet("t1", evidence=[{"path": "/etc/passwd"}]),
+            "escaping-evidence-path": self._handoff_packet("t1", evidence=[{"path": "../outside.txt"}]),
+            "oversize-string": self._handoff_packet("t1", objective="x" * 9000),
+            "oversize-packet": self._handoff_packet("t1", completed_work=["y" * 8000 for _ in range(9)]),
+            "secret-token": self._handoff_packet("t1", completed_work=["token ghp_" + "a" * 36]),
+            "unsanitized": self._handoff_packet(
+                "t1",
+                sanitization={"raw_provider_logs": True, "hidden_reasoning": False, "secrets": False},
+            ),
+            "tampered-digest": self._handoff_packet("t1", integrity={"sha256": "0" * 64}),
+        }
+        for name, packet in bad_packets.items():
+            with self.subTest(packet=name):
+                with self.assertRaises(AgentLordError) as raised:
+                    self.lord.handoff("t1", self._write_packet(packet, name=name + ".json"), provider="codex-cli", target=str(self.target))
+                self.assertEqual("HANDOFF_PACKET_INVALID", raised.exception.code)
+        self.assertEqual([], operation_paths(self.root))
+        self.assertFalse(self.codex_argv_log.exists())
+
+    def test_handoff_binding_contract_and_permission_conflicts_fail_closed(self) -> None:
+        conflicts = (
+            (
+                "other-task-binding",
+                self._handoff_packet("someone-else"),
+                {"provider": "codex-cli"},
+                "HANDOFF_CONFLICT",
+            ),
+            (
+                "provider-conflict",
+                self._handoff_packet("t2", contract_request={"provider": "codex-cli"}),
+                {"provider": "claude-cli"},
+                "HANDOFF_CONFLICT",
+            ),
+            (
+                "model-conflict",
+                self._handoff_packet("t2", contract_request={"provider": "codex-cli", "model": "gpt-5.6-sol"}),
+                {"model": "gpt-5.5"},
+                "HANDOFF_CONFLICT",
+            ),
+            (
+                "writes-need-writable",
+                self._handoff_packet("t2"),
+                {"provider": "codex-cli", "read_only": True},
+                "HANDOFF_CONFLICT",
+            ),
+            (
+                "readonly-packet-needs-read-only",
+                self._handoff_packet(
+                    "t2",
+                    authorization={"task": "review only", "workspace_writes": False, "external_writes": False},
+                ),
+                {"provider": "codex-cli"},
+                "HANDOFF_CONFLICT",
+            ),
+            (
+                "codex-app-rejected",
+                self._handoff_packet("t2"),
+                {"provider": "codex-app"},
+                "CONFIG_INVALID",
+            ),
+            (
+                "no-provider-anywhere",
+                self._handoff_packet("t2"),
+                {},
+                "CONFIG_INVALID",
+            ),
+        )
+        for name, packet, kwargs, expected_code in conflicts:
+            with self.subTest(conflict=name):
+                with self.assertRaises(AgentLordError) as raised:
+                    self.lord.handoff("t2", self._write_packet(packet, name=name + ".json"), target=str(self.target), **kwargs)
+                self.assertEqual(expected_code, raised.exception.code)
+        self.assertEqual([], operation_paths(self.root))
+        self.assertFalse(self.codex_argv_log.exists())
+
+    def test_handoff_source_identity_is_recorded_never_fabricated(self) -> None:
+        self._init_source_repo()
+        anonymous = self.lord.handoff(
+            "anon-continuation",
+            self._write_packet(self._handoff_packet("anon-continuation")),
+            provider="codex-cli",
+            target=str(self.target),
+        )
+        declared = self.lord.handoff(
+            "declared-continuation",
+            self._write_packet(
+                self._handoff_packet(
+                    "declared-continuation",
+                    source_session={"kind": "codex-desktop", "opaque_id": "desktop-thread-123"},
+                ),
+                name="declared.json",
+            ),
+            provider="codex-cli",
+            target=str(self.target),
+        )
+
+        anon_task = load_task("anon-continuation", self.root)
+        self.assertEqual("unavailable", anon_task["lineage"]["source_session_identity"])
+        self.assertIsNone(anon_task["lineage"]["source_session_id"])
+        declared_task = load_task("declared-continuation", self.root)
+        self.assertEqual("caller-declared", declared_task["lineage"]["source_session_identity"])
+        self.assertEqual("desktop-thread-123", declared_task["lineage"]["source_session_id"])
+        for envelope in (anonymous, declared):
+            self.assertIn(envelope["handoff"]["source_session"]["identity_assurance"], ("caller-declared", "unavailable"))
+
+    def test_handoff_head_mismatch_starts_no_endpoint(self) -> None:
+        self._init_source_repo()
+        with self.assertRaises(AgentLordError) as raised:
+            self.lord.handoff(
+                "pinned-continuation",
+                self._write_packet(self._handoff_packet("pinned-continuation")),
+                provider="codex-cli",
+                target=str(self.target),
+                head_sha="0" * 40,
+            )
+        self.assertEqual("SOURCE_MISMATCH", raised.exception.code)
+        self.assertEqual([], operation_paths(self.root))
+        self.assertFalse(self.codex_argv_log.exists())
+
+    def test_handoff_workspace_drift_between_snapshot_and_dispatch_fails_closed(self) -> None:
+        self._init_source_repo()
+        self._dirty_workspace()
+        snapshots = [
+            {"head_sha": "1" * 40, "dirty": True, "changed_path_count": 2, "sha256": "a" * 64},
+            {"head_sha": "1" * 40, "dirty": True, "changed_path_count": 3, "sha256": "b" * 64},
+        ]
+        with patch("agent_lord.engine.snapshot_exact_target", side_effect=snapshots):
+            with self.assertRaises(AgentLordError) as raised:
+                self.lord.handoff(
+                    "drift-continuation",
+                    self._write_packet(self._handoff_packet("drift-continuation")),
+                    provider="codex-cli",
+                    target=str(self.target),
+                )
+        self.assertEqual("SOURCE_MISMATCH", raised.exception.code)
+        self.assertEqual("RETRY_SAME_COMMAND", raised.exception.safe_recovery)
+        operations = [agent_lord.state.read_operation_path(path) for path in operation_paths(self.root)]
+        self.assertEqual(["failed"], [operation["status"] for operation in operations])
+        self.assertFalse(self.codex_argv_log.exists())
+
+    def test_handoff_provider_failure_is_terminal_then_safely_retryable(self) -> None:
+        self._init_source_repo()
+        self._dirty_workspace()
+        broken_codex = Path(self.temporary.name) / "broken-codex"
+        broken_codex.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+        broken_codex.chmod(broken_codex.stat().st_mode | stat.S_IXUSR)
+        packet_path = self._write_packet(self._handoff_packet("retry-continuation"))
+
+        with patch.dict(os.environ, {"AGENT_LORD_CODEX_BIN": str(broken_codex)}, clear=False):
+            with self.assertRaises(AgentLordError) as raised:
+                self.lord.handoff(
+                    "retry-continuation",
+                    packet_path,
+                    provider="codex-cli",
+                    target=str(self.target),
+                )
+        self.assertEqual("RESULT_INVALID", raised.exception.code)
+        self.assertEqual("RETRY_SAME_COMMAND", raised.exception.safe_recovery)
+        self.assertFalse((self.root / "retry-continuation.json").exists())
+
+        retried = self.lord.handoff(
+            "retry-continuation",
+            packet_path,
+            provider="codex-cli",
+            target=str(self.target),
+        )
+        self.assertEqual("SUCCEEDED", retried["status"])
+        self.assertNotEqual(raised.exception.details.get("operation_id"), retried["operation_id"])
+        task = load_task("retry-continuation", self.root)
+        self.assertEqual(retried["endpoint_id"], task["endpoint_id"])
+        self.assertEqual("handoff", task["lineage"]["kind"])
+
+    def test_handoff_validate_only_touches_no_durable_state(self) -> None:
+        packet = self._handoff_packet("validate-continuation")
+        result = self.lord.handoff(
+            "validate-continuation",
+            self._write_packet(packet),
+            provider="codex-cli",
+            validate_only=True,
+        )
+
+        self.assertEqual("SUCCEEDED", result["status"])
+        self.assertTrue(result["handoff"]["validated_only"])
+        self.assertEqual(
+            hashlib.sha256(canonical_packet_bytes(packet)).hexdigest(),
+            result["handoff"]["packet_sha256"],
+        )
+        self.assertNotIn("operation_id", result)
+        self.assertEqual([], operation_paths(self.root))
+        self.assertFalse((self.root / "validate-continuation.json").exists())
+
+    def test_handoff_task_continues_with_turn_on_the_same_endpoint(self) -> None:
+        self._init_source_repo()
+        self._dirty_workspace()
+        started = self.lord.handoff(
+            "loop-continuation",
+            self._write_packet(self._handoff_packet("loop-continuation")),
+            provider="codex-cli",
+            target=str(self.target),
+        )
+        turned = self.lord.turn("loop-continuation", "report the current test status")
+
+        self.assertEqual("SUCCEEDED", turned["status"])
+        self.assertEqual(started["endpoint_id"], turned["endpoint_id"])
+        invocations = [json.loads(line) for line in self.codex_argv_log.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(2, len(invocations))
+        self.assertIn("resume", invocations[1])
+        self.assertIn(started["endpoint_id"], invocations[1])
 
 
 if __name__ == "__main__":

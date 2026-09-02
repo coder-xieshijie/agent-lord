@@ -94,7 +94,32 @@
     },
     "created_at": {"type": "string"},
     "updated_at": {"type": "string"},
-    "last_operation_id": {"type": ["string", "null"]}
+    "last_operation_id": {"type": ["string", "null"]},
+    "lineage": {
+      "type": "object",
+      "description": "Immutable after task creation: how this continuation task came to exist. It never implies session migration or endpoint reuse.",
+      "required": [
+        "kind",
+        "handoff_id",
+        "handoff_operation_id",
+        "packet_sha256",
+        "source_session_kind",
+        "source_session_id",
+        "source_session_identity",
+        "relationship"
+      ],
+      "properties": {
+        "kind": {"const": "handoff"},
+        "handoff_id": {"type": "string"},
+        "handoff_operation_id": {"type": "string"},
+        "packet_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "source_session_kind": {"type": "string", "minLength": 1},
+        "source_session_id": {"type": ["string", "null"]},
+        "source_session_identity": {"enum": ["caller-declared", "unavailable"]},
+        "relationship": {"const": "continues_user_task"}
+      },
+      "additionalProperties": false
+    }
   },
   "additionalProperties": false
 }

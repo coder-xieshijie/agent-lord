@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -174,14 +175,127 @@ def codex_binary() -> str:
     return os.environ.get(environment_name, config.get("default_binary", "codex"))
 
 
+def _claude_default_resolution() -> Dict[str, Any]:
+    value = provider_config("claude-cli").get("default_resolution")
+    required_strings = (
+        "config_dir_env",
+        "default_config_dir",
+        "settings_file",
+        "model_key",
+        "effort_key",
+        "environment_key",
+    )
+    if (
+        not isinstance(value, dict)
+        or value.get("source") != "claude-user-settings"
+        or any(not isinstance(value.get(name), str) or not value[name] for name in required_strings)
+    ):
+        raise AgentLordError(
+            "CONFIG_INVALID",
+            "Claude default resolution policy is invalid",
+            exit_code=2,
+        )
+    for name in ("model_environment_keys", "effort_environment_keys"):
+        keys = value.get(name)
+        if not isinstance(keys, list) or any(not isinstance(key, str) or not key for key in keys):
+            raise AgentLordError(
+                "CONFIG_INVALID",
+                "Claude default resolution environment policy is invalid",
+                details={"field": name},
+                exit_code=2,
+            )
+    return value
+
+
+def claude_settings_path() -> Path:
+    policy = _claude_default_resolution()
+    configured = os.environ.get(policy["config_dir_env"])
+    directory = Path(configured).expanduser() if configured else Path(policy["default_config_dir"]).expanduser()
+    return (directory / policy["settings_file"]).resolve()
+
+
+def load_claude_user_settings() -> Dict[str, Any]:
+    """Read Claude's user settings without copying any values into durable state."""
+    path = claude_settings_path()
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            value = json.load(handle)
+    except FileNotFoundError:
+        return {}
+    except (OSError, json.JSONDecodeError) as exc:
+        raise AgentLordError(
+            "CONFIG_INVALID",
+            "cannot load Claude user settings",
+            details={"path": str(path), "error": str(exc)},
+            exit_code=2,
+        ) from exc
+    if not isinstance(value, dict):
+        raise AgentLordError(
+            "CONFIG_INVALID",
+            "Claude user settings must be a JSON object",
+            details={"path": str(path)},
+            exit_code=2,
+        )
+    return value
+
+
+def claude_child_environment() -> Dict[str, str]:
+    """Build one Claude child environment while leaving the parent untouched.
+
+    Claude loads its own settings after launch. Remove only inherited routing
+    values for which that settings file is authoritative, so stale automation
+    state cannot outrank the saved command arguments. Credentials and unrelated
+    Claude/Anthropic settings remain inherited.
+    """
+    policy = _claude_default_resolution()
+    settings = load_claude_user_settings()
+    environment = dict(os.environ)
+    settings_environment = settings.get(policy["environment_key"])
+    settings_environment = settings_environment if isinstance(settings_environment, dict) else {}
+
+    owned = {
+        key
+        for key in policy["model_environment_keys"] + policy["effort_environment_keys"]
+        if isinstance(settings_environment.get(key), str) and settings_environment[key]
+    }
+    if isinstance(settings.get(policy["model_key"]), str) and settings[policy["model_key"]].strip():
+        owned.update(("ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_MODEL"))
+    if isinstance(settings.get(policy["effort_key"]), str) and settings[policy["effort_key"]].strip():
+        owned.update(policy["effort_environment_keys"])
+    for key in owned:
+        environment.pop(key, None)
+    return environment
+
+
 def resolve_execution_defaults(
     provider: str,
     model: Optional[str],
     effort: Optional[str],
 ) -> Tuple[Optional[str], Optional[str]]:
+    provider = normalize_provider(provider)
     config = provider_config(provider)
-    resolved_model = model or config.get("default_model")
-    resolved_effort = effort or config.get("default_effort")
+    settings: Dict[str, Any] = {}
+    policy: Dict[str, Any] = {}
+    if provider == "claude-cli" and (model is None or effort is None):
+        policy = _claude_default_resolution()
+        settings = load_claude_user_settings()
+
+    settings_model = settings.get(policy.get("model_key"))
+    settings_effort = settings.get(policy.get("effort_key"))
+    resolved_model = model
+    if resolved_model is None:
+        resolved_model = (
+            settings_model.strip()
+            if isinstance(settings_model, str) and settings_model.strip()
+            else config.get("default_model")
+        )
+    resolved_effort = effort
+    if resolved_effort is None:
+        resolved_effort = (
+            settings_effort.strip()
+            if isinstance(settings_effort, str) and settings_effort.strip()
+            else config.get("default_effort")
+        )
     if resolved_effort:
         validate_effort(provider, resolved_effort)
     return resolved_model, resolved_effort
@@ -233,10 +347,23 @@ def resolve_retry_plan(
     return plan
 
 
+_MODEL_CONTEXT = re.compile(r"^(?P<model>.+?)\[(?P<size>[1-9][0-9]*)(?P<unit>[kKmM])\]$")
+
+
+def model_reference(value: str) -> Tuple[str, Optional[int]]:
+    """Split a Claude model id from an optional context capability modifier."""
+    normalized = value.strip().lower()
+    match = _MODEL_CONTEXT.fullmatch(normalized)
+    if match is None:
+        return normalized, None
+    multiplier = 1_000 if match.group("unit").lower() == "k" else 1_000_000
+    return match.group("model"), int(match.group("size")) * multiplier
+
+
 def expected_model_matches(expected: str, observed: str) -> bool:
     """Match a concrete model or a documented family alias such as ``opus``."""
-    expected_normalized = expected.strip().lower()
-    observed_normalized = observed.strip().lower()
+    expected_normalized, _ = model_reference(expected)
+    observed_normalized, _ = model_reference(observed)
     if not expected_normalized:
         return True
     if expected_normalized == observed_normalized:
@@ -246,3 +373,8 @@ def expected_model_matches(expected: str, observed: str) -> bool:
     aliases = provider_config("claude-cli").get("model_family_aliases", {})
     family = aliases.get(expected_normalized)
     return bool(family and family.lower() in observed_normalized)
+
+
+def same_model_identity(first: str, second: str) -> bool:
+    """Compare metadata spellings without treating context modifiers as versions."""
+    return expected_model_matches(first, second) or expected_model_matches(second, first)

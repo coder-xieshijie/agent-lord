@@ -16,6 +16,31 @@
       "default_binary": "claude",
       "default_model": "claude-opus-5",
       "default_effort": "high",
+      "default_resolution": {
+        "source": "claude-user-settings",
+        "config_dir_env": "CLAUDE_CONFIG_DIR",
+        "default_config_dir": "~/.claude",
+        "settings_file": "settings.json",
+        "model_key": "model",
+        "effort_key": "effortLevel",
+        "environment_key": "env",
+        "model_environment_keys": [
+          "ANTHROPIC_MODEL",
+          "ANTHROPIC_DEFAULT_MODEL",
+          "ANTHROPIC_DEFAULT_OPUS_MODEL",
+          "ANTHROPIC_DEFAULT_SONNET_MODEL",
+          "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+          "ANTHROPIC_DEFAULT_FABLE_MODEL",
+          "ANTHROPIC_SMALL_FAST_MODEL",
+          "CLAUDE_CODE_AUTO_MODE_MODEL",
+          "CLAUDE_CODE_BG_CLASSIFIER_MODEL",
+          "CLAUDE_CODE_SUBAGENT_MODEL"
+        ],
+        "effort_environment_keys": [
+          "CLAUDE_CODE_EFFORT_LEVEL",
+          "CLAUDE_EFFORT"
+        ]
+      },
       "default_retry_attempts": 5,
       "efforts": ["low", "medium", "high", "xhigh", "max"],
       "model_family_aliases": {

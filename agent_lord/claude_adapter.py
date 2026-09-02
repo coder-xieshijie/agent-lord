@@ -16,7 +16,7 @@ from uuid import uuid4
 
 from .artifacts import extract_claude_result
 from .claude_attempt_result import _json_objects, evaluate_claude_attempt
-from .config import claude_binary, permission_mode_policy, permission_policy
+from .config import claude_binary, claude_child_environment, permission_mode_policy, permission_policy
 from .errors import AgentLordError
 from .state import ensure_layout, update_operation
 
@@ -418,6 +418,7 @@ def run_claude(
                     process = subprocess.Popen(
                         command,
                         cwd=str(target_path),
+                        env=claude_child_environment(),
                         stdin=prompt_handle,
                         stdout=stdout_handle,
                         stderr=stderr_handle,

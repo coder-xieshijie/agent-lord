@@ -1,0 +1,58 @@
+# Handoff Pipeline
+
+Load this reference when the user asks to hand the current session's work off to a new local CLI endpoint. It defines the handoff policy only; `scripts/agent_lord.py handoff` remains the durable runtime, and [common.md](common.md) plus [../protocol.md](../protocol.md) keep owning supervision, envelope, and recovery semantics.
+
+## Selection and authorization
+
+The handoff shorthand authorizes exactly one node: one new local CLI continuation endpoint (`claude-cli` or `codex-cli`) that continues the user-specified task. It never authorizes a planner, reviewer, tester, integrator, replacement endpoint, or any other user-visible node, and never selects `codex-app`. The user decides the provider, model, effort, and write posture per invocation; the packet's `contract_request` carries those decisions when the command line omits them, and an explicit argument that contradicts the packet fails closed.
+
+## Identity and lineage
+
+A handoff is a sanitized context transfer plus new-endpoint lineage — never a native session migration:
+
+- The source session authors the packet from its own visible context only. Nothing in this pipeline reads, or claims to read, the source session's native transcript or hidden reasoning.
+- The continuation is a new `task_id` bound to a new provider endpoint. Source-endpoint identity is never reused or rebound.
+- Source-session identity can only be caller-declared. The control plane records `identity_assurance` as `caller-declared` (an `opaque_id` was supplied) or `unavailable`; it never records `verified`, and a missing ID does not block the handoff.
+- Lineage lives in three places written by the runtime: the operation's `handoff` manifest, the immutable task `lineage` record, and the `handoff` summary in every envelope. It means `continues_user_task`, nothing more.
+
+## Packet authoring contract
+
+The source session writes one `handoff-v1` JSON file to a private path outside the target repository. `schemas/handoff-v1.schema.json` is the authoritative shape; the control plane enforces it with closed objects, 64 KiB canonical bytes, 8 KiB strings, 64-item lists, workspace-relative evidence paths, an all-false sanitization attestation, an `integrity.sha256` self-digest, and a high-confidence secret-pattern scan. The scan cannot prove secrets are absent — sanitizing the content remains the author's obligation. Raw provider logs, transcripts, and reasoning traces never belong in a packet.
+
+## Deterministic loop
+
+1. Author the packet and optionally pre-check it: `handoff --validate-only` validates schema, integrity, task binding, contract request, and write-posture consistency without touching durable state (its envelope carries `handoff.validated_only`).
+2. Consume it: `python3 scripts/agent_lord.py handoff --task-id <new-task> --packet-file <file> --provider <cli> --target <workspace> [--model … --effort … --read-only --head-sha … --retry-attempts …]`. The command validates, freezes the contract, snapshots the workspace, journals a `handoff` operation, stores the canonical packet as an input artifact, renders the deterministic continuation prompt (packet content plus digest and contract), and starts the provider.
+3. Process the returned envelope and every later round exactly as the standard loop in `SKILL.md`: `turn` continues the same saved endpoint, `checkpoint` supervises and recovers it. Handoff adds no second runtime.
+4. Remove the caller-owned packet file after the command has consumed it; the canonical copy persists as `artifacts/<task-id>/<operation-id>.handoff-v1.json` under the state directory.
+
+## Exact-target dirty-workspace exception
+
+Handoff is the one documented exception to the common-pipeline ban on `--target`: the continuation runs in the exact existing workspace — typically dirty with the source session's uncommitted work — so repo-managed preparation (which requires a clean worktree) does not apply and `--repo` is rejected. In exchange, the control plane fingerprints the workspace itself while holding the write lease: HEAD, every changed path, and each changed file's content digest are frozen into the operation's `workspace_snapshot`. The caller cannot substitute its own claim, and a workspace that changes between snapshot and dispatch fails closed with `SOURCE_MISMATCH` before the provider launches. `--head-sha`, when given, is verified exactly as in `start`; note an exact-target contract stays strict on later turns, so pin the head only for continuations that will not commit.
+
+## Pre-dispatch barrier
+
+Everything below must pass before an endpoint may launch; any failure leaves no endpoint behind:
+
+- packet schema, bounds, sanitization attestation, integrity digest, secret scan (`HANDOFF_PACKET_INVALID`);
+- `continuation.task_id` equals `--task-id`, contract request and write posture are consistent (`HANDOFF_CONFLICT`);
+- provider is a local CLI, source SHAs verify, workspace snapshot is stable (`CONFIG_INVALID` / `SOURCE_MISMATCH`);
+- standard dispatch lock, workspace and branch write leases from the common runtime.
+
+## Idempotency and conflicts
+
+- Replaying the identical handoff (same packet digest, task, target, and frozen contract) returns the existing operation's envelope — in flight or succeeded — and never starts a second endpoint or process.
+- The same `task_id` with a different packet or contract fails closed with `HANDOFF_CONFLICT`; nothing is overwritten.
+- A handoff that failed before its provider launched may be retried with the same command; the retry is a new initial operation for the same continuation task, and no endpoint existed to duplicate. Once an endpoint exists, only that endpoint is continued or recovered.
+
+## Completion
+
+`SUCCEEDED` carries the new `task_id`, the new CLI `endpoint_id`, the `handoff` lineage summary (packet digest and bytes, source-session assurance, workspace snapshot), and the sanitized final artifact. Report the continuation as a new endpoint with handoff lineage — never as the source session moved or resumed.
+
+## Non-goals
+
+- No migration of a Desktop/App session and no reuse of its endpoint identity.
+- No reading or exporting of the source session's native transcript or hidden reasoning.
+- No inferred extra workflow nodes, no workspace copy, and no commit, stash, branch, or push by the control plane.
+- No second endpoint runtime: state, supervision, recovery, and artifacts are the ones `SKILL.md` and `protocol.md` already define.
+- No third permission posture: `external_writes: false` is recorded and prompt-enforced, not sandbox-enforced, until providers expose one.

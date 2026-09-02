@@ -16,7 +16,7 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 from uuid import uuid4
 
 from . import codex_adapter
-from .artifacts import extract_codex_result, extract_jsonl_with_metadata, write_artifact
+from .artifacts import extract_codex_result, extract_jsonl_with_metadata, write_artifact, write_input_artifact
 from .claude_adapter import (
     claude_output_activity_ms,
     claude_session_observed,
@@ -36,6 +36,16 @@ from .config import (
     resolve_retry_plan,
 )
 from .errors import AgentLordError
+from .handoff import (
+    HANDOFF_PROVIDERS,
+    conflict_error,
+    load_handoff_packet,
+    render_handoff_prompt,
+    resolve_contract_request,
+    snapshot_exact_target,
+    source_session_record,
+    validate_handoff_packet,
+)
 from .state import (
     TERMINAL_OPERATION_STATES,
     action_paths,
@@ -879,6 +889,42 @@ class AgentLord:
             )
         )
 
+    @classmethod
+    def _same_handoff_spec(
+        cls,
+        operation: Dict[str, Any],
+        provider: str,
+        target: str,
+        message_hash: str,
+        expected: Dict[str, Any],
+        source: Dict[str, str],
+        read_only: bool,
+        workspace: Dict[str, Any],
+        packet_sha256: str,
+        handoff_id: str,
+    ) -> bool:
+        """Compare a replayed handoff against a journaled one.
+
+        The workspace snapshot is provenance, not fingerprint: a successful
+        continuation mutates the workspace, so including it would make a
+        replayed command unable to return the already-successful envelope.
+        """
+        recorded = operation.get("handoff") or {}
+        return all(
+            (
+                operation.get("kind") == "handoff",
+                operation.get("provider") == provider,
+                operation.get("target") == target,
+                operation.get("message_sha256") == message_hash,
+                operation.get("expected") == expected,
+                operation.get("source") == source,
+                bool(operation.get("read_only")) == bool(read_only),
+                operation.get("workspace", {}) == workspace,
+                (recorded.get("packet") or {}).get("sha256") == packet_sha256,
+                recorded.get("handoff_id") == handoff_id,
+            )
+        )
+
     def _new_operation(
         self,
         task_id: str,
@@ -894,6 +940,7 @@ class AgentLord:
         operation_id: Optional[str] = None,
         controller_pid: Optional[int] = None,
         endpoint_id: Optional[str] = None,
+        handoff: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         operation_id = operation_id or self._operation_id(task_id, kind)
         now = utc_now()
@@ -922,6 +969,8 @@ class AgentLord:
             value["controller_pid"] = controller_pid
         if endpoint_id is not None:
             value["endpoint_id"] = endpoint_id
+        if handoff is not None:
+            value["handoff"] = handoff
         create_operation(value, self.root)
         append_event(task_id, "operation-created", {"kind": kind, "provider": provider}, operation_id, self.root)
         return value
@@ -1023,7 +1072,7 @@ class AgentLord:
         history: List[Dict[str, Any]] = []
         if host_id:
             history.append({"host_id": host_id, "observed_at": now, "reason": "endpoint-created"})
-        return {
+        record = {
             "version": 2,
             "task_id": operation["task_id"],
             "provider": operation["provider"],
@@ -1044,6 +1093,20 @@ class AgentLord:
             "updated_at": now,
             "last_operation_id": operation["operation_id"],
         }
+        handoff = operation.get("handoff")
+        if operation.get("kind") == "handoff" and isinstance(handoff, dict):
+            source_session = handoff.get("source_session") or {}
+            record["lineage"] = {
+                "kind": "handoff",
+                "handoff_id": handoff.get("handoff_id"),
+                "handoff_operation_id": operation["operation_id"],
+                "packet_sha256": (handoff.get("packet") or {}).get("sha256"),
+                "source_session_kind": source_session.get("kind"),
+                "source_session_id": source_session.get("opaque_id"),
+                "source_session_identity": source_session.get("identity_assurance"),
+                "relationship": "continues_user_task",
+            }
+        return record
 
     def _publish_cli_result(
         self,
@@ -1670,6 +1733,244 @@ class AgentLord:
         assert action is not None
         append_event(task_id, "action-required", {"action_id": action["action_id"], "tool": action["tool"]}, operation["operation_id"], self.root)
         return self.envelope(operation, action)
+
+    def handoff(
+        self,
+        task_id: str,
+        packet_file: str,
+        provider: Optional[str] = None,
+        target: Optional[str] = None,
+        model: Optional[str] = None,
+        effort: Optional[str] = None,
+        read_only: bool = False,
+        head_sha: Optional[str] = None,
+        base_sha: Optional[str] = None,
+        retry_attempts: Optional[int] = None,
+        validate_only: bool = False,
+    ) -> Dict[str, Any]:
+        """Consume one sanitized handoff packet and start its continuation CLI endpoint.
+
+        The continuation is a new task and a new endpoint that carries handoff
+        lineage; it never rebinds or migrates the source session's identity.
+        """
+        validate_identifier("task_id", task_id)
+        packet = load_handoff_packet(packet_file)
+        digest = validate_handoff_packet(packet)
+        bound_task_id = packet["continuation"]["task_id"]
+        if bound_task_id != task_id:
+            raise conflict_error(
+                "handoff packet is bound to a different continuation task",
+                packet_task_id=bound_task_id,
+                task_id=task_id,
+            )
+        provider, model, effort = resolve_contract_request(
+            packet,
+            normalize_provider(provider) if provider else None,
+            model,
+            effort,
+        )
+        if provider not in HANDOFF_PROVIDERS:
+            raise AgentLordError(
+                "CONFIG_INVALID",
+                "handoff can only start a local CLI continuation endpoint",
+                details={"provider": provider, "allowed": list(HANDOFF_PROVIDERS)},
+                exit_code=2,
+            )
+        provider_config(provider)
+        authorization = packet["authorization"]
+        if bool(authorization["workspace_writes"]) == bool(read_only):
+            raise conflict_error(
+                "packet workspace-write authorization contradicts the requested permission posture",
+                workspace_writes=authorization["workspace_writes"],
+                read_only=read_only,
+            )
+        source_session = source_session_record(packet)
+        if validate_only:
+            return {
+                "version": 1,
+                "status": "SUCCEEDED",
+                "task_id": task_id,
+                "provider": provider,
+                "handoff": {
+                    "schema": packet["schema"],
+                    "handoff_id": packet["handoff_id"],
+                    "relationship": "continues_user_task",
+                    "source_session": source_session,
+                    "packet_sha256": digest["sha256"],
+                    "packet_bytes": digest["bytes"],
+                    "validated_only": True,
+                },
+            }
+        if not isinstance(target, str) or not target:
+            raise AgentLordError(
+                "CONFIG_INVALID",
+                "handoff requires --target: the continuation runs in the exact existing workspace",
+                exit_code=2,
+            )
+        model, effort = resolve_execution_defaults(provider, model, effort)
+        retry_plan = resolve_retry_plan(provider, model, retry_attempts)
+        source = self._validate_source(head_sha, base_sha)
+        target = str(Path(target).expanduser().resolve())
+        workspace = {"policy": "exact-target"}
+        expected = self._expected_contract(provider, model, effort, read_only, retry_plan=retry_plan)
+        message = render_handoff_prompt(packet, digest["sha256"], expected)
+        message_hash = self._message_hash(message)
+
+        claude_lease = None
+        write_leases = None
+        session_id = str(uuid4()) if provider == "claude-cli" else None
+        try:
+            with record_lock("dispatch", self._dispatch_lock_id(task_id), self.root):
+                if self._task_exists(task_id):
+                    task = load_task(task_id, self.root)
+                    last_operation_id = task.get("last_operation_id")
+                    if last_operation_id:
+                        last_operation = load_operation(last_operation_id, self.root)
+                        if self._same_handoff_spec(
+                            last_operation,
+                            provider,
+                            target,
+                            message_hash,
+                            expected,
+                            source,
+                            read_only,
+                            workspace,
+                            digest["sha256"],
+                            packet["handoff_id"],
+                        ):
+                            return self.envelope(last_operation)
+                        if last_operation.get("kind") == "handoff":
+                            raise conflict_error(
+                                "continuation task already exists with a different handoff fingerprint",
+                                task_id=task_id,
+                                existing_packet_sha256=(last_operation.get("handoff") or {}).get("packet", {}).get("sha256"),
+                                packet_sha256=digest["sha256"],
+                            )
+                    raise AgentLordError(
+                        "TASK_EXISTS",
+                        "task_id already has a durable endpoint",
+                        details={"task_id": task_id},
+                        exit_code=2,
+                    )
+                inflight = self._active_operation(task_id)
+                if inflight:
+                    if self._same_handoff_spec(
+                        inflight,
+                        provider,
+                        target,
+                        message_hash,
+                        expected,
+                        source,
+                        read_only,
+                        workspace,
+                        digest["sha256"],
+                        packet["handoff_id"],
+                    ):
+                        return self.envelope(inflight)
+                    if inflight.get("kind") == "handoff":
+                        raise conflict_error(
+                            "a different handoff for this continuation task is in flight",
+                            task_id=task_id,
+                            operation_id=inflight["operation_id"],
+                            packet_sha256=digest["sha256"],
+                        )
+                    raise AgentLordError(
+                        "OPERATION_IN_FLIGHT",
+                        "task_id already has a different start in flight",
+                        retryable=True,
+                        safe_recovery="CHECK_SAME_OPERATION",
+                        details={"operation_id": inflight["operation_id"], "status": inflight.get("status")},
+                    )
+                self._verify_checkout(target, source)
+                snapshot = snapshot_exact_target(target)
+                candidate_leases = self._write_leases(target, read_only, workspace)
+                candidate_leases.__enter__()
+                write_leases = candidate_leases
+                operation_id = self._operation_id(task_id, "handoff")
+                if provider == "claude-cli":
+                    claude_lease = record_lock(
+                        "controller-lease",
+                        self._controller_lease_lock_id(operation_id),
+                        self.root,
+                    )
+                    claude_lease.__enter__()
+                packet_artifact = write_input_artifact(
+                    task_id,
+                    operation_id,
+                    digest["canonical_bytes"],
+                    ".handoff-v1.json",
+                    self.root,
+                )
+                manifest = {
+                    "version": 1,
+                    "schema": packet["schema"],
+                    "handoff_id": packet["handoff_id"],
+                    "relationship": "continues_user_task",
+                    "source_session": source_session,
+                    "packet": packet_artifact,
+                    "workspace_snapshot": snapshot,
+                }
+                operation = self._new_operation(
+                    task_id,
+                    provider,
+                    "handoff",
+                    target,
+                    message,
+                    expected,
+                    source,
+                    read_only,
+                    workspace,
+                    None,
+                    operation_id=operation_id,
+                    controller_pid=os.getpid(),
+                    endpoint_id=session_id,
+                    handoff=manifest,
+                )
+                observed_snapshot = snapshot_exact_target(target)
+                if observed_snapshot != snapshot:
+                    error = AgentLordError(
+                        "SOURCE_MISMATCH",
+                        "continuation workspace changed between the handoff snapshot and dispatch",
+                        retryable=True,
+                        safe_recovery="RETRY_SAME_COMMAND",
+                        details={
+                            "target": target,
+                            "snapshot_sha256": snapshot["sha256"],
+                            "observed_sha256": observed_snapshot["sha256"],
+                        },
+                    )
+                    self._fail_operation(operation, error)
+                    raise error
+                append_event(
+                    task_id,
+                    "handoff-accepted",
+                    {
+                        "handoff_id": packet["handoff_id"],
+                        "packet_sha256": digest["sha256"],
+                        "source_session": source_session,
+                    },
+                    operation_id,
+                    self.root,
+                )
+        except BaseException:
+            if claude_lease is not None:
+                claude_lease.__exit__(*sys.exc_info())
+            if write_leases is not None:
+                write_leases.__exit__(*sys.exc_info())
+            raise
+        if provider == "claude-cli":
+            assert session_id is not None and claude_lease is not None
+            try:
+                return self._finish_claude(operation, session_id, resume=False)
+            finally:
+                claude_lease.__exit__(None, None, None)
+                assert write_leases is not None
+                write_leases.__exit__(None, None, None)
+        try:
+            return self._finish_codex_cli(operation, endpoint_id=None, resume=False)
+        finally:
+            assert write_leases is not None
+            write_leases.__exit__(None, None, None)
 
     def turn(self, task_id: str, message: str) -> Dict[str, Any]:
         if not isinstance(message, str) or not message:
@@ -2922,6 +3223,18 @@ class AgentLord:
             "workspace": operation.get("workspace", {}),
             "parallel_plan": operation.get("parallel_plan", {}),
         }
+        handoff = operation.get("handoff")
+        if isinstance(handoff, dict):
+            # Public lineage summary only; the packet body stays in the input artifact.
+            result["handoff"] = {
+                "schema": handoff.get("schema"),
+                "handoff_id": handoff.get("handoff_id"),
+                "relationship": handoff.get("relationship"),
+                "source_session": handoff.get("source_session"),
+                "packet_sha256": (handoff.get("packet") or {}).get("sha256"),
+                "packet_bytes": (handoff.get("packet") or {}).get("bytes"),
+                "workspace_snapshot": handoff.get("workspace_snapshot"),
+            }
         try:
             task = load_task(operation["task_id"], self.root)
         except AgentLordError as error:

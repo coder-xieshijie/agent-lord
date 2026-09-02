@@ -26,7 +26,7 @@
     "operation_id": {"type": "string"},
     "task_id": {"type": "string"},
     "provider": {"enum": ["claude-cli", "codex-cli", "codex-app"]},
-    "kind": {"enum": ["start", "turn"]},
+    "kind": {"enum": ["start", "turn", "handoff"]},
     "target": {"type": "string"},
     "status": {
       "enum": ["preparing", "running", "recovering", "awaiting_action", "submitted", "succeeded", "failed", "needs_decision"]
@@ -49,6 +49,48 @@
     "read_only": {"type": "boolean"},
     "workspace": {"type": "object"},
     "parallel_plan": {"type": "object"},
+    "handoff": {
+      "type": "object",
+      "required": ["version", "schema", "handoff_id", "relationship", "source_session", "packet", "workspace_snapshot"],
+      "properties": {
+        "version": {"const": 1},
+        "schema": {"const": "handoff-v1"},
+        "handoff_id": {"type": "string"},
+        "relationship": {"const": "continues_user_task"},
+        "source_session": {
+          "type": "object",
+          "required": ["kind", "opaque_id", "identity_assurance"],
+          "properties": {
+            "kind": {"type": "string"},
+            "opaque_id": {"type": ["string", "null"]},
+            "identity_assurance": {"enum": ["caller-declared", "unavailable"]}
+          },
+          "additionalProperties": false
+        },
+        "packet": {
+          "type": "object",
+          "required": ["path", "sha256", "bytes"],
+          "properties": {
+            "path": {"type": "string"},
+            "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "bytes": {"type": "integer", "minimum": 1}
+          },
+          "additionalProperties": false
+        },
+        "workspace_snapshot": {
+          "type": "object",
+          "required": ["head_sha", "dirty", "changed_path_count", "sha256"],
+          "properties": {
+            "head_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+            "dirty": {"type": "boolean"},
+            "changed_path_count": {"type": "integer", "minimum": 0},
+            "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "artifact": {"type": ["object", "null"]},
     "error": {"type": ["object", "null"]},
     "controller_pid": {"type": ["integer", "null"]},

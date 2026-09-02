@@ -18,7 +18,7 @@ Opus initial ─┐      ┌─ Opus cross-exam ─┐      ┌─ optional Opus
 Codex initial ┘      └─ Codex cross-exam ─┘      └─ optional Codex convergence ─┘
 ```
 
-The two initial reviews are one concurrent ready set. The two cross-exams are a second concurrent ready set. Run the optional convergence pair only for unresolved findings. Normal convergence costs five provider operations including Fable; one extra convergence round costs seven. Do not add an arbiter or repeat full reviews. If unresolved findings remain after that round, stop before Fable and report them as `UNRESOLVED` unless the user authorizes expansion.
+The two initial reviews are one concurrent ready set. The two cross-exams are a second concurrent ready set. Run the optional convergence pair only for unresolved findings. Normal convergence costs five provider operations including Fable; one extra convergence round costs seven, excluding any Claude `RESULT_INVALID` retry (`SKILL.md`), which adds no node. Do not add an arbiter or repeat full reviews. If unresolved findings remain after that round, stop before Fable and report them as `UNRESOLVED` unless the user authorizes expansion.
 
 ## Shared review lens
 
@@ -65,13 +65,20 @@ Start Fable only after the ledger contains no unresolved rows. Build a de-anchor
 
 Ask Fable to independently reclassify every candidate, verify source evidence and severity, inspect dropped candidates for false negatives, and verify that the proposed fix is minimal and complete. It may report newly discovered items only in an `OUT_OF_SCOPE` appendix; those items are not silently promoted into consensus findings.
 
-The Fable barrier requires `observed.fallback_used=false` and a verified Fable main model. A fallback to Opus makes the check `UNVERIFIED`, because Opus was already a participant. It does not become a Check pass and does not authorize a replacement checker.
+Run the checker on the frozen Fable model at the requested effort first. Two outcomes can complete this step:
+
+- **Verified Fable** — `observed.fallback_used=false` plus a verified Fable main model. Ordinary independent-check semantics apply, so this outcome can yield `Pipeline Check: PASS`.
+- **Verified `Opus fallback`** — the configured Fable primary stage failed, Agent Lord reached its frozen `claude-opus-5` fallback stage, and that stage returned a verified successful result. It completes the checker step and may finalize the review table and `Review Result`. Opus already participated as a reviewer here, so role independence is degraded rather than satisfied: report `Pipeline Check: PARTIAL` — not `PASS`, and not `UNVERIFIED` merely because fallback was used. Label the result `Opus fallback` in every report surface; never present it as Fable or as an independent Fable result.
+
+If neither the Fable primary stage nor the configured Opus fallback yields a verified successful result, the checker stays `UNVERIFIED` and the pipeline stops without presenting checker-confirmed findings.
+
+This fallback is the existing frozen provider retry/fallback plan. It is not a replacement task or session, not a new workflow node, and not part of the caller-owned `RESULT_INVALID` retry budget in `SKILL.md`. It weakens no source, model, effort, artifact, or endpoint validation: a fallback result must still pass every one of them, and fallback never authorizes a replacement checker.
 
 ## Final deliverable
 
 Report two independent statuses:
 
-- `Pipeline Check`: `PASS` only when the role/source/barrier contract held and independent Fable accepted the audit; otherwise `FAIL`, `PARTIAL`, or `UNVERIFIED` with the exact reason.
+- `Pipeline Check`: `PASS` only when the role/source/barrier contract held and a verified independent Fable checker accepted the audit. Report `PARTIAL` when a verified `Opus fallback` completed the checker instead, and record `observed.fallback_used=true`, the observed main model, and why the Fable primary stage fell back. Otherwise report `FAIL`, `PARTIAL`, or `UNVERIFIED` with the exact reason. Disclose every `SKILL.md` `RESULT_INVALID` replacement session here with its `replacement_for` lineage; a replaced endpoint never silently satisfies the role-independence contract it no longer meets.
 - `Review Result`: `FAIL` when at least one confirmed issue remains, otherwise `PASS`. A successful pipeline can therefore produce `Pipeline Check: PASS` and `Review Result: FAIL`.
 
-Show confirmed issues in one table with columns: ID, severity, location, issue and failure scenario, evidence, minimal fix and dependencies, Opus verdict, Codex verdict, and Fable check. Follow it with compact `DROPPED`, `UNRESOLVED`, and `OUT_OF_SCOPE` appendices when non-empty. Never merge an unresolved or checker-only candidate into the confirmed table.
+Show confirmed issues in one table with columns: ID, severity, location, issue and failure scenario, evidence, minimal fix and dependencies, Opus verdict, Codex verdict, and checker verdict. The checker column names the model that actually ran — `Fable` or `Opus fallback` — never a bare `Fable check` label over a fallback result. Follow it with compact `DROPPED`, `UNRESOLVED`, and `OUT_OF_SCOPE` appendices when non-empty. Never merge an unresolved or checker-only candidate into the confirmed table.

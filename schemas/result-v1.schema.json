@@ -16,6 +16,21 @@
     "source": {"type": "object"},
     "workspace": {"type": "object"},
     "parallel_plan": {"type": "object"},
+    "handoff": {
+      "type": "object",
+      "description": "Public handoff lineage summary: digests and provenance only, never the packet body.",
+      "properties": {
+        "schema": {"const": "handoff-v1"},
+        "handoff_id": {"type": "string"},
+        "relationship": {"const": "continues_user_task"},
+        "source_session": {"type": "object"},
+        "packet_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "packet_bytes": {"type": "integer", "minimum": 1},
+        "workspace_snapshot": {"type": "object"},
+        "validated_only": {"const": true}
+      },
+      "additionalProperties": false
+    },
     "warnings": {
       "type": "array",
       "items": {

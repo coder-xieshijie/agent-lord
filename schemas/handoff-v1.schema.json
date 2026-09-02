@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-lord.local/schemas/handoff-v1.schema.json",
+  "title": "Agent Lord sanitized handoff packet v1",
+  "description": "Authored by the source session from its own visible context only. Never a transcript, provider log, or hidden reasoning. The control plane validates this shape with bounds of 64 KiB canonical bytes, 8 KiB per string, and 64 items per list, verifies integrity.sha256 over the canonical packet without its integrity field, and rejects high-confidence secret patterns.",
+  "type": "object",
+  "required": [
+    "schema",
+    "handoff_id",
+    "created_at",
+    "source_session",
+    "continuation",
+    "authorization",
+    "objective",
+    "completed_work",
+    "remaining_work",
+    "constraints",
+    "acceptance_criteria",
+    "evidence",
+    "sanitization",
+    "integrity"
+  ],
+  "properties": {
+    "schema": {"const": "handoff-v1"},
+    "handoff_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$"},
+    "created_at": {"type": "string", "maxLength": 64, "description": "ISO-8601 timestamp declared by the source session"},
+    "source_session": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"},
+        "opaque_id": {"type": ["string", "null"], "maxLength": 256, "description": "caller-declared only; the control plane records identity_assurance and never claims it is verified"}
+      },
+      "additionalProperties": false
+    },
+    "continuation": {
+      "type": "object",
+      "required": ["task_id"],
+      "properties": {
+        "task_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$", "description": "must equal the handoff command's --task-id; a mismatch fails closed"}
+      },
+      "additionalProperties": false
+    },
+    "authorization": {
+      "type": "object",
+      "required": ["task", "workspace_writes", "external_writes"],
+      "properties": {
+        "task": {"type": "string", "minLength": 1, "description": "the user-authorized continuation task, stated concretely"},
+        "workspace_writes": {"type": "boolean", "description": "must equal NOT --read-only; a mismatch fails closed"},
+        "external_writes": {"type": "boolean", "description": "prompt-enforced boundary; there is no third provider permission posture"}
+      },
+      "additionalProperties": false
+    },
+    "objective": {"type": "string", "minLength": 1},
+    "completed_work": {"type": "array", "maxItems": 64, "items": {"type": "string", "minLength": 1}},
+    "remaining_work": {"type": "array", "maxItems": 64, "items": {"type": "string", "minLength": 1}},
+    "key_decisions": {"type": "array", "maxItems": 64, "items": {"type": "string", "minLength": 1}},
+    "constraints": {"type": "array", "maxItems": 64, "items": {"type": "string", "minLength": 1}},
+    "acceptance_criteria": {"type": "array", "maxItems": 64, "items": {"type": "string", "minLength": 1}},
+    "open_questions": {"type": "array", "maxItems": 64, "items": {"type": "string", "minLength": 1}},
+    "evidence": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1, "maxLength": 1024, "description": "workspace-relative; absolute paths and .. segments are rejected"},
+          "note": {"type": "string"},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "contract_request": {
+      "type": "object",
+      "properties": {
+        "provider": {"enum": ["claude-cli", "codex-cli"]},
+        "model": {"type": "string", "maxLength": 256},
+        "effort": {"type": "string", "maxLength": 256}
+      },
+      "additionalProperties": false,
+      "description": "requested execution contract; explicit command arguments must match or the handoff fails closed"
+    },
+    "sanitization": {
+      "type": "object",
+      "required": ["raw_provider_logs", "hidden_reasoning", "secrets"],
+      "properties": {
+        "raw_provider_logs": {"const": false},
+        "hidden_reasoning": {"const": false},
+        "secrets": {"const": false}
+      },
+      "additionalProperties": false,
+      "description": "source-session attestation; required even though the control plane also scans for high-confidence secret patterns"
+    },
+    "integrity": {
+      "type": "object",
+      "required": ["sha256"],
+      "properties": {
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "SHA-256 of the canonical UTF-8 packet (sorted keys, compact separators, trailing LF) without the integrity field"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

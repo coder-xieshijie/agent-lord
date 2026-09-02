@@ -7,7 +7,7 @@ import json
 import re
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from .config import expected_model_matches
+from .config import expected_model_matches, model_reference, same_model_identity
 from .errors import AgentLordError
 
 
@@ -195,7 +195,9 @@ def evaluate_claude_attempt(
     authoritative_models = list(dict.fromkeys(model for _, model in authoritative))
     evidence = list(dict.fromkeys(name for name, _ in authoritative))
 
-    if len(authoritative_models) > 1:
+    if authoritative_models and any(
+        not same_model_identity(authoritative_models[0], model) for model in authoritative_models[1:]
+    ):
         raise AgentLordError(
             "MODEL_MISMATCH",
             "Claude main-model metadata is internally inconsistent",
@@ -205,19 +207,19 @@ def evaluate_claude_attempt(
         )
     if authoritative_models:
         main_model = authoritative_models[0]
-        if main_model in usage_models:
+        if usage_models:
             evidence.append("result.modelUsage")
-    elif len(usage_models) == 1:
+    elif usage_models:
         main_model = usage_models[0]
         evidence.append("result.modelUsage")
-    elif usage_models:
-        raise AgentLordError(
-            "MODEL_UNVERIFIED",
-            "Claude result exposed multiple models without authoritative main-model metadata",
-            retryable=True,
-            safe_recovery="RETRY_SAME_ENDPOINT_WITH_SAVED_EXECUTION_CONTRACT",
-            details={"expected": expected_model, "observed": usage_models},
-        )
+        if any(not same_model_identity(main_model, model) for model in usage_models[1:]):
+            raise AgentLordError(
+                "MODEL_UNVERIFIED",
+                "Claude result exposed multiple models without authoritative main-model metadata",
+                retryable=True,
+                safe_recovery="RETRY_SAME_ENDPOINT_WITH_SAVED_EXECUTION_CONTRACT",
+                details={"expected": expected_model, "observed": usage_models},
+            )
     else:
         raise AgentLordError(
             "MODEL_UNVERIFIED",
@@ -235,6 +237,77 @@ def evaluate_claude_attempt(
             safe_recovery="RETRY_SAME_ENDPOINT_WITH_SAVED_EXECUTION_CONTRACT",
             details={"expected": expected_model, "observed": [main_model]},
         )
+
+    unrelated_usage = [model for model in usage_models if not same_model_identity(main_model, model)]
+    if unrelated_usage:
+        raise AgentLordError(
+            "MODEL_MISMATCH",
+            "Claude model-usage metadata does not belong to the verified main model",
+            retryable=True,
+            safe_recovery="RETRY_SAME_ENDPOINT_WITH_SAVED_EXECUTION_CONTRACT",
+            details={"expected": expected_model, "observed": unrelated_usage},
+        )
+
+    context_evidence: List[Tuple[str, int]] = []
+    for source, model in authoritative:
+        _, context_window = model_reference(model)
+        if context_window is not None:
+            context_evidence.append((source + ".context", context_window))
+    usage = result.get("modelUsage")
+    if isinstance(usage, dict):
+        for usage_model, usage_value in usage.items():
+            if not isinstance(usage_model, str) or not usage_model:
+                continue
+            _, context_window = model_reference(usage_model)
+            if context_window is not None:
+                context_evidence.append(("result.modelUsage.model.context", context_window))
+            if not isinstance(usage_value, dict):
+                continue
+            canonical_model = usage_value.get("canonicalModel")
+            if isinstance(canonical_model, str) and canonical_model and not same_model_identity(main_model, canonical_model):
+                raise AgentLordError(
+                    "MODEL_MISMATCH",
+                    "Claude canonical model metadata does not belong to the verified main model",
+                    retryable=True,
+                    safe_recovery="RETRY_SAME_ENDPOINT_WITH_SAVED_EXECUTION_CONTRACT",
+                    details={"expected": expected_model, "observed": [canonical_model]},
+                )
+            declared_window = usage_value.get("contextWindow")
+            if isinstance(declared_window, int) and not isinstance(declared_window, bool) and declared_window > 0:
+                context_evidence.append(("result.modelUsage.contextWindow", declared_window))
+
+    observed_contexts = {window for _, window in context_evidence}
+    if len(observed_contexts) > 1:
+        raise AgentLordError(
+            "MODEL_MISMATCH",
+            "Claude context-capability metadata is internally inconsistent",
+            retryable=True,
+            safe_recovery="RETRY_SAME_ENDPOINT_WITH_SAVED_EXECUTION_CONTRACT",
+            details={"expected": expected_model, "observed_context_windows": sorted(observed_contexts)},
+        )
+    expected_context = model_reference(expected_model)[1] if expected_model else None
+    if expected_context is not None:
+        if not observed_contexts:
+            raise AgentLordError(
+                "MODEL_UNVERIFIED",
+                "Claude did not expose evidence for the requested context capability",
+                retryable=True,
+                safe_recovery="RETRY_SAME_ENDPOINT_WITH_SAVED_EXECUTION_CONTRACT",
+                details={"expected": expected_model, "expected_context_window": expected_context},
+            )
+        if expected_context not in observed_contexts:
+            raise AgentLordError(
+                "MODEL_MISMATCH",
+                "Claude used a different context capability than the saved execution contract",
+                retryable=True,
+                safe_recovery="RETRY_SAME_ENDPOINT_WITH_SAVED_EXECUTION_CONTRACT",
+                details={
+                    "expected": expected_model,
+                    "expected_context_window": expected_context,
+                    "observed_context_windows": sorted(observed_contexts),
+                },
+            )
+        evidence.extend(source for source, window in context_evidence if window == expected_context)
 
     auxiliary = tuple(
         AuxiliaryModelObservation(
@@ -259,7 +332,7 @@ def evaluate_claude_attempt(
         result=result,
         main_model=main_model,
         main_model_verified=True,
-        main_model_evidence=tuple(evidence),
+        main_model_evidence=tuple(dict.fromkeys(evidence)),
         auxiliary_models=auxiliary,
         warnings=warnings,
     )

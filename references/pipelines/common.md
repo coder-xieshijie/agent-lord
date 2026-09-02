@@ -19,7 +19,7 @@ A named pipeline expands only the nodes documented by that policy. User-specifie
 2. Hold each downstream barrier until all required upstream artifacts are terminal and validated.
 3. Exchange sanitized final artifacts. Never pass raw logs, hidden reasoning, or an unverified summary of another endpoint's result.
 4. Continue the same `task_id` with `turn`; do not create a replacement endpoint to simulate a later round.
-5. Never bypass repository/source validation with a manually prepared worktree plus `--target`. Let the runtime create or reuse the contract workspace.
+5. Never bypass repository/source validation with a manually prepared worktree plus `--target`. Let the runtime create or reuse the contract workspace. The single documented exception is the exact-target dirty continuation in [handoff.md](handoff.md), where the runtime itself fingerprints the workspace under its write lease.
 
 ## Supervise and recover
 
@@ -37,8 +37,10 @@ Before a node can satisfy a barrier, validate its terminal envelope against the 
 - artifact presence and operation identity;
 - role-specific independence.
 
-For a role that must be independent, inspect the observed execution rather than the requested label. In particular, a Fable-family task with `observed.fallback_used=true` ran on the configured fallback model and cannot satisfy an independent-Fable barrier. Mark that check `UNVERIFIED` and return the required decision; never label it `PASS`.
+For a role that must be independent, inspect the observed execution rather than the requested label. In particular, a Fable-family task with `observed.fallback_used=true` ran on the configured fallback model and cannot satisfy an independent-Fable barrier. Mark that check `UNVERIFIED` and return the required decision, unless the named pipeline documents another disposition for its own frozen fallback stage; never label it `PASS`.
+
+A `SKILL.md` `RESULT_INVALID` replacement session is a new `task_id` and a new endpoint. Carry its `replacement_for` lineage in the manifest, and re-run these identity and independence checks against the replacement instead of inheriting the original node's result.
 
 ## Converge and stop
 
-Every iterative pipeline must define its convergence predicate, maximum rounds or operations, and unresolved output before it starts. Stop when the predicate is met, the bound is exhausted, or new authority is required. Do not keep polling terminal tasks, repeat unchanged full reviews, or invent a third-party tie-breaker. Preserve rejected and unresolved items with their evidence so the final result is auditable.
+Every iterative pipeline must define its convergence predicate, maximum rounds or operations, and unresolved output before it starts. Stop when the predicate is met, the bound is exhausted, or new authority is required. Do not keep polling terminal tasks, repeat unchanged full reviews, or invent a third-party tie-breaker. Preserve rejected and unresolved items with their evidence so the final result is auditable. The Claude `RESULT_INVALID` retry budget (`SKILL.md`) is separate and never counts against this bound.

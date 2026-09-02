@@ -199,14 +199,13 @@ def extract_jsonl(path: Path, source_format: str) -> str:
     return extract_jsonl_with_metadata(path, source_format)["text"]
 
 
-def write_artifact(task_id: str, operation_id: str, text: str, root: Optional[Path] = None) -> Dict[str, Any]:
+def _write_artifact_bytes(task_id: str, operation_id: str, name: str, encoded: bytes, root: Optional[Path]) -> Dict[str, Any]:
     root = ensure_layout(root)
     validate_identifier("task_id", task_id)
     validate_identifier("operation_id", operation_id)
     directory = root / "artifacts" / task_id
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-    path = directory / (operation_id + ".md")
-    encoded = (text.rstrip() + "\n").encode("utf-8")
+    path = directory / name
     temporary_path: Optional[Path] = None
     try:
         with tempfile.NamedTemporaryFile(dir=str(directory), prefix=".%s." % operation_id, suffix=".tmp", delete=False) as temporary:
@@ -228,3 +227,19 @@ def write_artifact(task_id: str, operation_id: str, text: str, root: Optional[Pa
         "sha256": hashlib.sha256(encoded).hexdigest(),
         "bytes": len(encoded),
     }
+
+
+def write_artifact(task_id: str, operation_id: str, text: str, root: Optional[Path] = None) -> Dict[str, Any]:
+    encoded = (text.rstrip() + "\n").encode("utf-8")
+    return _write_artifact_bytes(task_id, operation_id, operation_id + ".md", encoded, root)
+
+
+def write_input_artifact(
+    task_id: str,
+    operation_id: str,
+    data: bytes,
+    suffix: str,
+    root: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Store one sanitized input packet next to the operation's final artifact."""
+    return _write_artifact_bytes(task_id, operation_id, operation_id + suffix, data, root)

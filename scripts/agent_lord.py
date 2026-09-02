@@ -88,6 +88,34 @@ def build_parser() -> argparse.ArgumentParser:
     turn.add_argument("--task-id", required=True)
     turn.add_argument("--message-file", required=True)
 
+    handoff = subparsers.add_parser(
+        "handoff",
+        help="validate a sanitized handoff-v1 packet and start its continuation CLI endpoint",
+    )
+    handoff.add_argument("--task-id", required=True, help="new continuation task id; must match the packet binding")
+    handoff.add_argument("--packet-file", required=True, help="caller-owned handoff-v1 JSON packet file")
+    handoff.add_argument(
+        "--provider",
+        choices=("claude-cli", "codex", "codex-cli"),
+        help="continuation provider; defaults to the packet's contract request",
+    )
+    handoff.add_argument("--target", help="exact existing workspace the continuation runs in")
+    handoff.add_argument("--model")
+    handoff.add_argument("--effort")
+    handoff.add_argument("--retry-attempts", type=int, help="override the primary Claude CLI attempt budget")
+    handoff.add_argument(
+        "--read-only",
+        action="store_true",
+        help="require provider read-only enforcement; must match the packet's workspace-write authorization",
+    )
+    handoff.add_argument("--head-sha")
+    handoff.add_argument("--base-sha")
+    handoff.add_argument(
+        "--validate-only",
+        action="store_true",
+        help="validate the packet, binding, and contract request without touching durable state",
+    )
+
     accept = subparsers.add_parser("accept", help="validate one model-mediated Codex host-tool result")
     accept.add_argument("--action-id", required=True)
     accept.add_argument("--result-file", required=True)
@@ -156,6 +184,20 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
         )
     if args.command == "turn":
         return lord.turn(args.task_id, read_text(args.message_file))
+    if args.command == "handoff":
+        return lord.handoff(
+            args.task_id,
+            args.packet_file,
+            provider=args.provider,
+            target=args.target,
+            model=args.model,
+            effort=args.effort,
+            read_only=args.read_only,
+            head_sha=args.head_sha,
+            base_sha=args.base_sha,
+            retry_attempts=args.retry_attempts,
+            validate_only=args.validate_only,
+        )
     if args.command == "accept":
         return lord.accept(args.action_id, read_result(args.result_file), auto_read=args.auto_read)
     if args.command == "check":
