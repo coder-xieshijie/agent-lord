@@ -13,7 +13,7 @@ from .errors import AgentLordError
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = PACKAGE_ROOT / "config" / "providers.json"
-PROVIDER_ALIASES = {"codex": "codex-cli"}
+PROVIDER_ALIASES = {"codex": "codex-cli", "mcode": "mcode-cli"}
 
 
 def normalize_provider(provider: str) -> str:
@@ -76,6 +76,8 @@ def control_config() -> Dict[str, int]:
         "claude_tool_stall_seconds": 3600,
         "claude_terminate_grace_seconds": 10,
         "claude_progress_poll_interval_ms": 250,
+        "mcode_terminate_grace_seconds": 10,
+        "mcode_progress_poll_interval_ms": 100,
     }
     if any(
         name in value and (not isinstance(value[name], int) or isinstance(value[name], bool) or value[name] <= 0)
@@ -83,7 +85,7 @@ def control_config() -> Dict[str, int]:
     ):
         raise AgentLordError(
             "CONFIG_INVALID",
-            "optional Claude supervision values must be positive integers",
+            "optional CLI supervision values must be positive integers",
             exit_code=2,
         )
     result = {name: value[name] for name in required}
@@ -93,6 +95,13 @@ def control_config() -> Dict[str, int]:
 
 def validate_effort(provider: str, effort: str) -> None:
     provider = normalize_provider(provider)
+    if provider == "mcode-cli" and effort:
+        raise AgentLordError(
+            "CONFIG_INVALID",
+            "mcode-cli has no independently enforceable --effort contract; omit --effort",
+            details={"provider": provider, "effort": effort},
+            exit_code=2,
+        )
     allowed = provider_config(provider).get("efforts", [])
     if effort and effort not in allowed:
         raise AgentLordError(
@@ -154,6 +163,13 @@ def permission_policy(provider: str, read_only: bool) -> Dict[str, Any]:
     selector = "read_only_override" if read_only else "default"
     mode = permissions.get(selector)
     if not isinstance(mode, str) or not mode:
+        if read_only and permissions.get("read_only_supported") is False:
+            raise AgentLordError(
+                "PERMISSION_UNSUPPORTED",
+                "%s cannot enforce Agent Lord's read-only contract; its configured modes are not read-only" % provider,
+                details={"provider": provider, "requested": "read_only"},
+                exit_code=2,
+            )
         raise AgentLordError(
             "CONFIG_INVALID",
             "provider permission selector is invalid",
@@ -173,6 +189,54 @@ def codex_binary() -> str:
     config = provider_config("codex-cli")
     environment_name = config.get("binary_env", "AGENT_LORD_CODEX_BIN")
     return os.environ.get(environment_name, config.get("default_binary", "codex"))
+
+
+def mcode_binary() -> str:
+    config = provider_config("mcode-cli")
+    environment_name = config.get("binary_env", "AGENT_LORD_MCODE_BIN")
+    return os.environ.get(environment_name, config.get("default_binary", "mcode"))
+
+
+def parse_mcode_model(value: Optional[str]) -> Dict[str, Optional[str]]:
+    """Parse the exact model grammar accepted by ``mcode exec``."""
+    if not isinstance(value, str) or not value or value != value.strip() or any(
+        character.isspace() for character in value
+    ):
+        raise AgentLordError(
+            "CONFIG_INVALID",
+            "mcode-cli requires an explicit --model in provider/model or provider/model#variant form",
+            details={"model": value},
+            exit_code=2,
+        )
+    slash = value.find("/")
+    if slash < 1 or slash == len(value) - 1:
+        raise AgentLordError(
+            "CONFIG_INVALID",
+            "mcode-cli requires an explicit --model in provider/model or provider/model#variant form",
+            details={"model": value},
+            exit_code=2,
+        )
+    provider_id = value[:slash]
+    remainder = value[slash + 1 :]
+    hash_index = remainder.rfind("#")
+    model_id = remainder[:hash_index] if hash_index > 0 else remainder
+    variant = remainder[hash_index + 1 :] if hash_index > 0 else None
+    if (
+        not provider_id
+        or not model_id
+        or "/" in provider_id
+        or "#" in provider_id
+        or "#" in model_id
+        or (hash_index >= 0 and (hash_index == 0 or not variant))
+        or any(ord(character) < 32 for character in value)
+    ):
+        raise AgentLordError(
+            "CONFIG_INVALID",
+            "mcode-cli requires an explicit --model in provider/model or provider/model#variant form",
+            details={"model": value},
+            exit_code=2,
+        )
+    return {"provider_id": provider_id, "model_id": model_id, "variant": variant}
 
 
 def _claude_default_resolution() -> Dict[str, Any]:
@@ -274,6 +338,17 @@ def resolve_execution_defaults(
 ) -> Tuple[Optional[str], Optional[str]]:
     provider = normalize_provider(provider)
     config = provider_config(provider)
+    if provider == "mcode-cli":
+        if effort:
+            validate_effort(provider, effort)
+        if model is None:
+            raise AgentLordError(
+                "CONFIG_INVALID",
+                "mcode-cli requires an explicit --model in provider/model or provider/model#variant form",
+                exit_code=2,
+            )
+        parse_mcode_model(model)
+        return model, None
     settings: Dict[str, Any] = {}
     policy: Dict[str, Any] = {}
     if provider == "claude-cli" and (model is None or effort is None):

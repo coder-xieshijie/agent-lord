@@ -43,7 +43,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     start = subparsers.add_parser("start", help="create one durable endpoint")
     start.add_argument("--task-id", required=True)
-    start.add_argument("--provider", required=True, choices=("claude-cli", "codex", "codex-cli", "codex-app"))
+    start.add_argument(
+        "--provider",
+        required=True,
+        choices=("claude-cli", "codex", "codex-cli", "mcode", "mcode-cli", "codex-app"),
+    )
     target = start.add_mutually_exclusive_group(required=True)
     target.add_argument("--target", help="existing provider working directory")
     target.add_argument("--repo", help="repository whose source-branch worktree should be prepared")
@@ -96,7 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
     handoff.add_argument("--packet-file", required=True, help="caller-owned handoff-v1 JSON packet file")
     handoff.add_argument(
         "--provider",
-        choices=("claude-cli", "codex", "codex-cli"),
+        choices=("claude-cli", "codex", "codex-cli", "mcode", "mcode-cli"),
         help="continuation provider; defaults to the packet's contract request",
     )
     handoff.add_argument("--target", help="exact existing workspace the continuation runs in")
@@ -150,7 +154,11 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--task-id", required=True)
     export.add_argument("--operation-id", required=True)
     export.add_argument("--source-file", required=True)
-    export.add_argument("--source-format", required=True, choices=("claude-jsonl", "codex-jsonl"))
+    export.add_argument(
+        "--source-format",
+        required=True,
+        choices=("claude-jsonl", "codex-jsonl", "mcode-stream-json"),
+    )
     return parser
 
 

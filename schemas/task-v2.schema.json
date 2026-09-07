@@ -18,7 +18,7 @@
   "properties": {
     "version": {"const": 2},
     "task_id": {"type": "string"},
-    "provider": {"enum": ["claude-cli", "codex-cli", "codex-app"]},
+    "provider": {"enum": ["claude-cli", "codex-cli", "mcode-cli", "codex-app"]},
     "endpoint_id": {"type": "string", "minLength": 1},
     "target": {"type": "string", "minLength": 1},
     "route": {
@@ -35,8 +35,8 @@
       "type": "object",
       "required": ["model", "effort", "read_only", "permission_mode", "source", "retry_plan"],
       "properties": {
-        "model": {"type": ["string", "null"]},
-        "effort": {"type": ["string", "null"]},
+        "model": {"type": ["string", "null"], "description": "For mcode-cli this is the frozen provider/model or provider/model#variant literal."},
+        "effort": {"type": ["string", "null"], "description": "Always null for mcode-cli because it has no independent effort control."},
         "read_only": {"type": "boolean"},
         "permission_mode": {"type": "string", "minLength": 1},
         "source": {
@@ -121,5 +121,22 @@
       "additionalProperties": false
     }
   },
+  "allOf": [
+    {
+      "if": {"properties": {"provider": {"const": "mcode-cli"}}, "required": ["provider"]},
+      "then": {
+        "properties": {
+          "contract": {
+            "properties": {
+              "model": {"type": "string", "pattern": "^[^\\s/#]+/[^\\s#]+(?:#[^\\s#]+)?$"},
+              "effort": {"const": null},
+              "read_only": {"const": false},
+              "permission_mode": {"const": "dangerously_bypass"}
+            }
+          }
+        }
+      }
+    }
+  ],
   "additionalProperties": false
 }

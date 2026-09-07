@@ -25,6 +25,13 @@ from .claude_adapter import (
     terminate_claude_process,
 )
 from .codex_cli_adapter import recover_codex_cli, run_codex_cli
+from .mcode_cli_adapter import (
+    mcode_process_identity_matches,
+    mcode_process_tree_alive,
+    recover_mcode_cli,
+    run_mcode_cli,
+    terminate_mcode_process,
+)
 from .config import (
     control_config,
     expected_model_matches,
@@ -80,6 +87,7 @@ from .state import (
 SHA_PATTERN = re.compile(r"[0-9a-fA-F]{40}\Z")
 WORKSPACE_POLICIES = {"reuse-or-create", "shared-readonly", "isolated"}
 ROUTE_LIST_ATTEMPTS = 3
+LOCAL_CLI_PROVIDERS = ("claude-cli", "codex-cli", "mcode-cli")
 
 
 class _CheckpointScan:
@@ -483,7 +491,7 @@ class AgentLord:
         for operation in all_operations(self.root):
             if operation.get("status") in TERMINAL_OPERATION_STATES:
                 continue
-            if operation.get("read_only") or operation.get("provider") not in ("claude-cli", "codex-cli"):
+            if operation.get("read_only") or operation.get("provider") not in LOCAL_CLI_PROVIDERS:
                 continue
             if operation.get("operation_id") == exclude_operation_id:
                 continue
@@ -1459,6 +1467,64 @@ class AgentLord:
                 raise
             return self._raise_cli_failure(load_operation(operation["operation_id"], self.root), error)
 
+    def _ensure_mcode_task(self, operation_id: str, endpoint_id: str) -> Dict[str, Any]:
+        """Publish the MCode Session handle as soon as its stream proves identity."""
+        operation = load_operation(operation_id, self.root)
+        if self._task_exists(operation["task_id"]):
+            task = load_task(operation["task_id"], self.root)
+            if task.get("endpoint_id") != endpoint_id or task.get("last_operation_id") != operation_id:
+                raise AgentLordError(
+                    "IDENTITY_CONFLICT",
+                    "existing task handle does not match the observed MCode Session",
+                    details={
+                        "task_id": operation["task_id"],
+                        "expected_endpoint_id": endpoint_id,
+                        "observed_endpoint_id": task.get("endpoint_id"),
+                    },
+                )
+            return task
+        try:
+            return create_task(self._task_record(operation, endpoint_id, None), self.root)
+        except AgentLordError as error:
+            if error.code != "IDENTITY_CONFLICT":
+                raise
+            task = load_task(operation["task_id"], self.root)
+            if task.get("endpoint_id") != endpoint_id or task.get("last_operation_id") != operation_id:
+                raise
+            return task
+
+    def _finish_mcode_cli(
+        self,
+        operation: Dict[str, Any],
+        endpoint_id: Optional[str],
+        resume: bool,
+    ) -> Dict[str, Any]:
+        try:
+            result = run_mcode_cli(
+                operation["operation_id"],
+                operation["target"],
+                operation["message"],
+                endpoint_id,
+                resume,
+                operation.get("expected", {}).get("model"),
+                operation.get("expected", {}).get("effort"),
+                bool(operation.get("read_only")),
+                operation.get("expected", {}).get("permission_mode"),
+                self.root,
+                self.control["mcode_progress_poll_interval_ms"],
+                self.control["mcode_terminate_grace_seconds"],
+                lambda observed_endpoint: self._ensure_mcode_task(operation["operation_id"], observed_endpoint),
+            )
+            return self._publish_cli_result(operation, result["endpoint_id"], resume, result)
+        except AgentLordError as error:
+            if error.code == "STATE_BUSY":
+                raise
+            current = load_operation(operation["operation_id"], self.root)
+            observed_endpoint = current.get("endpoint_id")
+            if isinstance(observed_endpoint, str) and observed_endpoint:
+                self._ensure_mcode_task(operation["operation_id"], observed_endpoint)
+            return self._raise_cli_failure(current, error)
+
     def start(
         self,
         task_id: str,
@@ -1489,6 +1555,8 @@ class AgentLord:
         provider = normalize_provider(provider)
         provider_config(provider)
         model, effort = resolve_execution_defaults(provider, model, effort)
+        if provider == "mcode-cli":
+            permission_policy(provider, read_only)
         retry_plan = resolve_retry_plan(provider, model, retry_attempts)
         if not isinstance(message, str) or not message:
             raise AgentLordError("CONFIG_INVALID", "message must be non-empty", exit_code=2)
@@ -1497,7 +1565,7 @@ class AgentLord:
         workspace_requested = repository is not None
         workspace: Dict[str, Any] = {}
         if workspace_requested:
-            if target is not None or provider not in ("claude-cli", "codex-cli"):
+            if target is not None or provider not in LOCAL_CLI_PROVIDERS:
                 raise AgentLordError(
                     "CONFIG_INVALID",
                     "repository workspace preparation requires a local CLI provider and no target",
@@ -1556,7 +1624,7 @@ class AgentLord:
             )
         if not workspace_requested and (not isinstance(target, str) or not target):
             raise AgentLordError("CONFIG_INVALID", "target must be non-empty", exit_code=2)
-        if provider in ("claude-cli", "codex-cli"):
+        if provider in LOCAL_CLI_PROVIDERS:
             if codex_environment is not None or starting_branch is not None:
                 raise AgentLordError(
                     "CONFIG_INVALID",
@@ -1653,7 +1721,7 @@ class AgentLord:
                             safe_recovery="CHECK_SAME_OPERATION",
                             details={"operation_id": inflight["operation_id"], "status": inflight.get("status")},
                         )
-                    if provider in ("claude-cli", "codex-cli"):
+                    if provider in LOCAL_CLI_PROVIDERS:
                         candidate_leases = self._write_leases(target, read_only, workspace)
                         candidate_leases.__enter__()
                         write_leases = candidate_leases
@@ -1692,7 +1760,7 @@ class AgentLord:
                         workspace,
                         parallel_plan,
                         operation_id=operation_id,
-                        controller_pid=os.getpid() if provider in ("claude-cli", "codex-cli") else None,
+                        controller_pid=os.getpid() if provider in LOCAL_CLI_PROVIDERS else None,
                         endpoint_id=session_id,
                     )
                     if provider == "codex-app":
@@ -1726,6 +1794,12 @@ class AgentLord:
         if provider == "codex-cli":
             try:
                 return self._finish_codex_cli(operation, endpoint_id=None, resume=False)
+            finally:
+                assert write_leases is not None
+                write_leases.__exit__(None, None, None)
+        if provider == "mcode-cli":
+            try:
+                return self._finish_mcode_cli(operation, endpoint_id=None, resume=False)
             finally:
                 assert write_leases is not None
                 write_leases.__exit__(None, None, None)
@@ -1784,6 +1858,9 @@ class AgentLord:
                 workspace_writes=authorization["workspace_writes"],
                 read_only=read_only,
             )
+        if provider == "mcode-cli":
+            model, effort = resolve_execution_defaults(provider, model, effort)
+            permission_policy(provider, read_only)
         source_session = source_session_record(packet)
         if validate_only:
             return {
@@ -1967,6 +2044,8 @@ class AgentLord:
                 assert write_leases is not None
                 write_leases.__exit__(None, None, None)
         try:
+            if provider == "mcode-cli":
+                return self._finish_mcode_cli(operation, endpoint_id=None, resume=False)
             return self._finish_codex_cli(operation, endpoint_id=None, resume=False)
         finally:
             assert write_leases is not None
@@ -2005,7 +2084,7 @@ class AgentLord:
                 source = contract.get("source") or {}
                 workspace = contract.get("workspace") or {"policy": "exact-target"}
                 parallel_plan = contract.get("parallel_plan") or {}
-                if task["provider"] in ("claude-cli", "codex-cli"):
+                if task["provider"] in LOCAL_CLI_PROVIDERS:
                     branch = self._managed_checkout_branch(contract)
                     if branch is None:
                         self._verify_checkout(task["target"], source)
@@ -2061,8 +2140,8 @@ class AgentLord:
                     workspace,
                     parallel_plan,
                     operation_id=operation_id,
-                    controller_pid=os.getpid() if task["provider"] in ("claude-cli", "codex-cli") else None,
-                    endpoint_id=task.get("endpoint_id") if task["provider"] == "claude-cli" else None,
+                    controller_pid=os.getpid() if task["provider"] in LOCAL_CLI_PROVIDERS else None,
+                    endpoint_id=task.get("endpoint_id") if task["provider"] in ("claude-cli", "mcode-cli") else None,
                 )
                 if task["provider"] == "codex-app":
                     action = codex_adapter.send_action(operation, task, self.root)
@@ -2089,6 +2168,12 @@ class AgentLord:
         if task["provider"] == "codex-cli":
             try:
                 return self._finish_codex_cli(operation, task["endpoint_id"], resume=True)
+            finally:
+                assert write_leases is not None
+                write_leases.__exit__(None, None, None)
+        if task["provider"] == "mcode-cli":
+            try:
+                return self._finish_mcode_cli(operation, task["endpoint_id"], resume=True)
             finally:
                 assert write_leases is not None
                 write_leases.__exit__(None, None, None)
@@ -2392,7 +2477,7 @@ class AgentLord:
         `check` reconstructs state; it never fences a dead controller. Without this hint a
         caller polling `check` on an orphaned local CLI operation waits forever.
         """
-        if task.get("provider") not in ("claude-cli", "codex-cli"):
+        if task.get("provider") not in LOCAL_CLI_PROVIDERS:
             return envelope
         controller_pid = (
             self._claude_controller_pid(operation)
@@ -2985,6 +3070,113 @@ class AgentLord:
                 return None
             raise
 
+    def _supervise_mcode_cli(self, operation: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Fence an orphaned MCode Run and recover only operation-bound terminal facts."""
+        if self._pid_alive(operation.get("controller_pid")):
+            return None
+        operation_id = operation["operation_id"]
+        try:
+            with record_lock("operation-control", self._operation_control_lock_id(operation_id), self.root):
+                operation = load_operation(operation_id, self.root)
+                if operation.get("status") in TERMINAL_OPERATION_STATES:
+                    return self.envelope(operation)
+                if self._pid_alive(operation.get("controller_pid")):
+                    return None
+                active = operation.get("active_attempt") or {}
+                provider_pid = active.get("pid") or operation.get("pid")
+                process_group_id = active.get("process_group_id")
+                delivery = active.get("prompt_delivery")
+
+                if operation.get("status") == "preparing" and not operation.get("provider_command"):
+                    error = AgentLordError(
+                        "PROCESS_EXITED_WITHOUT_RESULT",
+                        "MCode controller exited before its provider attempt was prepared",
+                        retryable=True,
+                        safe_recovery="RETRY_SAME_COMMAND",
+                        details={"operation_id": operation_id},
+                    )
+                    return self.envelope(self._fail_operation(operation, error))
+                if operation.get("status") == "preparing" and not isinstance(provider_pid, int):
+                    error = AgentLordError(
+                        "DELIVERY_UNKNOWN",
+                        "MCode controller exited while launching its provider attempt and no operation process can be fenced",
+                        requires_authorization=True,
+                        details={"operation_id": operation_id, "prompt_delivery": delivery},
+                    )
+                    return self.envelope(self._fail_operation(operation, error))
+
+                if isinstance(provider_pid, int) and mcode_process_tree_alive(provider_pid, process_group_id):
+                    if not mcode_process_identity_matches(
+                        provider_pid,
+                        process_group_id,
+                        active.get("result_path") or operation.get("result_path"),
+                    ):
+                        error = AgentLordError(
+                            "PROCESS_FENCE_FAILED",
+                            "MCode operation process identity cannot be bound to this journal before fencing",
+                            details={"pid": provider_pid, "process_group_id": process_group_id},
+                        )
+                        return self.envelope(self._fail_operation(operation, error))
+                    try:
+                        terminate_mcode_process(
+                            provider_pid,
+                            process_group_id,
+                            self.control["mcode_terminate_grace_seconds"],
+                        )
+                    except AgentLordError as error:
+                        return self.envelope(self._fail_operation(operation, error))
+
+                try:
+                    recovered = recover_mcode_cli(operation)
+                except AgentLordError as error:
+                    current = load_operation(operation_id, self.root)
+                    endpoint_id = current.get("endpoint_id")
+                    if isinstance(endpoint_id, str) and endpoint_id:
+                        self._ensure_mcode_task(operation_id, endpoint_id)
+                    incomplete_terminal = error.code == "RESULT_INVALID" and (
+                        "exactly one final exec.completed" in error.message
+                        or error.message == "MCode stream is empty"
+                    )
+                    if incomplete_terminal:
+                        first_seen = current.get("dead_process_observed_at_ms")
+                        now_ms = int(time.time() * 1000)
+                        if not isinstance(first_seen, int):
+                            self._set_operation_status(
+                                operation_id,
+                                current.get("status", "running"),
+                                dead_process_observed_at_ms=now_ms,
+                            )
+                            return None
+                        if now_ms - first_seen < self.control["dead_process_result_grace_seconds"] * 1000:
+                            return None
+                        error = AgentLordError(
+                            "DELIVERY_UNKNOWN",
+                            "MCode operation ended without a complete terminal record; the prompt will not be resent",
+                            requires_authorization=True,
+                            details={
+                                "operation_id": operation_id,
+                                "endpoint_id": endpoint_id,
+                                "provider_error": error.as_dict(),
+                            },
+                        )
+                    return self.envelope(self._fail_operation(current, error))
+
+                endpoint_id = recovered.get("endpoint_id") or operation.get("endpoint_id")
+                if not isinstance(endpoint_id, str) or not endpoint_id:
+                    error = AgentLordError("RESULT_INVALID", "recovered MCode result lacks Session identity")
+                    return self.envelope(self._fail_operation(operation, error))
+                self._ensure_mcode_task(operation_id, endpoint_id)
+                return self._publish_cli_result(
+                    operation,
+                    endpoint_id,
+                    operation.get("kind") == "turn",
+                    recovered,
+                )
+        except AgentLordError as error:
+            if error.code == "STATE_BUSY":
+                return None
+            raise
+
     def _supervise_codex_cli(self, operation: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if operation.get("status") == "preparing":
             return self._supervise_preparing_codex_cli(operation)
@@ -3063,6 +3255,8 @@ class AgentLord:
                     envelope = self._supervise_claude(operation)
                 elif task["provider"] == "codex-cli" and operation.get("status") in ("preparing", "running"):
                     envelope = self._supervise_codex_cli(operation)
+                elif task["provider"] == "mcode-cli" and operation.get("status") in ("preparing", "running"):
+                    envelope = self._supervise_mcode_cli(operation)
                 else:
                     envelope = None
                 if envelope is not None:
@@ -3096,6 +3290,13 @@ class AgentLord:
         operation = load_operation(operation_id, self.root)
         if operation.get("task_id") != task_id:
             raise AgentLordError("ENDPOINT_MISMATCH", "operation does not belong to task_id")
+        if operation.get("provider") == "mcode-cli":
+            raise AgentLordError(
+                "CONFIG_INVALID",
+                "mcode-stream-json does not contain a verifiable Agent Lord operation marker; auxiliary MCode import is refused",
+                details={"source_format": source_format, "operation_id": operation_id},
+                exit_code=2,
+            )
         required_marker = (
             codex_adapter.operation_marker(operation_id)
             if operation.get("provider") in ("codex-app", "codex-cli")

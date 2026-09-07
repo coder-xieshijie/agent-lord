@@ -8,7 +8,9 @@
     "claude_stall_seconds": 900,
     "claude_tool_stall_seconds": 3600,
     "claude_terminate_grace_seconds": 10,
-    "claude_progress_poll_interval_ms": 250
+    "claude_progress_poll_interval_ms": 250,
+    "mcode_terminate_grace_seconds": 10,
+    "mcode_progress_poll_interval_ms": 100
   },
   "providers": {
     "claude-cli": {
@@ -90,6 +92,26 @@
           "read_only": {
             "arguments": ["-c", "sandbox_mode=\"read-only\"", "-c", "approval_policy=\"never\""],
             "enforcement": "config-argument-enforced"
+          }
+        }
+      },
+      "reapply_execution_contract": true
+    },
+    "mcode-cli": {
+      "binary_env": "AGENT_LORD_MCODE_BIN",
+      "default_binary": "mcode",
+      "default_model": null,
+      "default_effort": null,
+      "default_retry_attempts": 1,
+      "efforts": [],
+      "permissions": {
+        "default": "dangerously_bypass",
+        "read_only_override": null,
+        "read_only_supported": false,
+        "modes": {
+          "dangerously_bypass": {
+            "arguments": ["--permission", "full"],
+            "enforcement": "mcode-permission-full-argument"
           }
         }
       },

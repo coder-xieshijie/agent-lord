@@ -11,7 +11,7 @@ import re
 import tempfile
 from typing import Any, Callable, Dict, Iterator, List, Optional
 
-from .config import resolve_retry_plan
+from .config import parse_mcode_model, resolve_retry_plan
 from .errors import AgentLordError
 
 
@@ -249,7 +249,7 @@ def normalize_task(value: Dict[str, Any]) -> Dict[str, Any]:
                 raise AgentLordError("STATE_CORRUPT", "task record has an invalid handoff lineage")
         if not isinstance(value.get("task_id"), str) or not IDENTIFIER_PATTERN.fullmatch(value["task_id"]):
             raise AgentLordError("STATE_CORRUPT", "task record has an invalid task_id")
-        if value.get("provider") not in ("claude-cli", "codex-cli", "codex-app"):
+        if value.get("provider") not in ("claude-cli", "codex-cli", "mcode-cli", "codex-app"):
             raise AgentLordError("STATE_CORRUPT", "task record has an unsupported provider")
         for name in ("endpoint_id", "target", "created_at", "updated_at"):
             if not isinstance(value.get(name), str) or not value[name] or "\x00" in value[name]:
@@ -262,7 +262,7 @@ def normalize_task(value: Dict[str, Any]) -> Dict[str, Any]:
             raise AgentLordError("STATE_CORRUPT", "task record has an invalid host_id")
         if value["provider"] == "codex-app" and not host_id:
             raise AgentLordError("STATE_CORRUPT", "Codex task record lacks host_id")
-        if value["provider"] in ("claude-cli", "codex-cli") and host_id is not None:
+        if value["provider"] in ("claude-cli", "codex-cli", "mcode-cli") and host_id is not None:
             raise AgentLordError("STATE_CORRUPT", "CLI task record must not contain host_id")
         if not isinstance(route.get("resolved_at"), str) or not route["resolved_at"]:
             raise AgentLordError("STATE_CORRUPT", "task record has an invalid route timestamp")
@@ -295,6 +295,13 @@ def normalize_task(value: Dict[str, Any]) -> Dict[str, Any]:
             or not isinstance(contract["source"], dict)
         ):
             raise AgentLordError("STATE_CORRUPT", "task contract has invalid permissions or source")
+        if value["provider"] == "mcode-cli":
+            try:
+                parse_mcode_model(contract.get("model"))
+            except AgentLordError as exc:
+                raise AgentLordError("STATE_CORRUPT", "MCode task contract has an invalid model") from exc
+            if contract.get("effort") is not None or contract.get("read_only") or contract.get("permission_mode") != "dangerously_bypass":
+                raise AgentLordError("STATE_CORRUPT", "MCode task contract has an unsupported effort or permission posture")
         for name, sha in contract["source"].items():
             if (
                 name not in ("head_sha", "base_sha", "verified_head_sha")

@@ -25,7 +25,7 @@
     "version": {"const": 1},
     "operation_id": {"type": "string"},
     "task_id": {"type": "string"},
-    "provider": {"enum": ["claude-cli", "codex-cli", "codex-app"]},
+    "provider": {"enum": ["claude-cli", "codex-cli", "mcode-cli", "codex-app"]},
     "kind": {"enum": ["start", "turn", "handoff"]},
     "target": {"type": "string"},
     "status": {
@@ -41,7 +41,17 @@
         "main_model_verified": {"type": "boolean"},
         "main_model_evidence": {"type": "array", "items": {"type": "string"}},
         "auxiliary_models": {"type": "array", "items": {"type": "object"}},
-        "warnings": {"type": "array", "items": {"type": "object"}}
+        "warnings": {"type": "array", "items": {"type": "object"}},
+        "models": {"type": "array", "items": {"type": "string"}},
+        "model": {"type": "string"},
+        "model_verification": {"type": "string"},
+        "variant": {"type": ["string", "null"]},
+        "variant_verification": {"type": "string"},
+        "run_id": {"type": "string"},
+        "session_id": {"type": "string"},
+        "turn_id": {"type": "string"},
+        "terminal_status": {"type": "string"},
+        "progress_seq": {"type": "integer", "minimum": 0}
       },
       "additionalProperties": true
     },
@@ -94,6 +104,14 @@
     "artifact": {"type": ["object", "null"]},
     "error": {"type": ["object", "null"]},
     "controller_pid": {"type": ["integer", "null"]},
+    "pid": {"type": ["integer", "null"]},
+    "provider_return_code": {"type": ["integer", "null"]},
+    "run_id": {"type": "string"},
+    "turn_id": {"type": "string"},
+    "stdout_path": {"type": "string"},
+    "stderr_path": {"type": "string"},
+    "result_path": {"type": "string"},
+    "result_reset_at_ns": {"type": "integer", "minimum": 1},
     "recovery_controller_pid": {"type": ["integer", "null"]},
     "active_attempt": {
       "type": ["object", "null"],
@@ -101,6 +119,13 @@
         "controller_pid": {"type": ["integer", "null"]},
         "pid": {"type": ["integer", "null"]},
         "process_group_id": {"type": ["integer", "null"]},
+        "run_id": {"type": "string"},
+        "session_id": {"type": "string"},
+        "turn_id": {"type": "string"},
+        "result_path": {"type": "string"},
+        "result_reset_at_ns": {"type": "integer", "minimum": 1},
+        "progress_seq": {"type": "integer", "minimum": 0},
+        "last_event_type": {"type": "string"},
         "prompt_delivery": {"enum": ["not-delivered", "delivery-unknown", "stdin-attached"]}
       },
       "additionalProperties": true

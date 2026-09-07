@@ -51,7 +51,7 @@ def put(args: argparse.Namespace) -> Dict[str, Any]:
     retry_plan = resolve_retry_plan(provider, model, getattr(args, "retry_attempts", None))
     if provider == "codex-app" and not args.host_id:
         raise AgentLordError("CONFIG_INVALID", "host_id is required for provider codex-app", exit_code=2)
-    if provider in ("claude-cli", "codex-cli") and args.host_id:
+    if provider in ("claude-cli", "codex-cli", "mcode-cli") and args.host_id:
         raise AgentLordError("CONFIG_INVALID", "host_id is not accepted for CLI providers", exit_code=2)
     now = utc_now()
     history = []
@@ -114,7 +114,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     put_parser = subparsers.add_parser("put", help="register a pre-existing endpoint")
     put_parser.add_argument("--task-id", required=True)
-    put_parser.add_argument("--provider", required=True, choices=("codex", "codex-cli", "codex-app", "claude-cli"))
+    put_parser.add_argument(
+        "--provider",
+        required=True,
+        choices=("codex", "codex-cli", "codex-app", "claude-cli", "mcode", "mcode-cli"),
+    )
     put_parser.add_argument("--endpoint-id", required=True)
     put_parser.add_argument("--host-id")
     put_parser.add_argument("--target", required=True)

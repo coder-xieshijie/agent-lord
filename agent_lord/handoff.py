@@ -19,7 +19,7 @@ MAX_PACKET_BYTES = 64 * 1024
 MAX_RAW_FILE_BYTES = 4 * MAX_PACKET_BYTES
 MAX_STRING_LENGTH = 8 * 1024
 MAX_LIST_ITEMS = 64
-HANDOFF_PROVIDERS = ("claude-cli", "codex-cli")
+HANDOFF_PROVIDERS = ("claude-cli", "codex-cli", "mcode-cli")
 
 _SHA256_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
 _SESSION_KIND_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")

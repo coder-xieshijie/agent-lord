@@ -76,7 +76,7 @@
     "contract_request": {
       "type": "object",
       "properties": {
-        "provider": {"enum": ["claude-cli", "codex-cli"]},
+        "provider": {"enum": ["claude-cli", "codex-cli", "mcode-cli"]},
         "model": {"type": "string", "maxLength": 256},
         "effort": {"type": "string", "maxLength": 256}
       },

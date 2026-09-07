@@ -13,6 +13,27 @@
     "operation_id": {"type": "string"},
     "provider": {"type": "string"},
     "endpoint_id": {"type": "string"},
+    "expected": {"type": "object"},
+    "observed": {
+      "type": "object",
+      "properties": {
+        "models": {"type": "array", "items": {"type": "string"}},
+        "model": {"type": "string"},
+        "model_verification": {"type": "string"},
+        "variant": {"type": ["string", "null"]},
+        "variant_verification": {"type": "string"},
+        "effort": {"type": ["string", "null"]},
+        "effort_verification": {"type": "string"},
+        "permission_mode": {"type": "string"},
+        "permission_enforcement": {"type": "string"},
+        "run_id": {"type": "string"},
+        "session_id": {"type": "string"},
+        "turn_id": {"type": "string"},
+        "terminal_status": {"type": "string"},
+        "progress_seq": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": true
+    },
     "source": {"type": "object"},
     "workspace": {"type": "object"},
     "parallel_plan": {"type": "object"},
