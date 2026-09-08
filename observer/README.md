@@ -30,8 +30,8 @@ Observer 仅从 `@agent-lord/core/contracts` 共享 provider 类型和标识符�
 
 `preview:start` 返回经过 HTTP 核验的 `running` JSON 和浏览器地址，可交给
 Codex 的 `open_in_codex` browser target，或在普通浏览器打开。同配置重复启动
-复用已有实例。`preview:restart` 保留端口、令牌和 allowlist；可显式传入新的
-`--tasks` 更新观察范围。使用自定义 state-dir 时，后续管理命令也要传相同值。
+复用已有实例。`preview:restart` 保留端口和令牌；省略 `--tasks` 时保留原
+allowlist，显式传入时替换整个观察列表。使用自定义 state-dir 时，后续管理命令也要传相同值。
 启动失败返回非零退出码，不自动占用另一个端口。
 
 服务只在静态页面、Hub 和监听端口就绪且元数据落盘后记录 `preview-ready`。
@@ -39,6 +39,32 @@ Codex 的 `open_in_codex` browser target，或在普通浏览器打开。同配�
 停止前核验访问令牌、实例 ID 与 PID；旧版记录、失配 PID 或其他服务不会被杀掉。
 旧版服务需先人工核验进程归属并停止，再用新启动器接管原端口。重启关闭 SSE，
 前端自动重新取 snapshot；旧 cursor 会显式 reset。
+
+## 派发后的任务绑定
+
+Codex Desktop 的调用方按 [Skill 主流程](../SKILL.md#deterministic-loop) 接入观察页。
+绑定沿用已派发的 `task_id`；只操作观察器和浏览器，不新增执行端点。
+
+1. 使用本次会话已选定的端口和 state-dir 运行 `pnpm preview:status`；首次使用默认端口
+   `8791`。本次任务集合来自已授权的派发或 pipeline，不扫描并公开其他任务。
+2. 根据查询结果处理：
+   - `stopped`：用 `pnpm preview:start --tasks <本次任务集合> --port <端口>` 启动。
+   - `running` 且已包含本次全部任务：直接复用返回的地址。
+   - `running` 但缺少本次任务：合并、去重已有 `record.tasks` 与本次任务集合，再用
+     `pnpm preview:restart --tasks <合并后的完整集合> --port <端口>` 更新。保留旧任务、
+     端口、令牌和其他已有配置；只有任务集合变化才重启。
+   - `unverified` 或启动失败：说明观察页的具体问题，继续监督原执行端点；按生命周期规则
+     核验实例身份后再处理，避免停止归属不明的进程。
+3. 检查查询或启动结果为经 HTTP 核验的 `running`，且返回的任务列表包含本次全部任务。
+   用 `open_in_codex` 的 browser target 打开返回的地址，复用已有匹配标签页，并选中本次任务。
+4. 通过浏览器 UI 确认所选任务及其状态可见；pipeline 同时确认各任务均可在列表中选择。
+   `open_in_codex` 返回 `queued` 只表示已请求打开，需继续检查已有标签页或用可用浏览器工具
+   打开并核验。保留作为交付的标签页；若当前宿主无法显示或核验，明确报告该限制并提供本机链接，
+   不把请求已发送或服务已就绪表述为页面已展示。
+
+服务就绪、任务已绑定、页面已展示是分别核验的三个结果。派发控制器仍在准备任务记录时，
+可先绑定已确定的 `task_id` 并打开页面；待记录出现后，在同一页面确认任务状态。
+观察页失败不改变执行任务的成功、失败或恢复状态，原有 `checkpoint` 监督继续进行。
 
 ## 展示与核验
 
