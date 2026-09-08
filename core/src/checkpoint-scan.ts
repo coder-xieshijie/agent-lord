@@ -1,0 +1,160 @@
+import path from "node:path";
+import {
+  type Action,
+  type Data,
+  type Operation,
+  type Task,
+  TERMINAL_STATES,
+  integer,
+  object,
+  string,
+} from "./contracts.js";
+import { AgentLordError } from "./errors.js";
+import { StateStore, readJson } from "./state.js";
+
+export type ActiveOperation = {
+  task_id: string;
+  provider: Operation["provider"];
+  operation: Operation;
+};
+/** Parse once per tick; immutable ownership lets later ticks skip unrelated records. */
+export class CheckpointScan {
+  private owners = new Map<string, string>();
+  private actionOwners = new Map<string, string>();
+  private byId = new Map<string, Operation>();
+  private pending = new Map<string, Action>();
+  tasks: Task[] = [];
+  operations: Operation[] = [];
+  known = new Set<string>();
+  constructor(private readonly store: StateStore) {}
+  tick(selected?: string[]): void {
+    const selection = selected ? new Set(selected) : undefined;
+    this.tasks = this.store.tasks();
+    this.operations = [];
+    this.known = new Set(this.tasks.map((v) => v.task_id));
+    for (const file of this.store.paths("operations")) {
+      const owner = this.owners.get(file);
+      if (owner) this.known.add(owner);
+      if (owner && selection && !selection.has(owner)) continue;
+      const op = readJson(
+        file,
+        "OPERATION_UNKNOWN",
+        "operation disappeared",
+      ) as unknown as Operation;
+      if (string(op.task_id)) {
+        this.owners.set(file, op.task_id);
+        this.known.add(op.task_id);
+      }
+      this.operations.push(op);
+    }
+    this.operations.sort((a, b) => a.created_at.localeCompare(b.created_at));
+    this.byId = new Map(this.operations.map((v) => [v.operation_id, v]));
+    this.pending.clear();
+    for (const file of this.store.paths("actions")) {
+      const owner = this.actionOwners.get(file);
+      if (owner && selection && !selection.has(owner)) continue;
+      const action = readJson(
+        file,
+        "ACTION_UNKNOWN",
+        "action disappeared",
+      ) as unknown as Action;
+      const task = this.owners.get(
+        path.join(this.store.root, "operations", `${action.operation_id}.json`),
+      );
+      if (task) this.actionOwners.set(file, task);
+      if (action.status !== "pending") continue;
+      const current = this.pending.get(action.operation_id);
+      if (
+        !current ||
+        `${action.created_at}\0${action.action_id}` >=
+          `${current.created_at}\0${current.action_id}`
+      )
+        this.pending.set(action.operation_id, action);
+    }
+  }
+  operation(id: string): Operation {
+    let op = this.byId.get(id);
+    if (!op) {
+      op = this.store.operation(id);
+      this.byId.set(id, op);
+    }
+    return op;
+  }
+  action(id: string): Action | undefined {
+    return this.pending.get(id);
+  }
+  active(selected?: string[]): ActiveOperation[] {
+    const unknown = selected?.filter((id) => !this.known.has(id));
+    if (unknown?.length)
+      throw new AgentLordError(
+        "TASK_UNKNOWN",
+        "checkpoint contains an unknown task_id",
+        { details: { task_ids: unknown }, exit_code: 2 },
+      );
+    const tasks = new Map(this.tasks.map((v) => [v.task_id, v]));
+    return this.operations
+      .filter(
+        (op) =>
+          !TERMINAL_STATES.has(op.status) &&
+          (!selected || selected.includes(op.task_id)) &&
+          (!tasks.has(op.task_id) ||
+            tasks.get(op.task_id)!.last_operation_id === op.operation_id),
+      )
+      .map((operation) => ({
+        task_id: operation.task_id,
+        provider: operation.provider,
+        operation,
+      }));
+  }
+  latest(selected: string[]): Operation[] {
+    const latest = new Map<string, Operation>();
+    const durable = new Set(this.tasks.map((v) => v.task_id));
+    for (const task of this.tasks)
+      if (task.last_operation_id && selected.includes(task.task_id))
+        latest.set(task.task_id, this.operation(task.last_operation_id));
+    for (const op of this.operations) {
+      if (!selected.includes(op.task_id)) continue;
+      const current = latest.get(op.task_id);
+      if (
+        !current ||
+        (!durable.has(op.task_id) &&
+          `${op.created_at}\0${op.operation_id}` >
+            `${current.created_at}\0${current.operation_id}`)
+      )
+        latest.set(op.task_id, op);
+    }
+    return [...latest]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([, op]) => op);
+  }
+}
+export function compactActive(active: ActiveOperation[]): Data[] {
+  return active.map(({ task_id, provider, operation: op }) => {
+    const a = object(op.active_attempt);
+    const s = object(op.observed.supervision);
+    const seq = [a.progress_seq, s.progress_seq].find(integer);
+    const result: Data = {
+      task_id,
+      operation_id: op.operation_id,
+      provider,
+      operation_status: op.status,
+      supervision_state: s.state || a.progress_state || null,
+      progress_seq: seq ?? null,
+    };
+    for (const key of [
+      "last_event_type",
+      "last_tool",
+      "active_tool_count",
+      "active_tools",
+      "last_progress_at_ms",
+    ])
+      if (key in s) result[key] = s[key];
+    const last = s.last_progress_at_ms || a.last_progress_at_ms;
+    if (integer(last))
+      result.progress_age_seconds = Math.max(
+        0,
+        Math.floor((Date.now() - last) / 1000),
+      );
+    return result;
+  });
+}

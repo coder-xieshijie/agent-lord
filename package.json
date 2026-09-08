@@ -1,0 +1,19 @@
+{
+  "name": "agent-lord-workspace",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "pnpm --filter @agent-lord/core build && pnpm --filter agent-lord-observer build",
+    "typecheck": "pnpm --filter @agent-lord/core typecheck && pnpm --filter agent-lord-observer typecheck",
+    "test": "pnpm --filter @agent-lord/core test && pnpm --filter agent-lord-observer test",
+    "agent-lord": "node core/dist/cli.js",
+    "task-store": "node core/dist/task-store.js"
+  },
+  "devDependencies": {
+    "prettier": "3.6.2"
+  }
+}

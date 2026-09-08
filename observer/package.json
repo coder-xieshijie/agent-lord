@@ -20,6 +20,7 @@
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.web.json --noEmit"
   },
   "dependencies": {
+    "@agent-lord/core": "workspace:*",
     "@streamdown/cjk": "^1.0.2",
     "@streamdown/code": "^1.1.0",
     "ai": "^6.0.105",

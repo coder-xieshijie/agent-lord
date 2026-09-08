@@ -5,7 +5,13 @@ description: Dispatch and supervise durable Codex CLI, Codex App, Claude Code, o
 
 # Agent Lord
 
-Route one logical task to one durable endpoint. Treat `scripts/agent_lord.py` as the control plane: the model supplies intent and performs Codex App host-tool actions when requested, while the script owns provider defaults, validation, retries, state, recovery, and artifact extraction.
+Route one logical task to one durable endpoint. Treat `node core/dist/cli.js` as the control plane: the model supplies intent and performs Codex App host-tool actions when requested, while the script owns provider defaults, validation, retries, state, recovery, and artifact extraction.
+
+## Runtime setup
+
+Use Node.js 24 or newer. From this Skill's repository root, run `pnpm install --frozen-lockfile` and `pnpm --filter @agent-lord/core build` after installation or source updates. Invoke the compiled CLI from this root; when calling it elsewhere, use its absolute path. Provider binaries still come from the terminal environment or the configured `AGENT_LORD_*_BIN` variables.
+
+For an existing Python installation, drain its running controllers and provider processes before switching the shared state directory to TypeScript. The JSON formats and endpoint identities stay compatible; process-lock implementations must not be mixed. See [README.md](README.md) for cutover and rollback steps.
 
 ## Invariants
 
@@ -35,7 +41,7 @@ Route one logical task to one durable endpoint. Treat `scripts/agent_lord.py` as
 
 1. Resolve the exact repository, source branch, and fixed head/base. Batch independent repository and provider-discovery reads; keep source resolution and dispatch in dependency order. Reuse skill instructions and command help already verified in this session while their source/version is unchanged; refresh mutable repository and provider facts needed for this dispatch. For an unknown MCode model identifier, query `mcode provider list --json` directly and retain only the relevant provider/model/variant fields. Leave delegated code investigation to the endpoint.
 2. Write a compact task prompt with five parts: goal, source revision, scope, hard constraints, and deliverables. Preserve all user requirements and necessary evidence or artifact pointers once; omit repeated conversation history and duplicate instructions. Keep the prompt in a private temporary file outside the repository, and remove caller-owned prompt/result files after the consuming command has finished.
-3. Inspect `python3 scripts/agent_lord.py start --help` on first use or when the command surface is uncertain or has changed, then run `start` with every explicit user choice. For revision-sensitive local CLI work, use `--repo`, `--source-branch`, one explicit workspace policy, and `--head-sha`; the control plane freezes the resolved checkout as the target. Use `--target` when the exact working directory already is the contract. Do not recreate these preflight checks manually.
+3. Inspect `node core/dist/cli.js start --help` on first use or when the command surface is uncertain or has changed, then run `start` with every explicit user choice. For revision-sensitive local CLI work, use `--repo`, `--source-branch`, one explicit workspace policy, and `--head-sha`; the control plane freezes the resolved checkout as the target. Use `--target` when the exact working directory already is the contract. Do not recreate these preflight checks manually.
 4. Process the returned envelope until terminal:
    - `ACTION_REQUIRED`: invoke the exact model-side tool and arguments in `action`; save the raw return value outside the repository, then pass it to `accept`. Add `--auto-read` to `accept` when the next step would only be another polling read; the envelope then carries that read action directly instead of requiring a separate `check`.
    - `RUNNING`: supervise local CLI work with one bounded `checkpoint`, selecting the current task or every active and newly starting pipeline `task_id`, including the pre-task window before its task record exists. Use `check` for a needed full-state diagnosis of one established task, or to request the next Codex App read when `accept --auto-read` was not used. Only `checkpoint` supervises dead controllers; `check` reports state and, when the recorded controller process is gone, an `observed.supervision.recovery_command` hint.
@@ -98,7 +104,7 @@ Codex App host tools are model-side tools, so the script emits an action instead
 
 1. Call exactly `action.tool` with `action.arguments`.
 2. Preserve the complete raw tool result in a temporary file outside the repository.
-3. Run `python3 scripts/agent_lord.py accept --action-id <id> --result-file <file>`; add `--auto-read` when you only intend to keep polling the same thread.
+3. Run `node core/dist/cli.js accept --action-id <id> --result-file <file>`; add `--auto-read` when you only intend to keep polling the same thread.
 4. Continue from the new envelope.
 
 The App adapter uses only the supported minimal `list_threads` arguments, treats `threadId` as endpoint identity and `hostId` as mutable routing, and rebinds the same thread before retrying a route-stale send. A transiently failed listing is re-issued within a small bounded budget instead of terminalizing the operation. Its action schema has no sandbox or approval field, so bypass is recorded as `host-inherited-unverified` and read-only remains instruction-only.
@@ -108,7 +114,7 @@ The App adapter uses only the supported minimal `list_threads` arguments, treats
 Successful local CLI turns automatically publish a final-response-only artifact. Codex App reads do the same; `export-artifact` can extract the final assistant message and model/effort metadata from an existing Claude or Codex JSONL without copying reasoning. A Codex export must contain the exact operation marker, and a Claude export must be a `claude-jsonl` log whose assistant records carry this operation's own session id, so an unrelated turn cannot be mistaken for this result. MCode stream JSON has no independently verifiable Agent Lord operation marker, so `mcode-stream-json` auxiliary import is explicitly refused; the direct adapter remains the canonical artifact path. `export-artifact` is auxiliary: a rejected export never invalidates an already-succeeded operation or its artifact. A Claude session log cannot prove effort, so the export publishes an explicit `EFFORT_UNVERIFIABLE_FORMAT` warning instead of inventing one; the contract itself is still argument-enforced at dispatch.
 
 
-Version 1 task handles remain readable, but `turn` fails closed because those records did not preserve model, effort, permission, or source. Use `scripts/task_store.py upgrade` with explicit values before continuing one; it never infers the missing contract. The compatibility interface also supports explicit registration and cleanup; new work uses `scripts/agent_lord.py`.
+Version 1 task handles remain readable, but `turn` fails closed because those records did not preserve model, effort, permission, or source. Use `node core/dist/task-store.js upgrade` with explicit values before continuing one; it never infers the missing contract. The compatibility interface also supports explicit registration and cleanup; new work uses `node core/dist/cli.js`.
 
 ## Read-only live observer
 

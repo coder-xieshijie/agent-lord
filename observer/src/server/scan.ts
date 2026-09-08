@@ -12,6 +12,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import type { TaskMeta } from "../shared/types.js";
 import { clipTitle } from "./sanitize.js";
+export { IDENTIFIER_PATTERN } from "@agent-lord/core/contracts";
 
 export interface OperationRecord {
   operationId: string;
@@ -52,8 +53,6 @@ export function defaultStateDir(): string {
   if (configured) return path.resolve(configured);
   return path.join(homedir(), ".codex", "state", "agent-lord");
 }
-
-export const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/;
 
 function asString(value: unknown): string | null {
   return typeof value === "string" && value ? value : null;

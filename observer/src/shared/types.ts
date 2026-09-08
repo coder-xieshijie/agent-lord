@@ -1,6 +1,7 @@
 /** Shared display-event contract between the TS observer server and the web UI. */
 
-export type ProviderId = "mcode-cli" | "codex-cli" | "claude-cli" | "codex-app";
+export type { Provider as ProviderId } from "@agent-lord/core/contracts";
+import type { Provider as ProviderId } from "@agent-lord/core/contracts";
 
 export type ToolState = "running" | "completed" | "error";
 

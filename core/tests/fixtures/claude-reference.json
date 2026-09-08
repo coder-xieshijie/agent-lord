@@ -1,0 +1,179 @@
+{
+  "baseline_commit": "1e71141af8c836c5f9594536bf63cd6502d819bf",
+  "cases": [
+    {
+      "name": "claude-reference-1",
+      "input": {
+        "stdout": "{\"type\": \"system\", \"subtype\": \"init\", \"session_id\": \"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee\", \"model\": \"claude-opus-5[1m]\"}\n{\"type\": \"result\", \"session_id\": \"11111111-2222-4333-8444-999999999999\", \"is_error\": false, \"result\": \"foreign metadata\"}",
+        "stderr": "",
+        "session_id": "11111111-2222-4333-8444-999999999999",
+        "expected_model": "opus[1m]",
+        "return_code": 0
+      },
+      "error": {
+        "code": "MODEL_UNVERIFIED",
+        "message": "Claude result did not expose observable main-model metadata",
+        "retryable": true,
+        "requires_authorization": false,
+        "safe_recovery": "RETRY_SAME_ENDPOINT_WITH_SAVED_EXECUTION_CONTRACT",
+        "details": {
+          "expected": "opus[1m]"
+        }
+      }
+    },
+    {
+      "name": "claude-reference-2",
+      "input": {
+        "stdout": "{\"type\": \"system\", \"subtype\": \"init\", \"session_id\": \"11111111-2222-4333-8444-555555555555\", \"claude_code_version\": \"2.1.247\", \"model\": \"claude-opus-5[1m]\"}\n{\"type\": \"assistant\", \"session_id\": \"11111111-2222-4333-8444-555555555555\", \"message\": {\"model\": \"claude-opus-5\", \"content\": []}}\n{\"type\": \"result\", \"session_id\": \"11111111-2222-4333-8444-555555555555\", \"is_error\": false, \"result\": \"CC_PROBE_OK\", \"modelUsage\": {\"claude-opus-5[1m]\": {\"canonicalModel\": \"claude-opus-5\", \"contextWindow\": 1000000}}}",
+        "stderr": "",
+        "session_id": "11111111-2222-4333-8444-555555555555",
+        "expected_model": "opus[1m]",
+        "return_code": 0
+      },
+      "result": {
+        "result": {
+          "type": "result",
+          "session_id": "11111111-2222-4333-8444-555555555555",
+          "is_error": false,
+          "result": "CC_PROBE_OK",
+          "modelUsage": {
+            "claude-opus-5[1m]": {
+              "canonicalModel": "claude-opus-5",
+              "contextWindow": 1000000
+            }
+          }
+        },
+        "main_model": "claude-opus-5[1m]",
+        "main_model_verified": true,
+        "main_model_evidence": [
+          "system.init.model",
+          "assistant.message.model",
+          "result.modelUsage",
+          "system.init.model.context",
+          "result.modelUsage.model.context",
+          "result.modelUsage.contextWindow"
+        ],
+        "auxiliary_models": [],
+        "warnings": []
+      }
+    },
+    {
+      "name": "claude-reference-3",
+      "input": {
+        "stdout": "{\"type\": \"system\", \"subtype\": \"init\", \"session_id\": \"11111111-2222-4333-8444-666666666666\", \"model\": \"claude-opus-5[1m]\"}\n{\"type\": \"assistant\", \"session_id\": \"11111111-2222-4333-8444-666666666666\", \"message\": {\"model\": \"claude-opus-4\", \"content\": []}}\n{\"type\": \"result\", \"session_id\": \"11111111-2222-4333-8444-666666666666\", \"is_error\": false, \"result\": \"wrong model\", \"modelUsage\": {\"claude-opus-5[1m]\": {\"contextWindow\": 1000000}}}",
+        "stderr": "",
+        "session_id": "11111111-2222-4333-8444-666666666666",
+        "expected_model": "opus[1m]",
+        "return_code": 0
+      },
+      "error": {
+        "code": "MODEL_MISMATCH",
+        "message": "Claude main-model metadata is internally inconsistent",
+        "retryable": true,
+        "requires_authorization": false,
+        "safe_recovery": "RETRY_SAME_ENDPOINT_WITH_SAVED_EXECUTION_CONTRACT",
+        "details": {
+          "expected": "opus[1m]",
+          "observed": [
+            "claude-opus-5[1m]",
+            "claude-opus-4"
+          ]
+        }
+      }
+    },
+    {
+      "name": "claude-reference-4",
+      "input": {
+        "stdout": "{\"type\": \"system\", \"subtype\": \"init\", \"session_id\": \"11111111-2222-4333-8444-888888888888\", \"model\": \"claude-opus-5[1m]\"}\n{\"type\": \"result\", \"session_id\": \"11111111-2222-4333-8444-888888888888\", \"is_error\": false, \"result\": \"mixed usage\", \"modelUsage\": {\"claude-opus-5[1m]\": {\"contextWindow\": 1000000}, \"claude-sonnet-5\": {\"contextWindow\": 200000}}}",
+        "stderr": "",
+        "session_id": "11111111-2222-4333-8444-888888888888",
+        "expected_model": "opus[1m]",
+        "return_code": 0
+      },
+      "error": {
+        "code": "MODEL_MISMATCH",
+        "message": "Claude model-usage metadata does not belong to the verified main model",
+        "retryable": true,
+        "requires_authorization": false,
+        "safe_recovery": "RETRY_SAME_ENDPOINT_WITH_SAVED_EXECUTION_CONTRACT",
+        "details": {
+          "expected": "opus[1m]",
+          "observed": [
+            "claude-sonnet-5"
+          ]
+        }
+      }
+    },
+    {
+      "name": "claude-reference-5",
+      "input": {
+        "stdout": "{\"type\": \"result\", \"session_id\": \"11111111-2222-4333-8444-777777777777\", \"is_error\": false, \"result\": \"downgraded\", \"modelUsage\": {\"claude-opus-5\": {\"canonicalModel\": \"claude-opus-5\", \"contextWindow\": 200000}}}",
+        "stderr": "",
+        "session_id": "11111111-2222-4333-8444-777777777777",
+        "expected_model": "opus[1m]",
+        "return_code": 0
+      },
+      "error": {
+        "code": "MODEL_MISMATCH",
+        "message": "Claude used a different context capability than the saved execution contract",
+        "retryable": true,
+        "requires_authorization": false,
+        "safe_recovery": "RETRY_SAME_ENDPOINT_WITH_SAVED_EXECUTION_CONTRACT",
+        "details": {
+          "expected": "opus[1m]",
+          "expected_context_window": 1000000,
+          "observed_context_windows": [
+            200000
+          ]
+        }
+      }
+    },
+    {
+      "name": "claude-reference-6",
+      "input": {
+        "stdout": "{\"type\": \"system\", \"subtype\": \"init\", \"session_id\": \"4fd57d1b-7b36-4dcd-a900-b90a65ffc538\", \"model\": \"claude-fable-5\"}\n{\"type\": \"assistant\", \"session_id\": \"4fd57d1b-7b36-4dcd-a900-b90a65ffc538\", \"message\": {\"model\": \"claude-fable-5\", \"content\": []}}\n{\"type\": \"result\", \"subtype\": \"success\", \"session_id\": \"4fd57d1b-7b36-4dcd-a900-b90a65ffc538\", \"is_error\": false, \"result\": \"audit complete\", \"modelUsage\": {\"claude-fable-5\": {\"inputTokens\": 1, \"outputTokens\": 1}}}",
+        "stderr": "[claude-code:unrecognized_model] {\"model\":\"qw-mid-5\",\"query_source\":\"auto_mode\"}\n",
+        "session_id": "4fd57d1b-7b36-4dcd-a900-b90a65ffc538",
+        "expected_model": "fable",
+        "return_code": 0
+      },
+      "result": {
+        "result": {
+          "type": "result",
+          "subtype": "success",
+          "session_id": "4fd57d1b-7b36-4dcd-a900-b90a65ffc538",
+          "is_error": false,
+          "result": "audit complete",
+          "modelUsage": {
+            "claude-fable-5": {
+              "inputTokens": 1,
+              "outputTokens": 1
+            }
+          }
+        },
+        "main_model": "claude-fable-5",
+        "main_model_verified": true,
+        "main_model_evidence": [
+          "system.init.model",
+          "assistant.message.model",
+          "result.modelUsage"
+        ],
+        "auxiliary_models": [
+          {
+            "source": "auto_mode",
+            "model": "qw-mid-5",
+            "status": "failed",
+            "code": "unrecognized_model"
+          }
+        ],
+        "warnings": [
+          {
+            "code": "AUXILIARY_MODEL_UNRECOGNIZED",
+            "source": "auto_mode",
+            "model": "qw-mid-5"
+          }
+        ]
+      }
+    }
+  ]
+}
