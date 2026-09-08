@@ -7,6 +7,7 @@
 :root {
   --observer-font-sans: ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
   --observer-font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --observer-code-font-size: 12px;
   --background: oklch(0.995 0.002 90);
   --foreground: oklch(0.235 0.01 260);
   --card: oklch(1 0 0);
@@ -148,6 +149,11 @@ button, select, a { outline-offset: 3px; }
 .tool-code pre, .tool-code pre span { background-color: transparent !important; }
 .observer-message { letter-spacing: 0.005em; }
 .observer-message [data-streamdown="code-block"] { font-family: var(--observer-font-mono); }
+.tool-code pre, .tool-code code, .tool-terminal pre, .tool-row pre,
+.observer-message pre, .observer-message code, .observer-code {
+  font-size: var(--observer-code-font-size);
+  line-height: 1.65;
+}
 .activity-shimmer {
   background: linear-gradient(100deg, var(--muted-foreground) 30%, var(--foreground) 48%, var(--muted-foreground) 65%);
   background-size: 220% 100%;

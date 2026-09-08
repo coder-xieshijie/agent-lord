@@ -88,7 +88,7 @@ export function CompletedToolGroup({ group, expanded, setExpanded }: { group: To
         <ChevronRight className="size-3 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
         <Check className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
         <span className="min-w-0 truncate">{toolSummary(group.tools)}</span>
-        <span className="ml-auto shrink-0 text-[11px]">{group.tools.length} 项已完成</span>
+        <span className="ml-auto shrink-0 text-[0.6875rem]">{group.tools.length} 项已完成</span>
       </CollapsibleTrigger>
       <CollapsibleContent className="ml-3 border-l pl-2">
         {group.tools.map((tool) => <ToolRow item={tool} key={tool.id} onOpenChange={(value) => setExpanded(tool.id, value)} open={expanded[tool.id] ?? false} />)}

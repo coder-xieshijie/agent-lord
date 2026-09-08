@@ -13,10 +13,14 @@ export interface Appearance {
   theme: string;
   font: string;
   codeFont: string;
+  fontSize: number;
+  codeFontSize: number;
 }
 
+export const UI_FONT_SIZES = Array.from({ length: 13 }, (_, index) => index + 12);
+export const CODE_FONT_SIZES = Array.from({ length: 15 }, (_, index) => index + 10);
 const KEY = "observer-appearance";
-const DEFAULTS: Appearance = { theme: "system", font: "system", codeFont: "system" };
+export const DEFAULT_APPEARANCE: Appearance = { theme: "system", font: "system", codeFont: "system", fontSize: 14, codeFontSize: 12 };
 const validFont = (value: unknown): value is string => typeof value === "string"
   && value.length > 0 && value.length <= 200 && !/[\x00-\x1f\x7f]/.test(value);
 
@@ -26,11 +30,13 @@ export function readAppearance(storage: Pick<Storage, "getItem">): Appearance {
     const value: Partial<Appearance> | null = saved ? JSON.parse(saved) as Partial<Appearance> | null
       : { theme: storage.getItem("observer-theme") ?? undefined };
     return {
-      theme: THEMES.some((theme) => theme.id === value?.theme) ? value!.theme! : DEFAULTS.theme,
-      font: validFont(value?.font) ? value.font : DEFAULTS.font,
-      codeFont: validFont(value?.codeFont) ? value.codeFont : DEFAULTS.codeFont,
+      theme: THEMES.some((theme) => theme.id === value?.theme) ? value!.theme! : DEFAULT_APPEARANCE.theme,
+      font: validFont(value?.font) ? value.font : DEFAULT_APPEARANCE.font,
+      codeFont: validFont(value?.codeFont) ? value.codeFont : DEFAULT_APPEARANCE.codeFont,
+      fontSize: UI_FONT_SIZES.includes(value?.fontSize ?? NaN) ? value!.fontSize! : DEFAULT_APPEARANCE.fontSize,
+      codeFontSize: CODE_FONT_SIZES.includes(value?.codeFontSize ?? NaN) ? value!.codeFontSize! : DEFAULT_APPEARANCE.codeFontSize,
     };
-  } catch { return { ...DEFAULTS }; }
+  } catch { return { ...DEFAULT_APPEARANCE }; }
 }
 
 export function saveAppearance(value: Appearance): void {
@@ -53,4 +59,8 @@ export function applyAppearance(value: Appearance, systemDark: boolean): void {
   root.style.colorScheme = dark ? "dark" : "light";
   root.style.setProperty("--observer-font-sans", fontStack(value.font));
   root.style.setProperty("--observer-font-mono", fontStack(value.codeFont, true));
+  // Existing body copy uses text-sm (0.875rem). Scale rem-based UI together so
+  // controls and line heights keep fitting; code has its own absolute size.
+  root.style.fontSize = `${value.fontSize * 16 / 14}px`;
+  root.style.setProperty("--observer-code-font-size", `${value.codeFontSize}px`);
 }

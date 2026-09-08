@@ -167,7 +167,7 @@ function TimelineRow({ item, expanded, setExpanded }: { item: TimelineItem; expa
       return (
         <Message className="observer-message max-w-full py-3" from="assistant">
           <MessageContent>
-            <MessageResponse className="text-[14px] leading-7" isAnimating={message.streaming}>{message.text}</MessageResponse>
+            <MessageResponse className="text-sm leading-7" isAnimating={message.streaming}>{message.text}</MessageResponse>
           </MessageContent>
         </Message>
       );
@@ -432,7 +432,7 @@ export default function App() {
                       <span className="text-muted-foreground text-xs">原生续聊命令</span>
                       <CopyButton label="复制命令" text={activeMeta.resume.command} />
                     </div>
-                    <code className="break-all rounded bg-background px-2 py-1.5 font-mono text-xs">
+                    <code className="observer-code break-all rounded bg-background px-2 py-1.5 font-mono text-xs">
                       {activeMeta.resume.command}
                     </code>
                     <p className="text-muted-foreground text-xs">{activeMeta.resume.note}</p>

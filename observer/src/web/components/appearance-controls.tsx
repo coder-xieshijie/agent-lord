@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Check, Palette, RotateCcw } from "lucide-react";
 import type { FontCatalog } from "../../shared/types";
 import { fetchFonts } from "@/lib/api";
-import { applyAppearance, readAppearance, saveAppearance, THEMES, type Appearance } from "@/lib/appearance";
+import { applyAppearance, readAppearance, saveAppearance, THEMES, UI_FONT_SIZES, CODE_FONT_SIZES, DEFAULT_APPEARANCE, type Appearance } from "@/lib/appearance";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 function FontSelect({ label, value, families, onChange }: {
@@ -24,10 +24,23 @@ function FontSelect({ label, value, families, onChange }: {
   );
 }
 
+function FontSizeSelect({ label, value, sizes, onChange }: {
+  label: string; value: number; sizes: number[]; onChange: (value: number) => void;
+}) {
+  return (
+    <label className="flex min-w-0 flex-col gap-1.5 text-xs text-muted-foreground">
+      {label}
+      <select aria-label={label} className="appearance-select" onChange={(event) => onChange(Number(event.target.value))} value={value}>
+        {sizes.map((size) => <option key={size} value={size}>{size} px</option>)}
+      </select>
+    </label>
+  );
+}
+
 export function AppearanceControls() {
   const [appearance, setAppearance] = useState<Appearance>(() => {
     try { return readAppearance(localStorage); }
-    catch { return { theme: "system", font: "system", codeFont: "system" }; }
+    catch { return { ...DEFAULT_APPEARANCE }; }
   });
   const [catalog, setCatalog] = useState<FontCatalog | null>(null);
   const [loading, setLoading] = useState(false);
@@ -65,7 +78,7 @@ export function AppearanceControls() {
           外观
         </CollapsibleTrigger>
       </div>
-      <CollapsibleContent className="border-t bg-card/60 px-4 py-4 sm:px-6">
+      <CollapsibleContent className="max-h-[45vh] overflow-y-auto border-t bg-card/60 px-4 py-4 sm:px-6">
         <div className="mx-auto grid max-w-4xl grid-cols-1 gap-3 sm:grid-cols-3">
           <label className="flex min-w-0 flex-col gap-1.5 text-xs text-muted-foreground">
             主题
@@ -73,13 +86,20 @@ export function AppearanceControls() {
               {THEMES.map((theme) => <option key={theme.id} value={theme.id}>{theme.label}</option>)}
             </select>
           </label>
-          <FontSelect families={catalog?.families ?? []} label="界面字体" onChange={(font) => change({ font })} value={appearance.font} />
-          <FontSelect families={catalog?.families ?? []} label="代码字体" onChange={(codeFont) => change({ codeFont })} value={appearance.codeFont} />
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_5.5rem] gap-2">
+            <FontSelect families={catalog?.families ?? []} label="界面字体" onChange={(font) => change({ font })} value={appearance.font} />
+            <FontSizeSelect label="界面字号" onChange={(fontSize) => change({ fontSize })} sizes={UI_FONT_SIZES} value={appearance.fontSize} />
+          </div>
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_5.5rem] gap-2">
+            <FontSelect families={catalog?.families ?? []} label="代码字体" onChange={(codeFont) => change({ codeFont })} value={appearance.codeFont} />
+            <FontSizeSelect label="代码字号" onChange={(codeFontSize) => change({ codeFontSize })} sizes={CODE_FONT_SIZES} value={appearance.codeFontSize} />
+          </div>
         </div>
         <div className="mx-auto mt-3 flex max-w-4xl flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
           <span>{loading ? "正在检测本机字体…" : catalog?.available ? `已识别 ${catalog.families.length} 种本机字体 · 缺少的字形使用系统回退字体` : catalog?.message}</span>
           <div className="flex items-center gap-3">
             <span className="inline-flex items-center gap-1"><Check className="size-3" />自动保存</span>
+            <button className="hover:text-foreground" onClick={() => change({ fontSize: DEFAULT_APPEARANCE.fontSize, codeFontSize: DEFAULT_APPEARANCE.codeFontSize })} type="button">恢复默认字号</button>
             <button className="inline-flex items-center gap-1 hover:text-foreground disabled:opacity-50" disabled={loading} onClick={() => void detect()} type="button">
               <RotateCcw className="size-3" />重新检测
             </button>
@@ -87,7 +107,7 @@ export function AppearanceControls() {
         </div>
         <div className="mx-auto mt-3 flex max-w-4xl flex-wrap gap-x-5 gap-y-1 border-t pt-3 text-sm">
           <span>字体预览 · 让每一步清晰可见</span>
-          <code className="font-mono text-xs text-muted-foreground">const progress = "running";</code>
+          <code className="observer-code font-mono text-xs text-muted-foreground">const progress = "running";</code>
         </div>
       </CollapsibleContent>
     </Collapsible>
