@@ -18,7 +18,8 @@ from agent_lord import AgentLord, AgentLordError
 from agent_lord.config import parse_mcode_model
 from agent_lord.handoff import canonical_packet_bytes
 from agent_lord.mcode_cli_adapter import _validate_provider_output
-from agent_lord.state import create_operation, load_operation, load_task, normalize_task, utc_now
+from agent_lord.state import create_operation, load_operation, load_task, normalize_task, update_operation, update_task, utc_now
+from agent_lord.mcode_progress import MCodeProgress
 from scripts.agent_lord import build_parser
 from scripts.task_store import put as put_task
 
@@ -111,7 +112,7 @@ if status == "succeeded":
         handle.write(os.environ.get("FAKE_MCODE_FINAL", output_text))
     emit("turn.completed", model=model, durationMs=1)
 else:
-    result["error"] = {"category": "runtime", "code": "TEST", "message": "failed", "retryable": False}
+    result["error"] = {"category": "runtime", "code": "TEST", "message": "failed", "retryable": os.environ.get("FAKE_MCODE_RETRYABLE") == "1"}
     emit("turn.failed", status=status, error=result["error"], durationMs=1)
 terminal = emit("exec.completed", result=result)
 if scenario == "duplicate-terminal":
@@ -223,7 +224,147 @@ class MCodeCLITests(unittest.TestCase):
             self.assertEqual("CHECKPOINT_QUIET", checkpoint["status"])
             self.assertEqual("mcode-cli", checkpoint["active"][0]["provider"])
             self.assertGreaterEqual(checkpoint["active"][0]["progress_seq"], 2)
+            self.assertIn("last_event_type", checkpoint["active"][0])
+            self.assertIn("progress_age_seconds", checkpoint["active"][0])
+            self.assertEqual(0, checkpoint["active"][0]["active_tool_count"])
             self.assertEqual("SUCCEEDED", future.result(timeout=5)["status"])
+
+    def _transient_failure(self, task_id="transient", **kwargs):
+        with patch.dict(os.environ, {"FAKE_MCODE_STATUS": "failed", "FAKE_MCODE_RETRYABLE": "1"}):
+            with self.assertRaises(AgentLordError) as raised:
+                self.lord.start(task_id, "mcode", str(self.target), "original user task", model=self.model("deep"), **kwargs)
+        return raised.exception
+
+    def test_recovery_is_bounded_same_session_and_idempotent(self) -> None:
+        error = self._transient_failure(required_files=["finished.txt"])
+        self.assertEqual("CONTINUE_SAME_SESSION", error.safe_recovery)
+        self.assertTrue(error.retryable)
+        self.assertFalse(error.requires_authorization)
+        parent_id = error.details["operation_id"]
+        before = load_operation(parent_id, self.root)
+        self.assertIsNone(before["active_attempt"])
+        self.assertEqual("provider_failed", before["observed"]["supervision"]["state"])
+        self.assertEqual(0, before["observed"]["supervision"]["active_tool_count"])
+        (self.target / "finished.txt").write_text("preserved work")
+        recovered = self.lord.recover("transient", parent_id)
+        repeated = self.lord.recover("transient", parent_id)
+        self.assertEqual(recovered["operation_id"], repeated["operation_id"])
+        self.assertEqual("SUCCEEDED", recovered["status"])
+        self.assertEqual("verified", recovered["delivery"]["status"])
+        self.assertEqual(parent_id, recovered["continuation"]["parent_operation_id"])
+        self.assertEqual(1, recovered["continuation"]["attempt"])
+        self.assertEqual(before, load_operation(parent_id, self.root))
+        args = self._arguments()
+        self.assertEqual(2, len(args))
+        self.assertEqual("mvs_test_session", args[1][args[1].index("--session") + 1])
+        self.assertEqual(self.model("deep"), args[1][args[1].index("--model") + 1])
+        prompts = [json.loads(line) for line in self.prompt_log.read_text().splitlines()]
+        self.assertIn("agent-lord-continuation:", prompts[1])
+        self.assertNotIn("original user task", prompts[1])
+
+    def test_recovery_budget_is_frozen_and_exhausted_after_two_continuations(self) -> None:
+        error = self._transient_failure()
+        root_id = error.details["operation_id"]
+        for attempt in (1, 2):
+            with patch.dict(os.environ, {"FAKE_MCODE_STATUS": "timeout", "FAKE_MCODE_RETRYABLE": "1"}):
+                with self.assertRaises(AgentLordError) as raised:
+                    self.lord.recover("transient", error.details["operation_id"])
+            error = raised.exception
+            op = load_operation(error.details["operation_id"], self.root)
+            self.assertEqual(root_id, op["continuation"]["root_operation_id"])
+            self.assertEqual(attempt, op["continuation"]["attempt"])
+            self.assertEqual("CONTINUE_SAME_SESSION" if attempt == 1 else None, error.safe_recovery)
+        with self.assertRaises(AgentLordError) as raised:
+            self.lord.recover("transient", error.details["operation_id"])
+        self.assertEqual("RECOVERY_UNAVAILABLE", raised.exception.code)
+        self.assertEqual(3, len(self._arguments()))
+
+    def test_repeated_recovery_while_child_is_running_does_not_dispatch_again(self) -> None:
+        error = self._transient_failure()
+        parent = error.details["operation_id"]
+        with patch.dict(os.environ, {"FAKE_MCODE_DELAY": "1"}), ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(self.lord.recover, "transient", parent)
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline and load_task("transient", self.root)["last_operation_id"] == parent:
+                time.sleep(0.02)
+            repeated = self.lord.recover("transient", parent)
+            self.assertEqual("RUNNING", repeated["status"])
+            self.assertEqual(repeated["operation_id"], future.result(timeout=4)["operation_id"])
+        self.assertEqual(2, len(self._arguments()))
+
+    def test_checkpoint_emits_the_same_recovery_for_a_dead_controller(self) -> None:
+        error = self._transient_failure()
+        operation_id = error.details["operation_id"]
+        update_operation(operation_id, lambda op: dict(op, status="running", controller_pid=99999999,
+            active_attempt=dict(op["last_attempt"], controller_pid=99999999), error=None), self.root)
+        result, quiet = self.lord.checkpoint(["transient"], 1)
+        self.assertFalse(quiet)
+        self.assertEqual("CONTINUE_SAME_SESSION", result["actionable"][0]["error"]["safe_recovery"])
+        self.assertEqual(1, len(self._arguments()))
+
+    def test_recovery_rechecks_process_exit_identity_and_contract(self) -> None:
+        error = self._transient_failure()
+        op_id = error.details["operation_id"]
+        with patch("agent_lord.engine.mcode_process_tree_alive", return_value=True):
+            with self.assertRaises(AgentLordError) as raised:
+                self.lord.recover("transient", op_id)
+            self.assertEqual("RECOVERY_UNAVAILABLE", raised.exception.code)
+        update_operation(op_id, lambda op: dict(op, provider_return_code=None), self.root)
+        with self.assertRaises(AgentLordError) as raised:
+            self.lord.recover("transient", op_id)
+        self.assertEqual("RECOVERY_UNAVAILABLE", raised.exception.code)
+        update_operation(op_id, lambda op: dict(op, provider_return_code=4), self.root)
+        update_task("transient", lambda task: dict(task, contract=dict(task["contract"], model=self.model())), self.root)
+        with self.assertRaises(AgentLordError) as raised:
+            self.lord.recover("transient", op_id)
+        self.assertEqual("STATE_CONFLICT", raised.exception.code)
+        self.assertEqual(1, len(self._arguments()))
+
+    def test_no_recovery_for_cancellation_limit_or_unverified_model(self) -> None:
+        cases = [
+            {"FAKE_MCODE_STATUS": "cancelled"}, {"FAKE_MCODE_STATUS": "limit_exceeded"},
+            {"FAKE_MCODE_NO_MODEL": "1"}, {"FAKE_MCODE_WRONG_MODEL": "1"},
+        ]
+        for index, env in enumerate(cases):
+            with self.subTest(env=env), patch.dict(os.environ, {"FAKE_MCODE_STATUS": "failed", "FAKE_MCODE_RETRYABLE": "1", **env}):
+                with self.assertRaises(AgentLordError) as raised:
+                    self.lord.start("no-recovery-%d" % index, "mcode", str(self.target), "run", model=self.model())
+                self.assertIsNone(raised.exception.safe_recovery)
+
+    def test_existing_contract_without_recovery_budget_stays_opted_out(self) -> None:
+        self.lord.start("legacy", "mcode", str(self.target), "first", model=self.model())
+        def remove_limit(task):
+            task["contract"].pop("continuation_limit")
+            return task
+        update_task("legacy", remove_limit, self.root)
+        with patch.dict(os.environ, {"FAKE_MCODE_STATUS": "failed", "FAKE_MCODE_RETRYABLE": "1"}):
+            with self.assertRaises(AgentLordError) as raised:
+                self.lord.turn("legacy", "next")
+        self.assertIsNone(raised.exception.safe_recovery)
+
+    def test_success_reports_delivery_incomplete_without_claiming_tests_passed(self) -> None:
+        result = self.lord.start("delivery", "mcode", str(self.target), "run", model=self.model(), required_files=["missing.txt"])
+        self.assertEqual("SUCCEEDED", result["status"])
+        self.assertEqual("incomplete", result["delivery"]["status"])
+        self.assertEqual("declared-files-and-commit", result["delivery"]["scope"])
+        with self.assertRaises(AgentLordError) as raised:
+            self.lord.start("delivery", "mcode", str(self.target), "run", model=self.model(), required_files=["different.txt"])
+        self.assertEqual("TASK_EXISTS", raised.exception.code)
+
+    def test_completed_tools_no_longer_look_active(self) -> None:
+        progress = MCodeProgress()
+        def tool(kind, identity, name, status):
+            return progress.observe({"type": kind, "item": {"type": "tool_call", "toolCall": {"id": identity, "name": name, "status": status, "input": "private input"}}})
+        self.assertEqual("tool_wait", tool("item.started", "a", "Bash", 1)["state"])
+        tool("item.started", "b", "Read", 1)
+        active = tool("item.completed", "a", "Bash", 2)
+        self.assertEqual(["Read"], active["active_tools"])
+        done = tool("item.updated", "b", "Read", 2)
+        self.assertEqual("progressing", done["state"])
+        self.assertEqual(0, done["active_tool_count"])
+        self.assertNotIn("private input", json.dumps(done))
+        tool("item.started", "c", "Bash", 1)
+        self.assertEqual(0, progress.observe({"type": "turn.failed"})["active_tool_count"])
 
     def test_model_effort_and_read_only_fail_before_launch(self) -> None:
         cases = [

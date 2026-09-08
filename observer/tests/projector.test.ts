@@ -8,6 +8,22 @@ import type { MessageItem, OmittedItem, ToolItem } from "../src/shared/types.js"
 const j = (value: unknown): string => JSON.stringify(value);
 
 describe("McodeProjector (fixture stream)", () => {
+  it("honors completed tool status on updates and closes partial output at terminal failure", () => {
+    const timeline = new Timeline();
+    const projector = new McodeProjector(timeline, "fixture-terminal");
+    projector.handleLine(j({ type: "item.started", item: { type: "tool_call", toolCall: { id: "a", name: "Bash", status: 1, input: { command: "printf fixture" } } } }));
+    projector.handleLine(j({ type: "item.updated", item: { type: "tool_call", toolCall: { id: "a", status: 2 } } }));
+    expect((timeline.snapshotItems()[0] as ToolItem).state).toBe("completed");
+    expect((timeline.snapshotItems()[0] as ToolItem).title).toBe("printf fixture");
+    expect((timeline.snapshotItems()[0] as ToolItem).inputText).toContain("printf fixture");
+    expect((timeline.snapshotItems()[0] as ToolItem).name).toBe("Bash");
+    projector.handleLine(j({ type: "item.started", item: { type: "tool_call", toolCall: { id: "b", name: "Read", status: 1 } } }));
+    projector.handleLine(j({ type: "item.updated", item: { type: "agent_message", id: "m", contentDelta: "partial" } }));
+    projector.handleLine(j({ type: "turn.failed", error: "upstream ended" }));
+    expect(timeline.snapshotItems().some((item) => item.kind === "tool" && item.state === "running")).toBe(false);
+    expect((timeline.snapshotItems().find((item) => item.kind === "message") as MessageItem).streaming).toBe(false);
+    expect(JSON.stringify(timeline.snapshotItems())).toContain("未收到该工具的完成事件");
+  });
   it("merges deltas, finalizes messages, and folds tool lifecycle into one card", () => {
     const timeline = new Timeline();
     const projector = new McodeProjector(timeline, "fixture-op-mcode");

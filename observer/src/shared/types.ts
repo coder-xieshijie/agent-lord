@@ -131,6 +131,19 @@ export interface TaskMeta {
   granularity: string;
   resume: ResumeInfo;
   error?: string;
+  activity?: {
+    lastEventType: string | null;
+    lastTool: string | null;
+    activeToolCount: number;
+    activeTools: string[];
+    lastProgressMs: number | null;
+  };
+  delivery?: {
+    status: "verified" | "incomplete" | "unverified";
+    checks: Array<{ label: string; ok: boolean }>;
+    commitSha: string | null;
+  };
+  recovery?: { attempt: number; limit: number; available: boolean };
 }
 
 export interface Patch {

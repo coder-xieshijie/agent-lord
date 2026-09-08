@@ -275,7 +275,7 @@ def normalize_task(value: Dict[str, Any]) -> Dict[str, Any]:
             "source",
         }
         contract_fields = legacy_contract_fields | {"retry_plan"}
-        optional_contract_fields = {"workspace", "parallel_plan"}
+        optional_contract_fields = {"workspace", "parallel_plan", "continuation_limit"}
         if isinstance(contract, dict) and set(contract) == legacy_contract_fields:
             contract["retry_plan"] = resolve_retry_plan(value["provider"], contract.get("model"))
         if (
@@ -287,6 +287,10 @@ def normalize_task(value: Dict[str, Any]) -> Dict[str, Any]:
         for name in ("model", "effort"):
             if contract[name] is not None and (not isinstance(contract[name], str) or not contract[name]):
                 raise AgentLordError("STATE_CORRUPT", "task contract has an invalid %s" % name)
+        if "continuation_limit" in contract:
+            limit = contract["continuation_limit"]
+            if value["provider"] != "mcode-cli" or not isinstance(limit, int) or isinstance(limit, bool) or not 0 <= limit <= 5:
+                raise AgentLordError("STATE_CORRUPT", "task has an invalid continuation limit")
         if (
             not isinstance(contract["read_only"], bool)
             or not isinstance(contract["permission_mode"], str)

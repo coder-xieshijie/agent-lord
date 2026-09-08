@@ -54,6 +54,7 @@ const JOURNAL_LABELS: Record<string, string> = {
   "task-created": "任务已创建",
   "operation-created": "操作已创建",
   "operation-started": "操作已启动",
+  "operation-continued": "同会话续做已启动",
   "operation-succeeded": "操作成功",
   "operation-failed": "操作失败",
   "operation-needs-decision": "操作待决策",
@@ -420,6 +421,9 @@ export class Hub {
       granularity: provider ? GRANULARITY[provider] : "未知",
       resume: buildResume(provider, evidence, target, running),
       error: lastOp?.errorMessage ? clip(lastOp.errorMessage, TOOL_TEXT_CLIP) : undefined,
+      activity: lastOp?.activity,
+      delivery: lastOp?.delivery,
+      recovery: lastOp?.recovery,
     };
     const metaJson = JSON.stringify(meta);
     state.meta = meta;

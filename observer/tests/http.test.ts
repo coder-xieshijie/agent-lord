@@ -61,6 +61,13 @@ describe("HTTP surface", () => {
     expect(viaCookie.status).toBe(200);
     const badCookie = await fetch(`${base}/api/overview`, { headers: { cookie: "observer_token=wrong" } });
     expect(badCookie.status).toBe(401);
+    expect((await fetch(`${base}/api/health`)).status).toBe(401);
+    const health = await (await fetch(`${base}/api/health?token=${TOKEN}`)).json() as { service: string; instanceId: string; pid: number };
+    expect(health.service).toBe("agent-lord-observer");
+    expect(health.pid).toBe(process.pid);
+    expect(health.instanceId).toBeTruthy();
+    expect((await fetch(`${base}/api/overview`, { headers: { cookie: "observer_token=%E0%A4%A" } })).status).toBe(401);
+    expect((await fetch(`${base}/api/tasks/%E0%A4%A/snapshot?token=${TOKEN}`)).status).toBe(400);
   });
 
   it("scopes task endpoints to the allowlist", async () => {

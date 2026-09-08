@@ -11,7 +11,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { timingSafeEqual } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { Hub, HubListener } from "./hub.js";
 import { IDENTIFIER_PATTERN } from "./scan.js";
 
@@ -32,6 +32,7 @@ export interface ObserverServerOptions {
   token: string;
   webRoot: string | null;
   port: number;
+  instanceId?: string;
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -54,7 +55,9 @@ function cookieToken(req: IncomingMessage): string | null {
   if (!header) return null;
   for (const part of header.split(";")) {
     const [name, ...rest] = part.trim().split("=");
-    if (name === "observer_token") return decodeURIComponent(rest.join("="));
+    if (name === "observer_token") {
+      try { return decodeURIComponent(rest.join("=")); } catch { return null; }
+    }
   }
   return null;
 }
@@ -74,6 +77,7 @@ function tokenOk(req: IncomingMessage, url: URL, expected: string): boolean {
 
 export function createObserverServer(options: ObserverServerOptions): Server {
   const { hub, token, webRoot } = options;
+  const instanceId = options.instanceId ?? randomUUID();
 
   const server = createServer((req, res) => {
     let url: URL;
@@ -92,6 +96,10 @@ export function createObserverServer(options: ObserverServerOptions): Server {
       return;
     }
 
+    if (url.pathname === "/api/health") {
+      sendJson(res, 200, { service: "agent-lord-observer", instanceId, pid: process.pid });
+      return;
+    }
     if (url.pathname === "/api/overview") {
       sendJson(res, 200, { tasks: hub.overview(), generation: hub.generation });
       return;
@@ -99,7 +107,13 @@ export function createObserverServer(options: ObserverServerOptions): Server {
 
     const taskMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)\/(snapshot|delta|stream)$/);
     if (taskMatch) {
-      const taskId = decodeURIComponent(taskMatch[1]);
+      let taskId: string;
+      try {
+        taskId = decodeURIComponent(taskMatch[1]);
+      } catch {
+        sendJson(res, 400, { error: "bad task id" });
+        return;
+      }
       const action = taskMatch[2];
       if (!IDENTIFIER_PATTERN.test(taskId) || !hub.has(taskId)) {
         sendJson(res, 404, { error: "task 不在 allowlist 中" });
@@ -142,6 +156,7 @@ export function createObserverServer(options: ObserverServerOptions): Server {
         connection: "keep-alive",
         "x-accel-buffering": "no",
       });
+      res.flushHeaders();
       const write = (event: string, data: unknown): void => {
         res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
       };

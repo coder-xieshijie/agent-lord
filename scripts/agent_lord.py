@@ -52,6 +52,8 @@ def build_parser() -> argparse.ArgumentParser:
     target.add_argument("--target", help="existing provider working directory")
     target.add_argument("--repo", help="repository whose source-branch worktree should be prepared")
     start.add_argument("--message-file", required=True)
+    start.add_argument("--require-file", action="append", dest="required_files", help="non-empty workspace-relative file required at delivery; repeat as needed")
+    start.add_argument("--require-commit", action="store_true", help="verify a new descendant commit and clean worktree at delivery")
     start.add_argument("--model")
     start.add_argument("--effort")
     start.add_argument("--retry-attempts", type=int, help="override the primary Claude CLI attempt budget")
@@ -91,6 +93,12 @@ def build_parser() -> argparse.ArgumentParser:
     turn = subparsers.add_parser("turn", help="continue the exact saved endpoint")
     turn.add_argument("--task-id", required=True)
     turn.add_argument("--message-file", required=True)
+    turn.add_argument("--require-file", action="append", dest="required_files")
+    turn.add_argument("--require-commit", action="store_true")
+
+    recover = subparsers.add_parser("recover", help="consume a bounded CONTINUE_SAME_SESSION action without replaying the original prompt")
+    recover.add_argument("--task-id", required=True)
+    recover.add_argument("--operation-id", required=True, help="exact failed operation from the recovery action")
 
     handoff = subparsers.add_parser(
         "handoff",
@@ -189,9 +197,13 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
             integration_workers=args.integration_workers,
             codex_environment=args.codex_environment,
             starting_branch=args.starting_branch,
+            required_files=args.required_files,
+            require_commit=args.require_commit,
         )
     if args.command == "turn":
-        return lord.turn(args.task_id, read_text(args.message_file))
+        return lord.turn(args.task_id, read_text(args.message_file), required_files=args.required_files, require_commit=args.require_commit)
+    if args.command == "recover":
+        return lord.recover(args.task_id, args.operation_id)
     if args.command == "handoff":
         return lord.handoff(
             args.task_id,

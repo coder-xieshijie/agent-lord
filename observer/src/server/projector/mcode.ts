@@ -11,6 +11,7 @@ import { OpProjector } from "./common.js";
 const LIFECYCLE: Record<string, string> = {
   "exec.started": "执行开始",
   "session.started": "会话开始",
+  "session.resumed": "会话已恢复",
   "turn.started": "回合开始",
   "turn.completed": "回合结束",
   "exec.completed": "执行结束",
@@ -23,6 +24,7 @@ export class McodeProjector extends OpProjector {
     }
     const type = typeof event.type === "string" ? event.type : "unknown";
     const tsMs = typeof event.timestampMs === "number" ? event.timestampMs : undefined;
+    if (type === "exec.completed" || type === "turn.failed") this.finishPending();
     if (LIFECYCLE[type]) {
       this.lifecycle(type, LIFECYCLE[type], tsMs);
       return;
@@ -79,12 +81,12 @@ export class McodeProjector extends OpProjector {
           ? true
           : typeof status === "number" && status > 2;
       this.upsertTool(toolId, {
-        name: typeof callRecord.name === "string" ? callRecord.name : "tool",
+        name: typeof callRecord.name === "string" ? callRecord.name : undefined,
         title: toolTitle(callRecord.input),
         inputText: toolInputText(callRecord.input),
         outputText: toolOutputText(callRecord.output),
         errorText: failed ? (toolOutputText(callRecord.error) ?? "工具失败") : undefined,
-        state: type === "item.completed" ? (failed ? "error" : "completed") : "running",
+        state: type === "item.completed" || status === 2 || failed ? (failed ? "error" : "completed") : "running",
         tsMs,
       });
       return;

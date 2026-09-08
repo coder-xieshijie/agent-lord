@@ -43,6 +43,7 @@ from .config import (
     resolve_retry_plan,
 )
 from .errors import AgentLordError
+from . import delivery
 from .handoff import (
     HANDOFF_PROVIDERS,
     conflict_error,
@@ -882,6 +883,8 @@ class AgentLord:
         read_only: bool,
         workspace: Dict[str, Any],
         parallel_plan: Dict[str, Any],
+        required_files: Optional[List[str]] = None,
+        require_commit: bool = False,
     ) -> bool:
         return all(
             (
@@ -894,6 +897,7 @@ class AgentLord:
                 bool(operation.get("read_only")) == bool(read_only),
                 operation.get("workspace", {}) == workspace,
                 operation.get("parallel_plan", {}) == parallel_plan,
+                delivery.same_request(operation, required_files, require_commit),
             )
         )
 
@@ -949,6 +953,8 @@ class AgentLord:
         controller_pid: Optional[int] = None,
         endpoint_id: Optional[str] = None,
         handoff: Optional[Dict[str, Any]] = None,
+        delivery_requirements: Optional[Dict[str, Any]] = None,
+        continuation: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         operation_id = operation_id or self._operation_id(task_id, kind)
         now = utc_now()
@@ -979,6 +985,10 @@ class AgentLord:
             value["endpoint_id"] = endpoint_id
         if handoff is not None:
             value["handoff"] = handoff
+        if delivery_requirements is not None:
+            value["delivery_requirements"] = delivery_requirements
+        if continuation is not None:
+            value["continuation"] = continuation
         create_operation(value, self.root)
         append_event(task_id, "operation-created", {"kind": kind, "provider": provider}, operation_id, self.root)
         return value
@@ -987,6 +997,13 @@ class AgentLord:
         def mutate(value: Dict[str, Any]) -> Dict[str, Any]:
             value["status"] = "needs_decision" if error.requires_authorization else "failed"
             value["error"] = error.as_dict()
+            if value["provider"] == "mcode-cli":
+                if value.get("active_attempt"):
+                    value["last_attempt"] = value["active_attempt"]
+                value["active_attempt"] = None
+                supervision = dict(value.get("observed", {}).get("supervision") or {})
+                supervision.update(state="provider_failed", active_tool_count=0, active_tools=[])
+                value["observed"] = dict(value.get("observed") or {}, supervision=supervision)
             if value.get("artifact"):
                 value["invalidated_artifact"] = value["artifact"]
                 value["artifact"] = None
@@ -1031,6 +1048,7 @@ class AgentLord:
         read_only: bool,
         permission_mode: Optional[str] = None,
         retry_plan: Optional[List[Dict[str, Any]]] = None,
+        continuation_limit: Optional[int] = None,
     ) -> Dict[str, Any]:
         permission = (
             permission_mode_policy(provider, permission_mode)
@@ -1043,13 +1061,19 @@ class AgentLord:
                 "saved permission mode contradicts the read-only contract",
                 details={"provider": provider, "permission_mode": permission["mode"], "read_only": read_only},
             )
-        return {
+        expected = {
             "model": model,
             "effort": effort,
             "permission_mode": permission["mode"],
             "permission_enforcement": permission["enforcement"],
             "retry_plan": retry_plan if retry_plan is not None else resolve_retry_plan(provider, model),
         }
+        if provider == "mcode-cli":
+            limit = provider_config(provider).get("same_session_continuations", 0) if continuation_limit is None else continuation_limit
+            if not isinstance(limit, int) or isinstance(limit, bool) or not 0 <= limit <= 5:
+                raise AgentLordError("CONFIG_INVALID", "MCode continuation limit must be between 0 and 5", exit_code=2)
+            expected["continuation_limit"] = limit
+        return expected
 
     @staticmethod
     def _codex_observation(operation: Dict[str, Any], **values: Any) -> Dict[str, Any]:
@@ -1101,6 +1125,8 @@ class AgentLord:
             "updated_at": now,
             "last_operation_id": operation["operation_id"],
         }
+        if "continuation_limit" in expected:
+            record["contract"]["continuation_limit"] = expected["continuation_limit"]
         handoff = operation.get("handoff")
         if operation.get("kind") == "handoff" and isinstance(handoff, dict):
             source_session = handoff.get("source_session") or {}
@@ -1157,6 +1183,7 @@ class AgentLord:
                     else:
                         self._set_task_last_operation(operation["task_id"], operation["operation_id"])
                     result_fields: Dict[str, Any] = {
+                        "delivery": delivery.verify(current),
                         "observed": result["observed"],
                         "artifact": artifact,
                         "error": None,
@@ -1305,6 +1332,18 @@ class AgentLord:
         error: AgentLordError,
         exhausted: bool,
     ) -> Tuple[Dict[str, Any], AgentLordError]:
+        if operation["provider"] == "mcode-cli":
+            recovery = self._mcode_continuation(operation, error)
+            details = dict(error.details)
+            if recovery is not None:
+                details["recovery"] = recovery
+            error = AgentLordError(
+                error.code, error.message,
+                retryable=recovery is not None or error.retryable,
+                safe_recovery="CONTINUE_SAME_SESSION" if recovery is not None else error.safe_recovery,
+                requires_authorization=error.requires_authorization,
+                details=details, exit_code=error.exit_code,
+            )
         terminal_error = AgentLordError(
             error.code,
             error.message,
@@ -1319,6 +1358,77 @@ class AgentLord:
             exit_code=error.exit_code,
         )
         return self._fail_operation(operation, terminal_error), terminal_error
+
+    @staticmethod
+    def _mcode_continuation(operation: Dict[str, Any], error: AgentLordError) -> Optional[Dict[str, Any]]:
+        """Offer a new same-session turn only for verified, stopped transient failures."""
+        details = error.details
+        provider_error = details.get("provider_error") or {}
+        limit = operation.get("expected", {}).get("continuation_limit", 0)
+        chain = operation.get("continuation") or {}
+        used = chain.get("attempt", 0)
+        if (
+            operation.get("provider") != "mcode-cli" or error.code != "PROVIDER_FAILED"
+            or error.requires_authorization or details.get("provider_status") not in ("failed", "timeout")
+            or not isinstance(provider_error, dict) or provider_error.get("retryable") is not True
+            or provider_error.get("category") != "runtime" or details.get("model_verified") is not True
+            or details.get("return_code") != 4 or operation.get("provider_return_code") != 4
+            or not operation.get("endpoint_id") or details.get("session_id") != operation.get("endpoint_id")
+            or not isinstance(limit, int) or isinstance(limit, bool) or not 0 < limit <= 5
+            or not isinstance(used, int) or isinstance(used, bool) or not 0 <= used < limit
+        ):
+            return None
+        attempt = operation.get("active_attempt") or operation.get("last_attempt") or {}
+        pid = attempt.get("pid") or operation.get("pid")
+        if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0 or mcode_process_tree_alive(pid, attempt.get("process_group_id")):
+            return None
+        return {
+            "kind": "continue_same_session",
+            "task_id": operation["task_id"],
+            "operation_id": operation["operation_id"],
+            "root_operation_id": chain.get("root_operation_id", operation["operation_id"]),
+            "attempt": used + 1,
+            "limit": limit,
+        }
+
+    def recover(self, task_id: str, operation_id: str) -> Dict[str, Any]:
+        """Consume one continuation action. Repeated calls return the same child."""
+        validate_identifier("operation_id", operation_id)
+        return self.turn(task_id, "continue", recovery_from=operation_id)
+
+    def _prepare_continuation(self, task: Dict[str, Any], parent_id: str) -> Tuple[Dict[str, Any], str]:
+        parent = load_operation(parent_id, self.root)
+        if parent.get("task_id") != task["task_id"] or parent.get("provider") != "mcode-cli":
+            raise AgentLordError("STATE_CONFLICT", "continuation does not belong to this MCode task")
+        if task.get("last_operation_id") != parent_id or parent.get("status") != "failed":
+            raise AgentLordError("STATE_CONFLICT", "only the latest failed operation can be continued")
+        contract = task.get("contract") or {}
+        expected = parent.get("expected") or {}
+        if parent.get("endpoint_id") != task.get("endpoint_id") or parent.get("target") != task.get("target") or any(
+            expected.get(key) != contract.get(key)
+            for key in ("model", "effort", "permission_mode", "retry_plan", "continuation_limit")
+        ) or any(parent.get("source", {}).get(key) != contract.get("source", {}).get(key) for key in ("head_sha", "base_sha")) or any(
+            parent.get(key, {}) != contract.get(key, {}) for key in ("workspace", "parallel_plan")
+        ) or bool(parent.get("read_only")) != bool(contract.get("read_only")):
+            raise AgentLordError("STATE_CONFLICT", "continuation cannot change the saved execution contract")
+        # Revalidate the operation-bound stream and exit receipt, rather than
+        # treating an old retryable flag as sufficient authority to resend.
+        try:
+            recover_mcode_cli(parent)
+        except AgentLordError as error:
+            plan = self._mcode_continuation(parent, error)
+        else:
+            plan = None
+        if plan is None:
+            raise AgentLordError("RECOVERY_UNAVAILABLE", "operation has no remaining verified same-session continuation")
+        message = (
+            "[agent-lord-continuation:%s:%d]\n"
+            "Continue the original task in this same session after the previous verified run ended with a transient provider failure. "
+            "Inspect the existing conversation, current worktree, completed commands and any background work first. "
+            "Preserve completed work and finish only the remaining authorized requirements. "
+            "Do not repeat already completed actions. Return the final result and verification evidence.\n"
+        ) % (plan["root_operation_id"], plan["attempt"])
+        return dict(plan, parent_operation_id=parent_id), message
 
     @staticmethod
     def _claude_delivery_requires_continuation(operation: Dict[str, Any]) -> bool:
@@ -1550,10 +1660,14 @@ class AgentLord:
         codex_environment: Optional[str] = None,
         starting_branch: Optional[str] = None,
         retry_attempts: Optional[int] = None,
+        required_files: Optional[List[str]] = None,
+        require_commit: bool = False,
     ) -> Dict[str, Any]:
         validate_identifier("task_id", task_id)
         provider = normalize_provider(provider)
         provider_config(provider)
+        if provider not in LOCAL_CLI_PROVIDERS and (required_files or require_commit):
+            raise AgentLordError("CONFIG_INVALID", "delivery requirements apply only to local CLI providers", exit_code=2)
         model, effort = resolve_execution_defaults(provider, model, effort)
         if provider == "mcode-cli":
             permission_policy(provider, read_only)
@@ -1692,6 +1806,8 @@ class AgentLord:
                                 read_only,
                                 workspace,
                                 parallel_plan,
+                                required_files,
+                                require_commit,
                             ):
                                 return self.envelope(last_operation)
                         raise AgentLordError(
@@ -1712,6 +1828,8 @@ class AgentLord:
                             read_only,
                             workspace,
                             parallel_plan,
+                            required_files,
+                            require_commit,
                         ):
                             return self.envelope(inflight)
                         raise AgentLordError(
@@ -1762,6 +1880,7 @@ class AgentLord:
                         operation_id=operation_id,
                         controller_pid=os.getpid() if provider in LOCAL_CLI_PROVIDERS else None,
                         endpoint_id=session_id,
+                        delivery_requirements=delivery.requirements(target, required_files, require_commit),
                     )
                     if provider == "codex-app":
                         action = codex_adapter.create_thread_action(
@@ -2051,16 +2170,31 @@ class AgentLord:
             assert write_leases is not None
             write_leases.__exit__(None, None, None)
 
-    def turn(self, task_id: str, message: str) -> Dict[str, Any]:
+    def turn(
+        self, task_id: str, message: str, *, required_files: Optional[List[str]] = None,
+        require_commit: bool = False, recovery_from: Optional[str] = None,
+    ) -> Dict[str, Any]:
         if not isinstance(message, str) or not message:
             raise AgentLordError("CONFIG_INVALID", "message must be non-empty", exit_code=2)
-        message_hash = self._message_hash(message)
+        continuation = None
+        delivery_spec = None
         action: Optional[Dict[str, Any]] = None
         claude_lease = None
         write_leases = None
         try:
             with record_lock("dispatch", self._dispatch_lock_id(task_id), self.root):
                 task = load_task(task_id, self.root)
+                if task["provider"] not in LOCAL_CLI_PROVIDERS and (required_files or require_commit):
+                    raise AgentLordError("CONFIG_INVALID", "delivery requirements apply only to local CLI providers", exit_code=2)
+                if recovery_from is not None:
+                    # The child record itself is the durable idempotency receipt,
+                    # including a crash before task.last_operation_id was updated.
+                    for child in list_operations(task_id, self.root):
+                        if (child.get("continuation") or {}).get("parent_operation_id") == recovery_from:
+                            return self.envelope(child)
+                    continuation, message = self._prepare_continuation(task, recovery_from)
+                    delivery_spec = load_operation(recovery_from, self.root).get("delivery_requirements")
+                message_hash = self._message_hash(message)
                 if task.get("legacy_version") == 1:
                     raise AgentLordError(
                         "EXECUTION_CONTRACT_REQUIRED",
@@ -2071,7 +2205,7 @@ class AgentLord:
                     )
                 inflight = self._active_operation(task_id)
                 if inflight:
-                    if inflight.get("message_sha256") == message_hash:
+                    if inflight.get("message_sha256") == message_hash and delivery.same_request(inflight, required_files, require_commit):
                         return self.envelope(inflight)
                     raise AgentLordError(
                         "OPERATION_IN_FLIGHT",
@@ -2119,6 +2253,7 @@ class AgentLord:
                     bool(contract.get("read_only")),
                     contract.get("permission_mode"),
                     contract.get("retry_plan"),
+                    contract.get("continuation_limit", 0),
                 )
                 operation_id = self._operation_id(task_id, "turn")
                 if task["provider"] == "claude-cli":
@@ -2142,7 +2277,11 @@ class AgentLord:
                     operation_id=operation_id,
                     controller_pid=os.getpid() if task["provider"] in LOCAL_CLI_PROVIDERS else None,
                     endpoint_id=task.get("endpoint_id") if task["provider"] in ("claude-cli", "mcode-cli") else None,
+                    delivery_requirements=delivery_spec if recovery_from is not None else delivery.requirements(task["target"], required_files, require_commit),
+                    continuation=continuation,
                 )
+                if continuation is not None:
+                    append_event(task_id, "operation-continued", continuation, operation_id, self.root)
                 if task["provider"] == "codex-app":
                     action = codex_adapter.send_action(operation, task, self.root)
                     operation = self._set_operation_status(
@@ -2586,6 +2725,12 @@ class AgentLord:
                     "progress_seq": cls._checkpoint_progress_seq(operation),
                 }
             )
+            for key in ("last_event_type", "last_tool", "active_tool_count", "active_tools", "last_progress_at_ms"):
+                if key in supervision:
+                    result[-1][key] = supervision[key]
+            last_progress = supervision.get("last_progress_at_ms") or active_attempt.get("last_progress_at_ms")
+            if isinstance(last_progress, int):
+                result[-1]["progress_age_seconds"] = max(0, int(time.time() - last_progress / 1000))
         return result
 
     def _checkpoint_batch(
@@ -3159,7 +3304,8 @@ class AgentLord:
                                 "provider_error": error.as_dict(),
                             },
                         )
-                    return self.envelope(self._fail_operation(current, error))
+                    failed, _ = self._terminalize_cli_failure(current, error, exhausted=False)
+                    return self.envelope(failed)
 
                 endpoint_id = recovered.get("endpoint_id") or operation.get("endpoint_id")
                 if not isinstance(endpoint_id, str) or not endpoint_id:
@@ -3447,6 +3593,10 @@ class AgentLord:
             result["target"] = task.get("target")
         if operation.get("artifact"):
             result["artifact"] = operation["artifact"]
+        if operation.get("status") == "succeeded":
+            result["delivery"] = operation.get("delivery") or {"status": "unverified", "scope": "declared-files-and-commit", "checks": []}
+        if operation.get("continuation"):
+            result["continuation"] = operation["continuation"]
         if operation.get("error"):
             result["error"] = operation["error"]
         warnings = operation.get("observed", {}).get("warnings")

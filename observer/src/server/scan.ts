@@ -10,6 +10,8 @@
 import { readdirSync, readFileSync, statSync, openSync, readSync, closeSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
+import type { TaskMeta } from "../shared/types.js";
+import { clipTitle } from "./sanitize.js";
 
 export interface OperationRecord {
   operationId: string;
@@ -27,6 +29,9 @@ export interface OperationRecord {
   model: string | null;
   errorCode: string | null;
   errorMessage: string | null;
+  activity?: TaskMeta["activity"];
+  delivery?: TaskMeta["delivery"];
+  recovery?: TaskMeta["recovery"];
 }
 
 export interface TaskRecord {
@@ -52,6 +57,49 @@ export const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/;
 
 function asString(value: unknown): string | null {
   return typeof value === "string" && value ? value : null;
+}
+
+function object(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function displayEvidence(value: Record<string, unknown>): Pick<OperationRecord, "activity" | "delivery" | "recovery"> {
+  const summary = object(object(value.observed).supervision);
+  const terminal = ["succeeded", "failed", "needs_decision"].includes(String(value.status));
+  const toolName = (raw: unknown): string | null => typeof raw === "string" && /^[A-Za-z][A-Za-z0-9_.:-]{0,79}$/.test(raw) ? raw : null;
+  const activeTools = !terminal && Array.isArray(summary.active_tools) ? summary.active_tools.map(toolName).filter((name): name is string => name !== null).slice(0, 5) : [];
+  const activeCount = !terminal && Number.isInteger(summary.active_tool_count) && Number(summary.active_tool_count) >= 0 ? Number(summary.active_tool_count) : 0;
+  const evidence: ReturnType<typeof displayEvidence> = {};
+  if (Object.keys(summary).length) evidence.activity = {
+    lastEventType: toolName(summary.last_event_type), lastTool: toolName(summary.last_tool),
+    activeToolCount: activeCount, activeTools,
+    lastProgressMs: typeof summary.last_progress_at_ms === "number" && Number.isFinite(summary.last_progress_at_ms) ? summary.last_progress_at_ms : null,
+  };
+  if (value.status === "succeeded") {
+    const raw = object(value.delivery);
+    const known = raw.scope === "declared-files-and-commit";
+    evidence.delivery = {
+      status: known && (raw.status === "verified" || raw.status === "incomplete") ? raw.status : "unverified",
+      checks: known && Array.isArray(raw.checks) ? raw.checks.flatMap((entry) => {
+        const check = object(entry);
+        const label = check.kind === "file" && typeof check.path === "string" ? clipTitle(check.path)
+          : check.kind === "commit" ? "新提交且工作区干净" : null;
+        return label ? [{ label, ok: check.ok === true }] : [];
+      }) : [],
+      commitSha: typeof raw.commit_sha === "string" && /^[a-f0-9]{40,64}$/.test(raw.commit_sha) ? raw.commit_sha : null,
+    };
+  }
+  const chain = object(value.continuation);
+  const action = object(object(object(value.error).details).recovery);
+  const limit = chain.limit ?? action.limit;
+  const attempt = chain.attempt ?? 0;
+  if (Number.isInteger(limit) && Number(limit) > 0 && Number(limit) <= 5 && Number.isInteger(attempt) && Number(attempt) >= 0 && Number(attempt) <= Number(limit)) {
+    evidence.recovery = {
+      attempt: Number(attempt), limit: Number(limit),
+      available: value.status === "failed" && object(value.error).safe_recovery === "CONTINUE_SAME_SESSION",
+    };
+  }
+  return evidence;
 }
 
 export function readTaskRecord(root: string, taskId: string): TaskRecord | null {
@@ -115,6 +163,7 @@ function parseOperationFile(file: string): OperationRecord | null {
       model: asString(expected.model) ?? asString(observed.model),
       errorCode: error ? asString(error.code) : null,
       errorMessage: error ? asString(error.message) : null,
+      ...displayEvidence(value),
     };
   } catch {
     return null;

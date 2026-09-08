@@ -18,6 +18,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from .codex_adapter import marked_message
 from .config import mcode_binary, parse_mcode_model, permission_mode_policy, permission_policy
 from .errors import AgentLordError
+from .mcode_progress import MCodeProgress
 from .state import ensure_layout, update_operation
 
 
@@ -509,6 +510,13 @@ def _validate_provider_output(
     elif status == "succeeded":
         raise AgentLordError("MODEL_UNVERIFIED", "MCode successful terminal result contains no model metadata")
 
+    if return_code is None:
+        raise AgentLordError(
+            "DELIVERY_UNKNOWN",
+            "MCode terminal result has no durable process exit code",
+            requires_authorization=True,
+            details={"run_id": identity[0], "session_id": identity[1], "turn_id": identity[2]},
+        )
     if status != "succeeded":
         raise AgentLordError(
             "PROVIDER_FAILED",
@@ -517,6 +525,7 @@ def _validate_provider_output(
                 "provider_status": status,
                 "return_code": return_code,
                 "provider_error": result.get("error"),
+                "model_verified": observed_model is not None,
                 "run_id": identity[0],
                 "session_id": identity[1],
                 "turn_id": identity[2],
@@ -545,13 +554,6 @@ def _validate_provider_output(
         "terminal_status": status,
         "progress_seq": observer.sequence,
     }
-    if return_code is None:
-        raise AgentLordError(
-            "DELIVERY_UNKNOWN",
-            "MCode reported success but the provider exit status was not durably observed",
-            requires_authorization=True,
-            details={"run_id": identity[0], "session_id": identity[1], "turn_id": identity[2]},
-        )
     if return_code != 0:
         raise AgentLordError(
             "PROVIDER_FAILED",
@@ -744,6 +746,7 @@ def run_mcode_cli(
             return value
 
         update_operation(operation_id, mark_prepared, root)
+        progress = MCodeProgress()
         with prompt_path.open("r", encoding="utf-8") as prompt_handle:
             stdout_descriptor = os.open(str(stdout_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
             stderr_descriptor = os.open(str(stderr_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
@@ -817,9 +820,9 @@ def run_mcode_cli(
                         event_type = event["type"]
                         identity = observer.identity
                         assert identity is not None
-                        state = "tool_wait" if event_type.startswith("item.") and (event.get("item") or {}).get("type") == "tool_call" else "progressing"
-                        if event_type in ("exec.started", "session.started", "session.resumed", "turn.started"):
-                            state = "provider_wait"
+                        summary = progress.observe(event)
+                        state = summary["state"]
+                        now_ms = int(time.time() * 1000)
 
                         def mark_progress(value: Dict[str, Any]) -> Dict[str, Any]:
                             active = dict(value.get("active_attempt") or {})
@@ -833,7 +836,7 @@ def run_mcode_cli(
                                     "progress_seq": observer.sequence,
                                     "last_event_type": event_type,
                                     "progress_state": state,
-                                    "last_progress_at_ms": int(time.time() * 1000),
+                                    "last_progress_at_ms": now_ms,
                                 }
                             )
                             value["active_attempt"] = active
@@ -844,9 +847,9 @@ def run_mcode_cli(
                             value["observed"] = dict(
                                 value.get("observed") or {},
                                 supervision={
-                                    "state": state,
+                                    **summary,
                                     "progress_seq": observer.sequence,
-                                    "last_event_type": event_type,
+                                    "last_progress_at_ms": now_ms,
                                     "provider_pid": process.pid,
                                     "process_group_id": process.pid if os.name == "posix" else None,
                                 },

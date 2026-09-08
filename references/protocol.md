@@ -10,7 +10,7 @@ Every command prints one JSON object. `schemas/result-v1.schema.json` is the mai
 |---|---|---|
 | `ACTION_REQUIRED` | A Codex App host-tool action is durably pending | Invoke the exact tool and arguments, then `accept` its raw result |
 | `RUNNING` | The provider operation is preparing, progressing, waiting, stalled, or recovering | Continue bounded `checkpoint` supervision; use `check` for full-state diagnosis or the next App read |
-| `SUCCEEDED` | Endpoint, execution contract, and final artifact passed the available checks | Consume the artifact |
+| `SUCCEEDED` | Endpoint, execution contract, and final artifact passed the available checks | Consume the artifact; assess `delivery` separately |
 | `ERROR` | Deterministic validation or provider execution failed | Use only the emitted safe recovery, if any, plus the caller-owned Claude `RESULT_INVALID` retry in `SKILL.md` |
 | `NEEDS_DECISION` | Recovery changes identity, authority, source, or delivery semantics | Stop for an explicit decision |
 | `CHECKPOINT_ACTIONABLE` | One or more selected tasks have durable actionable state | Process every envelope in `actionable` |
@@ -25,7 +25,7 @@ Dispatch is serialized by a per-task filesystem lock. The journal is written bef
 The two commands are not interchangeable:
 
 - `check --task-id <id>` reconstructs one task's full current envelope and never supervises. For a `codex-app` task it also creates the next polling read action. When the recorded controller process for a non-terminal local CLI operation is gone, the envelope adds `observed.supervision = {"controller_state": "exited", "recovery_command": "checkpoint"}`; that hint is advice, not recovery.
-- `checkpoint` is the only command that fences, recovers, terminalizes a dead controller's operation, or waits. It returns compact `active` entries rather than full envelopes.
+- `checkpoint` fences, recovers terminal facts, terminalizes a dead controller's operation, or waits. It returns compact `active` entries rather than full envelopes. The separate `recover` command consumes an emitted MCode continuation action and starts a bounded new turn on the same Session.
 
 So a `RUNNING` envelope from `check` never becomes terminal by itself: run `checkpoint` when the hint appears or when the caller asked for supervision.
 
@@ -41,7 +41,7 @@ Actionable means exactly:
 
 `updated_at`, progress sequence changes, provider output, tool activity, and other benign progress update durable state without returning. `suspected_stall` and `recovering` are also internal while the saved retry plan and session identity permit automatic handling. The Python control plane polls process/log/journal state at a short interval using only the standard library; this polling runs inside the checkpoint command and consumes no Agent token. Portable event notification can replace that polling behind the same interface later.
 
-The quiet deadline comes from `control.checkpoint_seconds`, whose default is 150 seconds; `--seconds` overrides one call. Deadline expiry returns `CHECKPOINT_QUIET` and exit `124`. An automatic selection (no `--task-id`) that observes no active task returns `CHECKPOINT_QUIET` with an empty `active` list immediately, because waiting could only report the same empty set. Each `active` item is compact: task id, operation id, provider, operation status, supervision state, and progress sequence only. Full operation state stays in the journal and remains available through `check`.
+The quiet deadline comes from `control.checkpoint_seconds`, whose default is 150 seconds; `--seconds` overrides one call. Deadline expiry returns `CHECKPOINT_QUIET` and exit `124`. An automatic selection with no active task returns quiet immediately. Each `active` item contains task/operation/provider identity, status and progress sequence, plus content-free activity fields when available: last event/tool, active tool names/count, last progress timestamp and its age in seconds. MCode removes completed tools from that active set and clears it at terminal state. Full operation state stays in the journal and remains available through `check`.
 
 One checkpoint parses each task, operation, and action record at most once per tick, and skips records it has already attributed to a task outside the selection. Attribution uses only `task_id` and `operation_id`, which exclusive record creation writes once and never rewrites; it is never inferred from an identifier prefix, because identifiers are caller-supplied.
 
@@ -200,11 +200,19 @@ The implementation may perform only identity-preserving recovery automatically:
 - fence a stalled Claude process group, confirm exit, and append one uniquely marked continuation query through `--resume` on the same session;
 - let the private recovery controller claim that same recovery when the original controller is dead.
 
-The implementation returns `NEEDS_DECISION` before creating a replacement endpoint, changing provider/model/effort/source, widening permissions, or performing external writes.
+The implementation returns `NEEDS_DECISION` when a replacement endpoint, provider/model/effort/source change, permission expansion, or external write requires authority that has not already been supplied. A missing safe recovery action alone is not a request for permission.
 
 The Claude `RESULT_INVALID` retry in `SKILL.md` is not part of this line: it is caller-owned, so such an operation still terminalizes with no `safe_recovery`, and its replacement session is a new `task_id` with caller-recorded lineage rather than a rebound endpoint.
 
-MCode recovery stops at the existing Run boundary: it may fence an orphaned operation and consume its complete terminal facts, but it does not resend the prompt, substitute `--continue`, or create another Session.
+MCode checkpoint recovery stops at the existing Run boundary. For a verified transient failure, the terminal error may additionally offer `safe_recovery=CONTINUE_SAME_SESSION`. The caller consumes it with `recover --task-id <id> --operation-id <failed-id>`; no further permission question is needed within the existing task authorization. The command revalidates the original stream, Session/Turn/Run, model/variant, durable exit code 4, failed/timeout status, runtime `retryable=true` error, and absence of a live provider process group. Cancelled, limit-exceeded, unknown delivery/exit, or unverified identity/model results do not qualify.
+
+New MCode tasks freeze `config.providers.mcode-cli.same_session_continuations` (default 2, range 0–5) as `contract.continuation_limit`. Existing contracts without the field retain a zero budget. Each recovery creates a new `turn` operation on the same saved Session with a short continuation instruction to inspect existing work and finish only remaining requirements; it never replays the original prompt. The child records parent/root operation and attempt/limit, while the failed parent is immutable. Repeated or concurrent recovery of that parent returns the same child. Each failed continuation spends the same chain budget. The command rechecks the frozen contract, source and write leases; only the latest failed operation can create a child. A normal user-requested `turn` starts a new logical chain.
+
+## Declared delivery evidence
+
+For local CLI `start`/`turn`, repeated `--require-file <workspace-relative-path>` checks that every declared file exists, is non-empty and resolves inside the workspace. `--require-commit` checks a new descendant of the dispatch-time HEAD and a clean worktree. Requirements are operation-scoped and inherited by `recover`; an ordinary new turn declares its own requirements. Repeating an in-flight request cannot silently change them.
+
+`SUCCEEDED` continues to mean execution success. Its separate `delivery` record has scope `declared-files-and-commit` and status `verified`, `incomplete`, or `unverified` (no requirements, including old operations). Checks record files and optional commit evidence; the observer displays these separately. No semantic tests, browser behavior, or license correctness are inferred from a provider's final prose. A missing declared file keeps delivery incomplete even if the CLI exited successfully.
 
 ## Codex transports
 

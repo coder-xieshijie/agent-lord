@@ -95,6 +95,29 @@ describe("Hub first-turn gap (no task record yet)", () => {
 });
 
 describe("Hub ordering and incremental refresh", () => {
+  it("separates execution success, delivery evidence and recovery activity", () => {
+    const root = makeRoot();
+    const taskId = "fixture-task-evidence";
+    writeOperation(root, taskId, "fixture-evidence-op", "mcode-cli", {
+      status: "succeeded",
+      observed: { supervision: { last_event_type: "item.completed", last_tool: "Bash", active_tool_count: 7, active_tools: ["Bash"], input: "private prompt" } },
+      continuation: { attempt: 1, limit: 2 },
+      delivery: { status: "incomplete", scope: "declared-files-and-commit", checks: [{ kind: "file", path: "LICENSE", ok: false }] },
+    });
+    const hub = new Hub([taskId], root);
+    hub.refresh();
+    const meta = hub.snapshot(taskId)!.task;
+    expect(meta.status).toBe("执行成功");
+    expect(meta.delivery?.status).toBe("incomplete");
+    expect(meta.delivery?.checks).toEqual([{ label: "LICENSE", ok: false }]);
+    expect(meta.activity?.activeToolCount).toBe(0);
+    expect(meta.activity?.activeTools).toEqual([]);
+    expect(meta.recovery).toEqual({ attempt: 1, limit: 2, available: false });
+    expect(JSON.stringify(meta)).not.toContain("private prompt");
+    writeOperation(root, taskId, "fixture-evidence-op", "mcode-cli", { status: "succeeded" });
+    hub.refresh();
+    expect(hub.snapshot(taskId)!.task.delivery?.status).toBe("unverified");
+  });
   it("orders journal pre → stream → journal post within a cycle", () => {
     const root = makeRoot();
     const taskId = "fixture-task-order";

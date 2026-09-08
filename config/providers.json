@@ -98,6 +98,7 @@
       "reapply_execution_contract": true
     },
     "mcode-cli": {
+      "same_session_continuations": 2,
       "binary_env": "AGENT_LORD_MCODE_BIN",
       "default_binary": "mcode",
       "default_model": null,

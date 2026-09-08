@@ -12,6 +12,10 @@
     "build:server": "tsc -p tsconfig.server.json",
     "build:web": "vite build",
     "start": "node dist/server/main.js",
+    "preview:start": "node dist/server/preview.js start",
+    "preview:status": "node dist/server/preview.js status",
+    "preview:stop": "node dist/server/preview.js stop",
+    "preview:restart": "node dist/server/preview.js restart",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.web.json --noEmit"
   },

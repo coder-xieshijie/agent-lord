@@ -438,6 +438,14 @@ export default function App() {
                 <span className="max-w-56 truncate font-mono text-muted-foreground text-xs">{activeMeta.model}</span>
               ) : null}
               <span className="text-muted-foreground text-xs">{activeMeta.status}</span>
+              {activeMeta.delivery ? (
+                <Badge className={cn("rounded-full font-normal text-xs", activeMeta.delivery.status === "incomplete" && "text-amber-600 dark:text-amber-400")} variant="outline">
+                  {activeMeta.delivery.status === "verified" ? "声明的交付项已核验" : activeMeta.delivery.status === "incomplete" ? "交付项未齐" : "交付未核验"}
+                </Badge>
+              ) : null}
+              {activeMeta.recovery ? (
+                <span className="text-muted-foreground text-xs">同会话续做 {activeMeta.recovery.attempt}/{activeMeta.recovery.limit}{activeMeta.recovery.available ? " · 可继续" : ""}</span>
+              ) : null}
               {activeMeta.provisional ? (
                 <Badge className="rounded-full font-normal text-xs" variant="outline">
                   任务记录尚未建立（据操作记录观察）
@@ -450,6 +458,14 @@ export default function App() {
             {activeMeta.error ? (
               <p className="mt-1.5 break-words text-destructive text-xs">{activeMeta.error}</p>
             ) : null}
+            {activeMeta.running && activeMeta.activity ? (
+              <p className="mt-2 text-muted-foreground text-xs" aria-live="polite">
+                {activeMeta.activity.activeToolCount > 0
+                  ? `正在执行 ${activeMeta.activity.activeTools.join("、") || "工具"}（${activeMeta.activity.activeToolCount} 项）`
+                  : activeMeta.activity.lastTool ? `${activeMeta.activity.lastTool} 已结束，等待后续事件` : "等待输出"}
+                {activeMeta.activity.lastProgressMs ? ` · 最近事件 ${relativeTime(activeMeta.activity.lastProgressMs)}` : ""}
+              </p>
+            ) : null}
             <Collapsible>
               <CollapsibleTrigger className="mt-2 flex items-center gap-1 text-muted-foreground text-xs hover:text-foreground">
                 <ChevronDown className="size-3 transition-transform data-[state=open]:rotate-180" />
@@ -458,6 +474,17 @@ export default function App() {
               <CollapsibleContent className="mt-2 space-y-1.5 rounded-md bg-muted/40 p-3">
                 <DetailRow name="任务 ID" value={activeMeta.taskId} />
                 <DetailRow name="最近操作" value={activeMeta.lastOperationId} />
+                {activeMeta.delivery ? (
+                  <div className="space-y-1 border-b pb-2">
+                    <p className="text-muted-foreground text-xs">交付核验仅检查声明的非空文件和提交；测试结果与页面效果需单独验收。</p>
+                    {activeMeta.delivery.checks.map((check, index) => (
+                      <p className={cn("break-all text-xs", !check.ok && "text-amber-600 dark:text-amber-400")} key={index}>
+                        {check.ok ? "✓" : "待完成"} {check.label}
+                      </p>
+                    ))}
+                    <DetailRow name="交付提交" value={activeMeta.delivery.commitSha} />
+                  </div>
+                ) : null}
                 <DetailRow name="工作目录" value={activeMeta.target} />
                 <DetailRow name="Session" value={activeMeta.resume.sessionId} />
                 <DetailRow mono={false} name="ID 来源" value={activeMeta.resume.sessionSource} />

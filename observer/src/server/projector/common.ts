@@ -38,6 +38,16 @@ export abstract class OpProjector {
 
   protected abstract handleEvent(event: Record<string, unknown>): void;
 
+  protected finishPending(): void {
+    for (const item of this.timeline.snapshotItems()) {
+      if (!("opId" in item) || item.opId !== this.opId) continue;
+      if (item.kind === "message" && item.streaming) this.timeline.upsert({ ...item, streaming: false });
+      if (item.kind === "tool" && item.state === "running") {
+        this.timeline.upsert({ ...item, state: "error", errorText: "本轮已结束，未收到该工具的完成事件" });
+      }
+    }
+  }
+
   protected id(suffix: string): string {
     return `${this.opId}/${suffix}`;
   }
@@ -105,6 +115,8 @@ export abstract class OpProjector {
       existing && existing.kind === "tool"
         ? existing
         : { id, kind: "tool", name: patch.name ?? "tool", state: "running", opId: this.opId, ord: 0 };
-    this.timeline.upsert({ ...base, ...patch, id, kind: "tool", opId: this.opId });
+    // Partial updates need not repeat the original input/title/output.
+    const supplied = Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined));
+    this.timeline.upsert({ ...base, ...supplied, id, kind: "tool", opId: this.opId });
   }
 }

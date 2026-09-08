@@ -39,6 +39,7 @@
         "effort": {"type": ["string", "null"], "description": "Always null for mcode-cli because it has no independent effort control."},
         "read_only": {"type": "boolean"},
         "permission_mode": {"type": "string", "minLength": 1},
+        "continuation_limit": {"type": "integer", "minimum": 0, "maximum": 5},
         "source": {
           "type": "object",
           "properties": {
