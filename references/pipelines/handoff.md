@@ -1,6 +1,6 @@
 # Handoff Pipeline
 
-Load this reference when the user asks to hand the current session's work off to a new local CLI endpoint. Handoff is one Agent Lord pipeline branch, and this file is its complete authoring and execution contract. `scripts/agent_lord.py handoff` remains the durable runtime, while [common.md](common.md) and [../protocol.md](../protocol.md) keep owning supervision, envelope, and recovery semantics.
+Load this reference when the user asks to hand the current session's work off to a new local CLI endpoint. Handoff is one Agent Lord pipeline branch, and this file is its complete authoring and execution contract. `node core/dist/cli.js handoff` remains the durable runtime, while [common.md](common.md) and [../protocol.md](../protocol.md) keep owning supervision, envelope, and recovery semantics.
 
 ## Selection and authorization
 
@@ -24,7 +24,7 @@ Write the caller-owned JSON file to a private path in the operating system's tem
 ## Deterministic loop
 
 1. Author the packet and optionally pre-check it: `handoff --validate-only` validates schema, integrity, task binding, contract request, and write-posture consistency without touching durable state (its envelope carries `handoff.validated_only`).
-2. Consume it: `python3 scripts/agent_lord.py handoff --task-id <new-task> --packet-file <file> --provider <cli> --target <workspace> [--model … --effort … --read-only --head-sha … --retry-attempts …]`. The command validates, freezes the contract, snapshots the workspace, journals a `handoff` operation, stores the canonical packet as an input artifact, renders the deterministic continuation prompt (packet content plus digest and contract), and starts the provider.
+2. Consume it: `node core/dist/cli.js handoff --task-id <new-task> --packet-file <file> --provider <cli> --target <workspace> [--model … --effort … --read-only --head-sha … --retry-attempts …]`. The command validates, freezes the contract, snapshots the workspace, journals a `handoff` operation, stores the canonical packet as an input artifact, renders the deterministic continuation prompt (packet content plus digest and contract), and starts the provider.
 3. Process the returned envelope and every later round exactly as the standard loop in `SKILL.md`: `turn` continues the same saved endpoint, `checkpoint` supervises and recovers it. Handoff adds no second runtime.
 4. Remove the caller-owned packet file after the command has consumed it; the canonical copy persists as `artifacts/<task-id>/<operation-id>.handoff-v1.json` under the state directory.
 

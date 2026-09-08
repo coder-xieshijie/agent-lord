@@ -9,7 +9,10 @@ Codex App 的状态观察。前端为 React + vendored Vercel AI Elements 组件
 ## 命令
 
 ```bash
+# 从仓库根目录安装并构建共享 core：
 pnpm install --frozen-lockfile
+pnpm --filter @agent-lord/core build
+cd observer
 pnpm typecheck      # server + web 两份 tsconfig
 pnpm test           # vitest（fixtures 全部显式标记为 fixture-*）
 pnpm build          # tsc → dist/server + vite → dist/web
@@ -21,6 +24,9 @@ pnpm preview:stop --port 8791
 # 前台运行：pnpm start --tasks task-a,task-b --port 8791
 # 开发：pnpm dev:server --tasks task-a,task-b + pnpm dev:web（vite 代理 /api）
 ```
+
+Observer 仅从 `@agent-lord/core/contracts` 共享 provider 类型和标识符规则。
+状态读取仍由自己的只读 reader 完成，不加载调度器或状态写入 API。
 
 `preview:start` 返回经过 HTTP 核验的 `running` JSON 和浏览器地址，可交给
 Codex 的 `open_in_codex` browser target，或在普通浏览器打开。同配置重复启动

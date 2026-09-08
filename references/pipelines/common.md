@@ -1,6 +1,6 @@
 # Common Pipeline Contract
 
-Load this reference when one request selects multiple Agent Lord endpoints or names a documented pipeline. It defines orchestration policy only; `scripts/agent_lord.py` remains the durable endpoint runtime.
+Load this reference when one request selects multiple Agent Lord endpoints or names a documented pipeline. It defines orchestration policy only; `node core/dist/cli.js` remains the durable endpoint runtime.
 
 ## Resolve the contract before dispatch
 

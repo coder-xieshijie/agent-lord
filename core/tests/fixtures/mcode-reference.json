@@ -1,0 +1,1281 @@
+{
+  "baseline_commit": "1e71141af8c836c5f9594536bf63cd6502d819bf",
+  "cases": [
+    {
+      "name": "success",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "result": {
+        "endpoint_id": "session-golden",
+        "assistant_text": "final\n",
+        "observed": {
+          "models": [
+            "test/model#deep"
+          ],
+          "model": "test/model",
+          "model_verification": "provider-metadata",
+          "variant": "deep",
+          "variant_verification": "provider-metadata",
+          "effort": null,
+          "effort_verification": "not-supported",
+          "permission_mode": "dangerously_bypass",
+          "permission_enforcement": "mcode-permission-full-argument",
+          "run_id": "run-golden",
+          "session_id": "session-golden",
+          "turn_id": "turn-golden",
+          "terminal_status": "succeeded",
+          "progress_seq": 5
+        }
+      }
+    },
+    {
+      "name": "return_code=4",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 4,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "PROVIDER_FAILED",
+        "message": "MCode reported success but exited non-zero",
+        "retryable": false,
+        "requires_authorization": false,
+        "details": {
+          "return_code": 4,
+          "session_id": "session-golden"
+        }
+      }
+    },
+    {
+      "name": "return_code=None",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": null,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "DELIVERY_UNKNOWN",
+        "message": "MCode terminal result has no durable process exit code",
+        "retryable": false,
+        "requires_authorization": true,
+        "details": {
+          "run_id": "run-golden",
+          "session_id": "session-golden",
+          "turn_id": "turn-golden"
+        }
+      }
+    },
+    {
+      "name": "final_mtime_ns=None",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": null,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "RESULT_INVALID",
+        "message": "MCode final-message file is missing or predates this operation",
+        "retryable": false,
+        "requires_authorization": false,
+        "details": {
+          "reset_at_ns": 1788820000000000001,
+          "mtime_ns": null
+        }
+      }
+    },
+    {
+      "name": "final_mtime_ns=1788820000000000000",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000000,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "RESULT_INVALID",
+        "message": "MCode final-message file is missing or predates this operation",
+        "retryable": false,
+        "requires_authorization": false,
+        "details": {
+          "reset_at_ns": 1788820000000000001,
+          "mtime_ns": 1788820000000000000
+        }
+      }
+    },
+    {
+      "name": "result_reset_at_ns=None",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": null,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "RESULT_INVALID",
+        "message": "MCode final-message file is missing or predates this operation",
+        "retryable": false,
+        "requires_authorization": false,
+        "details": {
+          "reset_at_ns": null,
+          "mtime_ns": 1788820000000000002
+        }
+      }
+    },
+    {
+      "name": "final_text=wrong",
+      "input": {
+        "stderr": "",
+        "final_text": "wrong",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "RESULT_INVALID",
+        "message": "MCode terminal output does not match its final-message file",
+        "retryable": false,
+        "requires_authorization": false
+      }
+    },
+    {
+      "name": "final_text=",
+      "input": {
+        "stderr": "",
+        "final_text": "",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "RESULT_INVALID",
+        "message": "MCode produced no final assistant message",
+        "retryable": false,
+        "requires_authorization": false
+      }
+    },
+    {
+      "name": "expected_endpoint_id=other",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": "other",
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "ENDPOINT_MISMATCH",
+        "message": "MCode result belongs to a different Session",
+        "retryable": false,
+        "requires_authorization": false,
+        "details": {
+          "expected": "other",
+          "observed": "session-golden",
+          "line": 1
+        }
+      }
+    },
+    {
+      "name": "expected_run_id=other",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": "other",
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "ENDPOINT_MISMATCH",
+        "message": "MCode stream Run does not belong to the journaled operation",
+        "retryable": false,
+        "requires_authorization": false,
+        "details": {
+          "expected": "other",
+          "observed": "run-golden"
+        }
+      }
+    },
+    {
+      "name": "expected_turn_id=other",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": "other",
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "ENDPOINT_MISMATCH",
+        "message": "MCode stream Turn does not belong to the journaled operation",
+        "retryable": false,
+        "requires_authorization": false,
+        "details": {
+          "expected": "other",
+          "observed": "turn-golden"
+        }
+      }
+    },
+    {
+      "name": "model=test/wrong",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/wrong",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "MODEL_MISMATCH",
+        "message": "MCode terminal model does not satisfy the frozen model contract",
+        "retryable": false,
+        "requires_authorization": false,
+        "details": {
+          "expected": "test/wrong",
+          "observed": "test/model#deep"
+        }
+      }
+    },
+    {
+      "name": "model=test/model#other",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#other",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "MODEL_MISMATCH",
+        "message": "MCode terminal variant does not satisfy the frozen model contract",
+        "retryable": false,
+        "requires_authorization": false,
+        "details": {
+          "expected": "test/model#other",
+          "observed": "test/model#deep"
+        }
+      }
+    },
+    {
+      "name": "model=test/model",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "result": {
+        "endpoint_id": "session-golden",
+        "assistant_text": "final\n",
+        "observed": {
+          "models": [
+            "test/model#deep"
+          ],
+          "model": "test/model",
+          "model_verification": "provider-metadata",
+          "variant": "deep",
+          "variant_verification": "not-requested",
+          "effort": null,
+          "effort_verification": "not-supported",
+          "permission_mode": "dangerously_bypass",
+          "permission_enforcement": "mcode-permission-full-argument",
+          "run_id": "run-golden",
+          "session_id": "session-golden",
+          "turn_id": "turn-golden",
+          "terminal_status": "succeeded",
+          "progress_seq": 5
+        }
+      }
+    },
+    {
+      "name": "stream-sequence",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "RESULT_INVALID",
+        "message": "MCode stream sequence is not contiguous",
+        "retryable": false,
+        "requires_authorization": false,
+        "details": {
+          "expected": 3,
+          "observed": 4,
+          "line": 3
+        }
+      }
+    },
+    {
+      "name": "stream-sequence",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": true, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "RESULT_INVALID",
+        "message": "MCode stream sequence is not contiguous",
+        "retryable": false,
+        "requires_authorization": false,
+        "details": {
+          "expected": 3,
+          "observed": true,
+          "line": 3
+        }
+      }
+    },
+    {
+      "name": "stream-timestampMs",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": false, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "RESULT_INVALID",
+        "message": "MCode stream event has an invalid timestamp",
+        "retryable": false,
+        "requires_authorization": false,
+        "details": {
+          "line": 3
+        }
+      }
+    },
+    {
+      "name": "stream-type",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"unsupported\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "RESULT_INVALID",
+        "message": "MCode stream contains an unsupported event type",
+        "retryable": false,
+        "requires_authorization": false,
+        "details": {
+          "type": "unsupported",
+          "line": 3
+        }
+      }
+    },
+    {
+      "name": "stream-sessionId",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"wrong\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "ENDPOINT_MISMATCH",
+        "message": "MCode stream crosses Run, Session, or Turn identity",
+        "retryable": false,
+        "requires_authorization": false,
+        "details": {
+          "expected": [
+            "run-golden",
+            "session-golden",
+            "turn-golden"
+          ],
+          "observed": [
+            "run-golden",
+            "wrong",
+            "turn-golden"
+          ],
+          "line": 3
+        }
+      }
+    },
+    {
+      "name": "stream-runId",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"wrong\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "ENDPOINT_MISMATCH",
+        "message": "MCode stream crosses Run, Session, or Turn identity",
+        "retryable": false,
+        "requires_authorization": false,
+        "details": {
+          "expected": [
+            "run-golden",
+            "session-golden",
+            "turn-golden"
+          ],
+          "observed": [
+            "wrong",
+            "session-golden",
+            "turn-golden"
+          ],
+          "line": 3
+        }
+      }
+    },
+    {
+      "name": "stream-turnId",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"wrong\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "ENDPOINT_MISMATCH",
+        "message": "MCode stream crosses Run, Session, or Turn identity",
+        "retryable": false,
+        "requires_authorization": false,
+        "details": {
+          "expected": [
+            "run-golden",
+            "session-golden",
+            "turn-golden"
+          ],
+          "observed": [
+            "run-golden",
+            "session-golden",
+            "wrong"
+          ],
+          "line": 3
+        }
+      }
+    },
+    {
+      "name": "stream-schemaVersion",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 2, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "RESULT_INVALID",
+        "message": "MCode stream record is not a schemaVersion 1 object",
+        "retryable": false,
+        "requires_authorization": false,
+        "details": {
+          "line": 3
+        }
+      }
+    },
+    {
+      "name": "terminal-schemaVersion",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 2, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "RESULT_INVALID",
+        "message": "MCode exec.completed contains no schemaVersion 1 exec.result",
+        "retryable": false,
+        "requires_authorization": false
+      }
+    },
+    {
+      "name": "terminal-type",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"bad\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "RESULT_INVALID",
+        "message": "MCode exec.completed contains no schemaVersion 1 exec.result",
+        "retryable": false,
+        "requires_authorization": false
+      }
+    },
+    {
+      "name": "terminal-status",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"blocked\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "RESULT_INVALID",
+        "message": "MCode terminal result has an unsupported status",
+        "retryable": false,
+        "requires_authorization": false,
+        "details": {
+          "status": "blocked",
+          "allowed": [
+            "cancelled",
+            "failed",
+            "limit_exceeded",
+            "succeeded",
+            "timeout"
+          ]
+        }
+      }
+    },
+    {
+      "name": "terminal-durationMs",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": false, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "RESULT_INVALID",
+        "message": "MCode terminal result has an invalid duration",
+        "retryable": false,
+        "requires_authorization": false
+      }
+    },
+    {
+      "name": "terminal-sessionId",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"wrong\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "ENDPOINT_MISMATCH",
+        "message": "MCode terminal result crosses Run, Session, or Turn identity",
+        "retryable": false,
+        "requires_authorization": false,
+        "details": {
+          "expected": [
+            "run-golden",
+            "session-golden",
+            "turn-golden"
+          ],
+          "observed": [
+            "run-golden",
+            "wrong",
+            "turn-golden"
+          ]
+        }
+      }
+    },
+    {
+      "name": "terminal-model",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "MODEL_UNVERIFIED",
+        "message": "MCode terminal result has invalid model metadata",
+        "retryable": false,
+        "requires_authorization": false
+      }
+    },
+    {
+      "name": "terminal-output",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"other\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "RESULT_INVALID",
+        "message": "MCode terminal output does not match its final-message file",
+        "retryable": false,
+        "requires_authorization": false
+      }
+    },
+    {
+      "name": "terminal-missing-output",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "RESULT_INVALID",
+        "message": "MCode successful terminal result contains no output",
+        "retryable": false,
+        "requires_authorization": false
+      }
+    },
+    {
+      "name": "terminal-missing-model",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "MODEL_UNVERIFIED",
+        "message": "MCode successful terminal result contains no model metadata",
+        "retryable": false,
+        "requires_authorization": false
+      }
+    },
+    {
+      "name": "empty-stream",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": ""
+      },
+      "error": {
+        "code": "RESULT_INVALID",
+        "message": "MCode stream is empty",
+        "retryable": false,
+        "requires_authorization": false,
+        "details": {
+          "stderr_tail": ""
+        }
+      }
+    },
+    {
+      "name": "missing-terminal",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}"
+      },
+      "error": {
+        "code": "RESULT_INVALID",
+        "message": "MCode stream must contain exactly one final exec.completed event",
+        "retryable": false,
+        "requires_authorization": false,
+        "details": {
+          "terminal_count": 0
+        }
+      }
+    },
+    {
+      "name": "duplicate-terminal",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "RESULT_INVALID",
+        "message": "MCode stream sequence is not contiguous",
+        "retryable": false,
+        "requires_authorization": false,
+        "details": {
+          "expected": 6,
+          "observed": 5,
+          "line": 6
+        }
+      }
+    },
+    {
+      "name": "missing-start",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "RESULT_INVALID",
+        "message": "MCode stream sequence is not contiguous",
+        "retryable": false,
+        "requires_authorization": false,
+        "details": {
+          "expected": 1,
+          "observed": 2,
+          "line": 1
+        }
+      }
+    },
+    {
+      "name": "wrong-session-lifecycle",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.resumed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "error": {
+        "code": "RESULT_INVALID",
+        "message": "MCode stream has an invalid Session lifecycle event",
+        "retryable": false,
+        "requires_authorization": false,
+        "details": {
+          "expected": "session.started",
+          "observed": "session.resumed",
+          "line": 2
+        }
+      }
+    },
+    {
+      "name": "resumed-success",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": "session-golden",
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": true,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.resumed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": \"final\\n\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "result": {
+        "endpoint_id": "session-golden",
+        "assistant_text": "final\n",
+        "observed": {
+          "models": [
+            "test/model#deep"
+          ],
+          "model": "test/model",
+          "model_verification": "provider-metadata",
+          "variant": "deep",
+          "variant_verification": "provider-metadata",
+          "effort": null,
+          "effort_verification": "not-supported",
+          "permission_mode": "dangerously_bypass",
+          "permission_enforcement": "mcode-permission-full-argument",
+          "run_id": "run-golden",
+          "session_id": "session-golden",
+          "turn_id": "turn-golden",
+          "terminal_status": "succeeded",
+          "progress_seq": 5
+        }
+      }
+    },
+    {
+      "name": "structured-success",
+      "input": {
+        "stderr": "",
+        "final_text": " { \"ok\" : true } ",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 0,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"succeeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"output\": {\"ok\": true}, \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}}"
+      },
+      "result": {
+        "endpoint_id": "session-golden",
+        "assistant_text": " { \"ok\" : true } ",
+        "observed": {
+          "models": [
+            "test/model#deep"
+          ],
+          "model": "test/model",
+          "model_verification": "provider-metadata",
+          "variant": "deep",
+          "variant_verification": "provider-metadata",
+          "effort": null,
+          "effort_verification": "not-supported",
+          "permission_mode": "dangerously_bypass",
+          "permission_enforcement": "mcode-permission-full-argument",
+          "run_id": "run-golden",
+          "session_id": "session-golden",
+          "turn_id": "turn-golden",
+          "terminal_status": "succeeded",
+          "progress_seq": 5
+        }
+      }
+    },
+    {
+      "name": "status-failed",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 4,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.failed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"status\": \"failed\"}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"failed\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"error\": {\"category\": \"runtime\", \"code\": \"TEST\", \"message\": \"failed\", \"retryable\": true}}}"
+      },
+      "error": {
+        "code": "PROVIDER_FAILED",
+        "message": "MCode operation ended with a non-success status",
+        "retryable": false,
+        "requires_authorization": false,
+        "details": {
+          "provider_status": "failed",
+          "return_code": 4,
+          "provider_error": {
+            "category": "runtime",
+            "code": "TEST",
+            "message": "failed",
+            "retryable": true
+          },
+          "model_verified": true,
+          "run_id": "run-golden",
+          "session_id": "session-golden",
+          "turn_id": "turn-golden",
+          "stderr_tail": ""
+        }
+      }
+    },
+    {
+      "name": "status-timeout",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 4,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.failed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"status\": \"timeout\"}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"timeout\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"error\": {\"category\": \"runtime\", \"code\": \"TEST\", \"message\": \"failed\", \"retryable\": true}}}"
+      },
+      "error": {
+        "code": "PROVIDER_FAILED",
+        "message": "MCode operation ended with a non-success status",
+        "retryable": false,
+        "requires_authorization": false,
+        "details": {
+          "provider_status": "timeout",
+          "return_code": 4,
+          "provider_error": {
+            "category": "runtime",
+            "code": "TEST",
+            "message": "failed",
+            "retryable": true
+          },
+          "model_verified": true,
+          "run_id": "run-golden",
+          "session_id": "session-golden",
+          "turn_id": "turn-golden",
+          "stderr_tail": ""
+        }
+      }
+    },
+    {
+      "name": "status-cancelled",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 4,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.failed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"status\": \"cancelled\"}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"cancelled\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"error\": {\"category\": \"runtime\", \"code\": \"TEST\", \"message\": \"failed\", \"retryable\": true}}}"
+      },
+      "error": {
+        "code": "PROVIDER_FAILED",
+        "message": "MCode operation ended with a non-success status",
+        "retryable": false,
+        "requires_authorization": false,
+        "details": {
+          "provider_status": "cancelled",
+          "return_code": 4,
+          "provider_error": {
+            "category": "runtime",
+            "code": "TEST",
+            "message": "failed",
+            "retryable": true
+          },
+          "model_verified": true,
+          "run_id": "run-golden",
+          "session_id": "session-golden",
+          "turn_id": "turn-golden",
+          "stderr_tail": ""
+        }
+      }
+    },
+    {
+      "name": "status-limit_exceeded",
+      "input": {
+        "stderr": "",
+        "final_text": "final\n",
+        "final_mtime_ns": 1788820000000000002,
+        "result_reset_at_ns": 1788820000000000001,
+        "expected_endpoint_id": null,
+        "expected_run_id": null,
+        "expected_turn_id": null,
+        "resume": false,
+        "model": "test/model#deep",
+        "read_only": false,
+        "permission_mode": "dangerously_bypass",
+        "return_code": 4,
+        "stdout": "{\"schemaVersion\": 1, \"sequence\": 1, \"timestampMs\": 1788820000000, \"type\": \"exec.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 2, \"timestampMs\": 1788820000000, \"type\": \"session.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 3, \"timestampMs\": 1788820000000, \"type\": \"turn.started\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\"}\n{\"schemaVersion\": 1, \"sequence\": 4, \"timestampMs\": 1788820000000, \"type\": \"turn.failed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"status\": \"limit_exceeded\"}\n{\"schemaVersion\": 1, \"sequence\": 5, \"timestampMs\": 1788820000000, \"type\": \"exec.completed\", \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"result\": {\"schemaVersion\": 1, \"type\": \"exec.result\", \"status\": \"limit_exceeded\", \"model\": {\"providerId\": \"test\", \"modelId\": \"model\", \"variant\": \"deep\"}, \"durationMs\": 1, \"runId\": \"run-golden\", \"sessionId\": \"session-golden\", \"turnId\": \"turn-golden\", \"error\": {\"category\": \"runtime\", \"code\": \"TEST\", \"message\": \"failed\", \"retryable\": true}}}"
+      },
+      "error": {
+        "code": "PROVIDER_FAILED",
+        "message": "MCode operation ended with a non-success status",
+        "retryable": false,
+        "requires_authorization": false,
+        "details": {
+          "provider_status": "limit_exceeded",
+          "return_code": 4,
+          "provider_error": {
+            "category": "runtime",
+            "code": "TEST",
+            "message": "failed",
+            "retryable": true
+          },
+          "model_verified": true,
+          "run_id": "run-golden",
+          "session_id": "session-golden",
+          "turn_id": "turn-golden",
+          "stderr_tail": ""
+        }
+      }
+    }
+  ]
+}
