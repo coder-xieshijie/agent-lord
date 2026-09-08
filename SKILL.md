@@ -9,7 +9,7 @@ Route one logical task to one durable endpoint. Treat `scripts/agent_lord.py` as
 
 ## Invariants
 
-- A session that loads this skill is orchestration-only and stays that way for the whole session: it passes context, dispatches endpoints, supervises operations, and converges results. Every actual task action — implementation, analysis, review, test execution, semantic acceptance — runs in a newly started external Codex CLI, Claude Code CLI, or MCode CLI endpoint.
+- Keep the delegated task's implementation, analysis, review, test execution, and semantic acceptance in the user-authorized external endpoints. The caller handles context transfer, dispatch, supervision, and result convergence, and may directly inspect dispatch contracts, run records, and deliverable completeness or review the orchestration process itself. These control-plane checks do not authorize taking over delegated task work or adding workflow nodes.
 - Start only with explicit user authorization. Preserve user choices for target, source revision, model, effort, permission posture, and external writes.
 - Treat the user-specified endpoint set as part of the execution contract. Dispatch every requested Codex CLI, Claude Code CLI, or MCode CLI endpoint exactly; never drop or substitute a named provider.
 - Keep one endpoint per `task_id` and one in-flight operation per task. Continue the saved endpoint; replacement requires an explicit decision.
