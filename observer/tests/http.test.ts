@@ -3,9 +3,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Hub } from "../src/server/hub.js";
 import { createObserverServer } from "../src/server/http.js";
+
+vi.mock("../src/server/fonts.js", () => ({
+  createFontCatalog: () => async () => ({ available: true, families: ["Fixture Mono"] }),
+}));
 
 const j = (value: unknown): string => JSON.stringify(value);
 const TOKEN = "fixture-token";
@@ -49,6 +53,14 @@ async function startServer(hub: Hub): Promise<{ base: string; server: Server }> 
 }
 
 describe("HTTP surface", () => {
+  it("keeps host font discovery behind the existing read-only token gate", async () => {
+    const { hub } = makeFixture();
+    const { base } = await startServer(hub);
+    expect((await fetch(`${base}/api/fonts`)).status).toBe(401);
+    expect((await fetch(`${base}/api/fonts?token=wrong`)).status).toBe(401);
+    expect((await fetch(`${base}/api/fonts?token=${TOKEN}`, { method: "POST" })).status).toBe(405);
+    expect(await (await fetch(`${base}/api/fonts?token=${TOKEN}`)).json()).toEqual({ available: true, families: ["Fixture Mono"] });
+  });
   it("rejects missing/invalid tokens and non-GET methods", async () => {
     const { hub } = makeFixture();
     const { base } = await startServer(hub);

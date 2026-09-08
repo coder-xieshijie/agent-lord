@@ -23,6 +23,7 @@
 | `ai-elements/tool.tsx` | `packages/elements/src/tool.tsx` |
 | `ai-elements/conversation.tsx` | `packages/elements/src/conversation.tsx` |
 | `ai-elements/code-block.tsx` | `packages/elements/src/code-block.tsx` |
+| `ai-elements/terminal.tsx` | `packages/elements/src/terminal.tsx` |
 | `ui/button.tsx` 等 shadcn 基础组件（button / button-group / tooltip / badge / collapsible / separator / select） | `packages/shadcn-ui/components/ui/*.tsx` |
 | `../lib/utils.ts` | `packages/shadcn-ui/lib/utils.ts` |
 
@@ -35,6 +36,14 @@
    `streamdownPlugins` 相应改为 `{ cjk, code }`。
 3. `tool.tsx`：状态徽标文案本地化为中文（Running→运行中 等），图标与
    结构不变。
+4. `terminal.tsx`：为流式光标添加 `data-terminal-cursor`，供主题 CSS 单独着色。
+   导入别名同第 1 项，ANSI 解析依赖 `ansi-to-react` 与上游保持在 6.x。
 
 除上述改动外未修改任何逻辑。升级方式：在本地克隆中 `git fetch` 后按
-上表重新复制并重放以上三类改动。
+上表重新复制并重放以上改动。
+
+`tool-row.tsx` 是本项目的组合层：复用 Tool / CodeBlock / Terminal，替换
+工具标题的排版并控制分组、折叠与日志跟随。运行文字的轻微流光由本项目 CSS
+实现，响应 `prefers-reduced-motion`，没有引入上游 Shimmer 的 motion 依赖。
+主题为参考 Nord / Dracula / Catppuccin / Solarized 常见配色的本地令牌预设，
+不是对这些项目全部主题文件的复制。

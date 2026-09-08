@@ -2,6 +2,7 @@
 
 import type {
   DeltaResponse,
+  FontCatalog,
   OverviewResponse,
   SnapshotResponse,
   TimelineItem,
@@ -18,6 +19,10 @@ async function getJson<T>(path: string): Promise<T> {
 
 export function fetchOverview(): Promise<OverviewResponse> {
   return getJson<OverviewResponse>("/api/overview");
+}
+
+export function fetchFonts(): Promise<FontCatalog> {
+  return getJson<FontCatalog>("/api/fonts");
 }
 
 export function fetchSnapshot(taskId: string): Promise<SnapshotResponse> {

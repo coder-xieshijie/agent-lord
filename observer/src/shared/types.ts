@@ -4,6 +4,12 @@ export type ProviderId = "mcode-cli" | "codex-cli" | "claude-cli" | "codex-app";
 
 export type ToolState = "running" | "completed" | "error";
 
+export interface FontCatalog {
+  families: string[];
+  available: boolean;
+  message?: string;
+}
+
 export interface MessageItem {
   id: string;
   kind: "message";

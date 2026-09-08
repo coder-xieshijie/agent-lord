@@ -5,9 +5,7 @@ import {
   Circle,
   Copy,
   Loader2,
-  Moon,
   RadioTower,
-  Sun,
   XCircle,
 } from "lucide-react";
 import type {
@@ -19,10 +17,12 @@ import type {
   OmittedItem,
   TaskMeta,
   TimelineItem,
-  ToolItem,
 } from "../shared/types";
 import { applyItem, fetchOverview, fetchSnapshot, openStream } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { presentTimeline } from "@/lib/presentation";
+import { AppearanceControls } from "@/components/appearance-controls";
+import { ToolRow, CompletedToolGroup, type Expansion, type SetExpanded } from "@/components/tool-row";
 import {
   Conversation,
   ConversationContent,
@@ -30,13 +30,6 @@ import {
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
-import {
-  Tool,
-  ToolContent,
-  ToolHeader,
-  ToolOutput,
-} from "@/components/ai-elements/tool";
-import { CodeBlock } from "@/components/ai-elements/code-block";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -111,49 +104,6 @@ function DetailRow({ name, value, mono = true }: { name: string; value: string |
   );
 }
 
-const TOOL_STATE = {
-  running: "input-available",
-  completed: "output-available",
-  error: "output-error",
-} as const;
-
-function ToolCard({ item }: { item: ToolItem }) {
-  let parsedInput: unknown = item.inputText;
-  if (item.inputText) {
-    try {
-      parsedInput = JSON.parse(item.inputText);
-    } catch {
-      parsedInput = item.inputText;
-    }
-  }
-  return (
-    <Tool className="mb-0" defaultOpen={item.state === "error"}>
-      <ToolHeader
-        state={TOOL_STATE[item.state]}
-        title={item.title ? `${item.name} · ${item.title}` : item.name}
-        type={`tool-${item.name}` as `tool-${string}`}
-      />
-      <ToolContent>
-        {item.inputText ? (
-          <div className="space-y-2 overflow-hidden">
-            <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">参数</h4>
-            <div className="rounded-md bg-muted/50">
-              <CodeBlock
-                code={typeof parsedInput === "string" ? parsedInput : JSON.stringify(parsedInput, null, 2)}
-                language={typeof parsedInput === "string" ? "shellscript" : "json"}
-              />
-            </div>
-          </div>
-        ) : null}
-        <ToolOutput errorText={item.errorText} output={item.outputText} />
-        {item.exitCode !== undefined && item.exitCode !== 0 ? (
-          <p className="text-destructive text-xs">退出码 {item.exitCode}</p>
-        ) : null}
-      </ToolContent>
-    </Tool>
-  );
-}
-
 function MarkerRow({ item }: { item: LifecycleItem | JournalItem }) {
   const level = item.kind === "journal" ? item.level : "info";
   return (
@@ -210,20 +160,20 @@ function FinalRow({ item }: { item: FinalItem }) {
   );
 }
 
-function TimelineRow({ item }: { item: TimelineItem }) {
+function TimelineRow({ item, expanded, setExpanded }: { item: TimelineItem; expanded: Expansion; setExpanded: SetExpanded }) {
   switch (item.kind) {
     case "message": {
       const message = item as MessageItem;
       return (
-        <Message from="assistant">
+        <Message className="observer-message max-w-full py-3" from="assistant">
           <MessageContent>
-            <MessageResponse isAnimating={message.streaming}>{message.text}</MessageResponse>
+            <MessageResponse className="text-[14px] leading-7" isAnimating={message.streaming}>{message.text}</MessageResponse>
           </MessageContent>
         </Message>
       );
     }
     case "tool":
-      return <ToolCard item={item as ToolItem} />;
+      return <ToolRow item={item} onOpenChange={(value) => setExpanded(item.id, value)} open={expanded[item.id] ?? false} />;
     case "lifecycle":
     case "journal":
       return <MarkerRow item={item as LifecycleItem | JournalItem} />;
@@ -263,17 +213,6 @@ function TaskListEntry({ meta, selected, onSelect }: { meta: TaskMeta; selected:
 }
 
 export default function App() {
-  const [dark, setDark] = useState(
-    () =>
-      localStorage.getItem("observer-theme") === "dark" ||
-      (localStorage.getItem("observer-theme") === null &&
-        window.matchMedia("(prefers-color-scheme: dark)").matches),
-  );
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", dark);
-    localStorage.setItem("observer-theme", dark ? "dark" : "light");
-  }, [dark]);
-
   const [tasks, setTasks] = useState<TaskMeta[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [items, setItems] = useState<TimelineItem[]>([]);
@@ -367,25 +306,22 @@ export default function App() {
   }, [selectedId, sync]);
 
   const activeMeta = meta ?? tasks.find((task) => task.taskId === selectedId) ?? null;
-  const visibleItems = useMemo(() => items, [items]);
+  const { rows: visibleItems, details: executionDetails } = useMemo(() => presentTimeline(items), [items]);
+  const [expansion, setExpansion] = useState<Record<string, Expansion>>({});
+  const expanded = expansion[selectedId ?? ""] ?? {};
+  const setExpanded: SetExpanded = (id, open) => {
+    const taskId = selectedId ?? "";
+    setExpansion((current) => ({ ...current, [taskId]: { ...current[taskId], [id]: open } }));
+  };
 
   return (
     <div className="flex h-full">
       {/* Wide layout: sidebar task list */}
-      <aside className="hidden w-72 shrink-0 flex-col border-r bg-card/50 lg:flex">
-        <div className="flex items-center justify-between px-4 pt-4 pb-2">
-          <h1 className="font-semibold text-sm">Agent Lord 实时观察</h1>
-          <Button
-            aria-label="切换主题"
-            className="size-7"
-            onClick={() => setDark((value) => !value)}
-            size="icon"
-            variant="ghost"
-          >
-            {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
-          </Button>
+      <aside className="hidden w-64 shrink-0 flex-col border-r bg-muted/20 lg:flex">
+        <div className="px-4 pt-5 pb-4">
+          <h1 className="font-semibold text-sm">任务</h1>
+          <p className="mt-1 text-xs text-muted-foreground">{tasks.length} 个会话</p>
         </div>
-        <p className="px-4 pb-3 text-muted-foreground text-xs">只读观察 · 不发送、不干预</p>
         <nav className="flex-1 space-y-1 overflow-y-auto px-2 pb-4">
           {tasks.map((task) => (
             <TaskListEntry
@@ -401,10 +337,12 @@ export default function App() {
         </nav>
       </aside>
 
-      <main className="flex min-w-0 flex-1 flex-col">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <AppearanceControls />
         {/* Narrow layout: compact switcher */}
         <div className="flex items-center gap-2 border-b px-3 py-2 lg:hidden">
           <select
+            aria-label="选择任务"
             className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2 text-sm"
             onChange={(event) => setSelectedId(event.target.value)}
             value={selectedId ?? ""}
@@ -415,19 +353,10 @@ export default function App() {
               </option>
             ))}
           </select>
-          <Button
-            aria-label="切换主题"
-            className="size-8 shrink-0"
-            onClick={() => setDark((value) => !value)}
-            size="icon"
-            variant="ghost"
-          >
-            {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
-          </Button>
         </div>
 
         {activeMeta ? (
-          <header className="border-b px-4 py-3">
+          <header className="max-h-[45vh] shrink-0 overflow-y-auto border-b px-4 py-4 sm:px-6">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
               <StatusDot meta={activeMeta} />
               <h2 className="min-w-0 truncate font-semibold text-base">{activeMeta.title}</h2>
@@ -460,13 +389,15 @@ export default function App() {
             ) : null}
             {activeMeta.running && activeMeta.activity ? (
               <p className="mt-2 text-muted-foreground text-xs" aria-live="polite">
+                <span className={conn === "live" ? "activity-shimmer" : undefined}>
                 {activeMeta.activity.activeToolCount > 0
                   ? `正在执行 ${activeMeta.activity.activeTools.join("、") || "工具"}（${activeMeta.activity.activeToolCount} 项）`
                   : activeMeta.activity.lastTool ? `${activeMeta.activity.lastTool} 已结束，等待后续事件` : "等待输出"}
+                </span>
                 {activeMeta.activity.lastProgressMs ? ` · 最近事件 ${relativeTime(activeMeta.activity.lastProgressMs)}` : ""}
               </p>
             ) : null}
-            <Collapsible>
+            <Collapsible key={activeMeta.taskId}>
               <CollapsibleTrigger className="mt-2 flex items-center gap-1 text-muted-foreground text-xs hover:text-foreground">
                 <ChevronDown className="size-3 transition-transform data-[state=open]:rotate-180" />
                 详情与续聊
@@ -525,11 +456,24 @@ export default function App() {
           </div>
         ) : null}
 
-        <Conversation className="flex-1">
-          <ConversationContent className="mx-auto w-full max-w-3xl gap-3 px-4 py-5">
+        <Conversation className="min-h-0 flex-1" key={selectedId} initial="instant">
+          <ConversationContent className="mx-auto w-full max-w-3xl gap-1 px-4 pt-5 pb-12 sm:px-8">
             {visibleItems.map((item) => (
-              <TimelineRow item={item} key={item.id} />
+              item.kind === "tool-group"
+                ? <CompletedToolGroup expanded={expanded} group={item} key={item.id} setExpanded={setExpanded} />
+                : <TimelineRow expanded={expanded} item={item} key={item.id} setExpanded={setExpanded} />
             ))}
+            {executionDetails.length ? (
+              <Collapsible className="mt-6 border-t pt-3">
+                <CollapsibleTrigger className="group flex items-center gap-1.5 py-1 text-xs text-muted-foreground hover:text-foreground">
+                  <ChevronDown className="size-3 transition-transform group-data-[state=open]:rotate-180" />
+                  执行记录 · {executionDetails.length} 条
+                </CollapsibleTrigger>
+                <CollapsibleContent className="mt-3 space-y-3">
+                  {executionDetails.map((item) => <TimelineRow expanded={expanded} item={item} key={item.id} setExpanded={setExpanded} />)}
+                </CollapsibleContent>
+              </Collapsible>
+            ) : null}
             {!visibleItems.length ? (
               <ConversationEmptyState
                 description="等待该任务产生可展示的输出"

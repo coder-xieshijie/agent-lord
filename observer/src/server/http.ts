@@ -14,6 +14,7 @@ import path from "node:path";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { Hub, HubListener } from "./hub.js";
 import { IDENTIFIER_PATTERN } from "./scan.js";
+import { createFontCatalog } from "./fonts.js";
 
 const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -78,6 +79,7 @@ function tokenOk(req: IncomingMessage, url: URL, expected: string): boolean {
 export function createObserverServer(options: ObserverServerOptions): Server {
   const { hub, token, webRoot } = options;
   const instanceId = options.instanceId ?? randomUUID();
+  const fonts = createFontCatalog();
 
   const server = createServer((req, res) => {
     let url: URL;
@@ -102,6 +104,12 @@ export function createObserverServer(options: ObserverServerOptions): Server {
     }
     if (url.pathname === "/api/overview") {
       sendJson(res, 200, { tasks: hub.overview(), generation: hub.generation });
+      return;
+    }
+    if (url.pathname === "/api/fonts") {
+      void fonts().then((catalog) => {
+        if (!res.destroyed) sendJson(res, 200, catalog);
+      });
       return;
     }
 
