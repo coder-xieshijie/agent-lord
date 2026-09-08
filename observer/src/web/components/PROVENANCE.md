@@ -5,7 +5,15 @@
 - 仓库：https://github.com/vercel/ai-elements
 - 本地克隆：`/Users/minimax/code/github/ai-elements`
 - 固定 commit：`6a9d5b1822ffb10bba4bd97175f01edd7d8651cd`
-- 许可证：Apache-2.0（见上游仓库 LICENSE）
+- 许可证：Apache-2.0，许可文本原样收录于
+  [`observer/third-party-licenses/ai-elements.LICENSE.txt`](../../../third-party-licenses/ai-elements.LICENSE.txt)
+  （复制自上游仓库根 `LICENSE`，Copyright 2023 Vercel, Inc.）。
+
+许可核验说明（基于上述固定 commit）：上游仓库仅根目录 `LICENSE` 与
+`packages/cli/LICENSE`（内容相同的 Apache-2.0 声明；CLI 包与本次 vendored
+文件无关）；`packages/elements`、`packages/shadcn-ui` 无各自的 LICENSE 文件，
+其 `package.json` 也未声明 `license` 字段，故根 `LICENSE` 覆盖全部 vendored
+文件。上游无 NOTICE 或其他附加声明文件。
 
 ## 文件对应
 
