@@ -33,16 +33,17 @@ Route one logical task to one durable endpoint. Treat `scripts/agent_lord.py` as
 
 ## Deterministic loop
 
-1. Resolve the exact repository, source branch, fixed head/base, and write the task prompt to a private temporary file outside the repository. Remove caller-owned prompt/result files after the command has consumed them.
-2. Inspect `python3 scripts/agent_lord.py start --help`, then run `start` with every explicit user choice. For revision-sensitive local CLI work, use `--repo`, `--source-branch`, one explicit workspace policy, and `--head-sha`; the control plane freezes the resolved checkout as the target. Use `--target` when the exact working directory already is the contract. Do not recreate these preflight checks manually.
-3. Process the returned envelope until terminal:
+1. Resolve the exact repository, source branch, and fixed head/base. Batch independent repository and provider-discovery reads; keep source resolution and dispatch in dependency order. Reuse skill instructions and command help already verified in this session while their source/version is unchanged; refresh mutable repository and provider facts needed for this dispatch. For an unknown MCode model identifier, query `mcode provider list --json` directly and retain only the relevant provider/model/variant fields. Leave delegated code investigation to the endpoint.
+2. Write a compact task prompt with five parts: goal, source revision, scope, hard constraints, and deliverables. Preserve all user requirements and necessary evidence or artifact pointers once; omit repeated conversation history and duplicate instructions. Keep the prompt in a private temporary file outside the repository, and remove caller-owned prompt/result files after the consuming command has finished.
+3. Inspect `python3 scripts/agent_lord.py start --help` on first use or when the command surface is uncertain or has changed, then run `start` with every explicit user choice. For revision-sensitive local CLI work, use `--repo`, `--source-branch`, one explicit workspace policy, and `--head-sha`; the control plane freezes the resolved checkout as the target. Use `--target` when the exact working directory already is the contract. Do not recreate these preflight checks manually.
+4. Process the returned envelope until terminal:
    - `ACTION_REQUIRED`: invoke the exact model-side tool and arguments in `action`; save the raw return value outside the repository, then pass it to `accept`. Add `--auto-read` to `accept` when the next step would only be another polling read; the envelope then carries that read action directly instead of requiring a separate `check`.
-   - `RUNNING`: for a pipeline, pass every active and newly starting `task_id` to one bounded `checkpoint`, including the pre-task window in which an operation may exist before its task record. Use `check` only for one established task's full current state. Only `checkpoint` performs recovery; `check` reports state and, when the recorded controller process is gone, an `observed.supervision.recovery_command` hint.
+   - `RUNNING`: supervise local CLI work with one bounded `checkpoint`, selecting the current task or every active and newly starting pipeline `task_id`, including the pre-task window before its task record exists. Use `check` for a needed full-state diagnosis of one established task, or to request the next Codex App read when `accept --auto-read` was not used. Only `checkpoint` performs recovery; `check` reports state and, when the recorded controller process is gone, an `observed.supervision.recovery_command` hint.
    - `CHECKPOINT_ACTIONABLE`: process every ordinary envelope in `actionable`.
    - `SUCCEEDED`: use the returned artifact as the canonical response.
    - `ERROR`: follow `safe_recovery` only when present; otherwise report the structured error. The Claude `RESULT_INVALID` retry below is the single documented exception.
    - `NEEDS_DECISION`: stop for the authority named by the error. Never convert it into an implicit replacement, model change, source change, or permission expansion.
-4. Start a later round with `turn` only after the previous operation is terminal. The script reapplies the saved execution contract and deduplicates an identical in-flight message.
+5. Start a later round with `turn` only after the previous operation is terminal. The script reapplies the saved execution contract and deduplicates an identical in-flight message.
 
 ## Claude `RESULT_INVALID` retry
 
@@ -64,7 +65,13 @@ The user authorizes one bounded exception to the `ERROR` rule above: any `claude
 - The caller starts the named integrator only after the workers are terminal. Agent Lord validates the declared barrier and isolation contract; it does not invent workers, an integrator, temporary branch names, merge order, or another MR.
 - A missing or inconsistent parallel plan returns `NEEDS_DECISION`. Read [references/protocol.md](references/protocol.md) before dispatching concurrent writable tasks.
 
-`checkpoint` wakes the caller only for terminal or model-actionable state. Its default quiet interval is 150 seconds; `CHECKPOINT_QUIET` with exit `124` is healthy and can be followed by another checkpoint. An automatic selection that finds no active task returns `CHECKPOINT_QUIET` immediately instead of waiting out the interval. Read the protocol reference for multi-task selection, compact output, and recovery supervision semantics.
+## Waiting and reporting
+
+`checkpoint` wakes the caller for terminal or model-actionable state before its default 150-second quiet deadline. `CHECKPOINT_QUIET` with exit `124` is healthy: continue with the remaining active task selection. An automatic selection with no active task returns quiet immediately; stop that empty loop and reconcile any expected task. Read the protocol reference for multi-task selection, compact output, and recovery supervision semantics.
+
+- Keep one outstanding checkpoint for the selected task set. If the host tool yields a running command handle, resume that handle until completion; start the next checkpoint only after it returns. Host-tool yields may be shorter than the checkpoint deadline to satisfy responsiveness requirements. An unchanged wait does not call for another `check`, log read, or watcher.
+- Report dispatch and meaningful changes such as a new deliverable, recovery, a required decision, or completion. When host instructions require a heartbeat, use one sentence with elapsed time and the last observed state; label stale observations and do not infer current tool activity from silence. Use available sanitized metadata instead of extra queries solely to fill a progress message.
+- At completion, read the canonical artifact once and report the result, artifact location, source SHA when applicable, and actual model/variant or its verification limit. When assessing delay, separate caller preparation, endpoint execution, and result retrieval using available timestamps; identify unmeasured intervals. Shorter polling does not make the endpoint execute faster, and any speedup target remains unverified until measured.
 
 ## Provider routing and defaults
 
@@ -103,4 +110,4 @@ Successful local CLI turns automatically publish a final-response-only artifact.
 
 Version 1 task handles remain readable, but `turn` fails closed because those records did not preserve model, effort, permission, or source. Use `scripts/task_store.py upgrade` with explicit values before continuing one; it never infers the missing contract. The compatibility interface also supports explicit registration and cleanup; new work uses `scripts/agent_lord.py`.
 
-Read [references/protocol.md](references/protocol.md) when supervising multiple tasks, diagnosing a non-terminal envelope, or changing an adapter or state record. It is the source of truth for actionability, recovery, schemas, and error semantics.
+Read [references/protocol.md](references/protocol.md) when supervising multiple tasks, diagnosing stalls, errors, or recovery, or changing an adapter or state record. Ordinary single-task `RUNNING` supervision follows the loop above. The reference is the source of truth for actionability, recovery, schemas, and error semantics.

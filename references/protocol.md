@@ -1,6 +1,6 @@
 # Agent Lord deterministic protocol
 
-Read this reference when supervising multiple tasks, diagnosing a non-terminal envelope, or changing an adapter or state record.
+Read this reference when supervising multiple tasks, diagnosing stalls, errors, or recovery, or changing an adapter or state record. Ordinary single-task `RUNNING` supervision follows the loop in [SKILL.md](../SKILL.md).
 
 ## Public result envelope
 
@@ -9,7 +9,7 @@ Every command prints one JSON object. `schemas/result-v1.schema.json` is the mai
 | Status | Meaning | Caller action |
 |---|---|---|
 | `ACTION_REQUIRED` | A Codex App host-tool action is durably pending | Invoke the exact tool and arguments, then `accept` its raw result |
-| `RUNNING` | The provider operation is preparing, progressing, waiting, stalled, or recovering | Inspect `observed.supervision`; use `check` or a bounded `checkpoint` |
+| `RUNNING` | The provider operation is preparing, progressing, waiting, stalled, or recovering | Continue bounded `checkpoint` supervision; use `check` for full-state diagnosis or the next App read |
 | `SUCCEEDED` | Endpoint, execution contract, and final artifact passed the available checks | Consume the artifact |
 | `ERROR` | Deterministic validation or provider execution failed | Use only the emitted safe recovery, if any, plus the caller-owned Claude `RESULT_INVALID` retry in `SKILL.md` |
 | `NEEDS_DECISION` | Recovery changes identity, authority, source, or delivery semantics | Stop for an explicit decision |
