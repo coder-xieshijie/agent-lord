@@ -39,6 +39,7 @@ import { CodexProjector } from "./projector/codex.js";
 import { ClaudeProjector } from "./projector/claude.js";
 import { clip, clipTitle, TOOL_TEXT_CLIP } from "./sanitize.js";
 import { CallerLifecycleReader } from "./caller-lifecycle.js";
+import { CallerSessionReader } from "./caller-session.js";
 import type { CallerIdentity } from "@agent-lord/core/contracts";
 
 function displayCaller(caller: CallerIdentity | undefined) {
@@ -204,6 +205,7 @@ function emptyMeta(taskId: string): TaskMeta {
 
 export class Hub {
   private readonly callerLifecycle = new CallerLifecycleReader();
+  private readonly callerSession = new CallerSessionReader();
   readonly generation: string;
   private readonly root: string;
   private readonly tasks = new Map<string, TaskState>();
@@ -426,6 +428,14 @@ export class Hub {
     const { status, statusKind, running, pidAlive: alive } = deriveStatus(operations, pidAlive);
     const evidence = sessionEvidence(task, operations, state.streamSessionId);
     const lifecycle = this.callerLifecycle.observe(lastOp?.invocation?.caller, lastOp?.operationId ?? "", lastOp?.createdAt ?? "", timestamp(lastOp?.completedAt ?? null));
+    // 调度会话归属规则：以“最初拉起该 CLI 会话”的调度会话为准，即首个操作
+    // （initial caller）记录的 session_id；后续 turn/recovery 由其他会话调用
+    // 也不迁移分组（本轮调用者仍在 caller.current 中单独展示）。首个操作没有
+    // 记录调用方时保持未归属，不从后来的操作推断最初拉起者。
+    const attributedCaller = operations[0]?.invocation?.caller;
+    const callerSession = attributedCaller?.session_id
+      ? { sessionId: attributedCaller.session_id, ...this.callerSession.read(attributedCaller) }
+      : null;
     const activityCandidates = [
       fileMtimeMs(journalPath(this.root, state.taskId)),
       ...(lastOp
@@ -442,7 +452,7 @@ export class Hub {
       model: task?.model ?? lastOp?.model ?? null,
       effort: task?.effort ?? null,
       execution: lastOp?.execution,
-      caller: { initial: displayCaller(operations[0]?.invocation?.caller), current: displayCaller(lastOp?.invocation?.caller), lifecycle },
+      caller: { initial: displayCaller(operations[0]?.invocation?.caller), current: displayCaller(lastOp?.invocation?.caller), lifecycle, session: callerSession },
       timing: {
         providerCompletedAtMs: lastOp?.providerCompletedAtMs ?? (lastOp ? state.readers.get(lastOp.operationId)?.projector?.completedAtMs : null) ?? null,
         artifactReadyAtMs: lastOp?.artifact ? timestamp(lastOp.completedAt) : null,

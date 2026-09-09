@@ -26,7 +26,8 @@ interface Reader {
 const object = (v: unknown): Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v) ? v as Record<string, unknown> : {};
 const unknown = (note: string): CallerLifecycle => ({ status: "unknown", turnId: null, startedAtMs: null, completedAtMs: null, receivedAtMs: null, observedAtMs: null, note });
 
-function locate(root: string, session: string): string | null {
+/** Locate the unique rollout log of one explicitly named session id. */
+export function locateRolloutFile(root: string, session: string): string | null {
   const found: string[] = [];
   let entries = 0;
   const visit = (dir: string, depth: number): void => {
@@ -75,7 +76,7 @@ export class CallerLifecycleReader {
       this.readers.set(key, reader);
     }
     if (!reader.file && Date.now() - reader.lookupAt > 5000) {
-      reader.file = locate(caller.data_root, caller.session_id);
+      reader.file = locateRolloutFile(caller.data_root, caller.session_id);
       reader.lookupAt = Date.now();
     }
     if (!reader.file) return unknown("未找到唯一匹配的 Codex Session 日志");

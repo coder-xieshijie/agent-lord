@@ -14,6 +14,17 @@ export interface CallerLifecycle {
   observedAtMs: number | null;
   note: string;
 }
+/** Read-only display metadata of the scheduling (caller) session. Only the
+ * session id, its recorded thread name and the basename of its own project
+ * directory are exposed; full paths never leave the server. */
+export interface CallerSessionMeta {
+  sessionId: string;
+  /** Caller thread name from its data root's session index; null when absent. */
+  name: string | null;
+  /** Basename of the caller session's own cwd (its project); null when the
+   * rollout metadata is unavailable or the session identity does not match. */
+  projectName: string | null;
+}
 export interface ExecutionModel {
   requestedModel: string | null;
   requestedEffort: string | null;
@@ -161,7 +172,7 @@ export interface TaskMeta {
   model: string | null;
   effort: string | null;
   execution?: ExecutionModel;
-  caller?: { initial: CallerDisplay | null; current: CallerDisplay | null; lifecycle: CallerLifecycle };
+  caller?: { initial: CallerDisplay | null; current: CallerDisplay | null; lifecycle: CallerLifecycle; session: CallerSessionMeta | null };
   timing?: { providerCompletedAtMs: number | null; artifactReadyAtMs: number | null; callerReceivedAtMs: number | null; callerCompletedAtMs: number | null };
   artifact?: { operationId: string; path: string; bytes: number; sha256: string };
   permissionMode: string | null;
