@@ -1,8 +1,8 @@
 /** Pure helpers for the sidebar's two task-list views:
  *   - "cli": every dispatched CLI execution session, flat, newest first;
  *   - "caller": the same tasks grouped by the scheduling session that
- *     dispatched them (attribution is computed server-side: the latest
- *     operation that recorded a caller session id).
+ *     originally launched them (attribution is computed server-side: the
+ *     first operation's recorded caller; later follow-ups never move a task).
  *
  * Both views order strictly by last activity, newest first; entries without
  * any recorded activity sink to the end. Ties fall back to task/group ids so

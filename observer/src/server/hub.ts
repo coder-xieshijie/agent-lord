@@ -428,10 +428,11 @@ export class Hub {
     const { status, statusKind, running, pidAlive: alive } = deriveStatus(operations, pidAlive);
     const evidence = sessionEvidence(task, operations, state.streamSessionId);
     const lifecycle = this.callerLifecycle.observe(lastOp?.invocation?.caller, lastOp?.operationId ?? "", lastOp?.createdAt ?? "", timestamp(lastOp?.completedAt ?? null));
-    // 调度会话归属规则：取最近一条记录了 caller.session_id 的操作（同一任务被
-    // 不同调度会话续做时，归属最新的调度会话）；全部缺失时该任务不归属任何
-    // 调度会话，仍在“未记录调度会话”分组中可访问。
-    const attributedCaller = [...operations].reverse().map((op) => op.invocation?.caller).find((c) => c?.session_id);
+    // 调度会话归属规则：以“最初拉起该 CLI 会话”的调度会话为准，即首个操作
+    // （initial caller）记录的 session_id；后续 turn/recovery 由其他会话调用
+    // 也不迁移分组（本轮调用者仍在 caller.current 中单独展示）。首个操作没有
+    // 记录调用方时保持未归属，不从后来的操作推断最初拉起者。
+    const attributedCaller = operations[0]?.invocation?.caller;
     const callerSession = attributedCaller?.session_id
       ? { sessionId: attributedCaller.session_id, ...this.callerSession.read(attributedCaller) }
       : null;

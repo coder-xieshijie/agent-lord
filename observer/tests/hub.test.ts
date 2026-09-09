@@ -115,9 +115,11 @@ describe("Hub ordering and incremental refresh", () => {
     expect(snapshot.items.filter((item) => item.kind === "request" || item.kind === "message").map((item) => "text" in item ? item.text : "")).toEqual(["用户原话\n不能改写", "dispatch first", "reply-fixture-first", "dispatch follow-up", "reply-fixture-second"]);
     expect(snapshot.task.caller?.initial?.session_id).toBe("caller-first");
     expect(snapshot.task.caller?.current?.session_id).toBe("caller-second");
-    // Attribution: the latest operation that recorded a caller session id owns
-    // the task; unverifiable metadata stays an honest null and no data_root leaks.
-    expect(snapshot.task.caller?.session).toEqual({ sessionId: "caller-second", name: null, projectName: null });
+    // Attribution: the scheduling session that originally launched the task
+    // (first operation's caller) owns it; a later follow-up from another
+    // session never moves it. Unverifiable metadata stays an honest null and
+    // no data_root leaks.
+    expect(snapshot.task.caller?.session).toEqual({ sessionId: "caller-first", name: null, projectName: null });
     expect(snapshot.task.execution).toMatchObject({ requestedModel: "test/fable#xhigh", actualModel: "test/fable", requestedVariant: "xhigh", actualVariant: "xhigh", actualEffort: null });
     expect(JSON.stringify(snapshot)).not.toContain("/private/not-for-web");
     const ids = snapshot.items.map((item) => item.id);
@@ -125,6 +127,22 @@ describe("Hub ordering and incremental refresh", () => {
     expect(hub.snapshot(taskId)!.items.map((item) => item.id)).toEqual(ids);
     const replay = new Hub([taskId], root); replay.refresh();
     expect(replay.snapshot(taskId)!.items.map((item) => item.id)).toEqual(ids);
+  });
+
+  it("never infers the original launcher from later operations when the first one recorded no caller", () => {
+    const root = makeRoot();
+    const taskId = "fixture-late-caller";
+    writeOperation(root, taskId, "fixture-late-first", "mcode-cli", { created_at: "2026-09-09T10:00:00Z", message: "legacy start" });
+    writeOperation(root, taskId, "fixture-late-second", "mcode-cli", {
+      created_at: "2026-09-09T11:00:00Z", message: "follow-up",
+      invocation: { caller: { kind: "codex", session_id: "late-caller", turn_id: null, identity_source: "caller-declared" }, trigger: "caller_followup", user_request: null, reason: null },
+    });
+    const hub = new Hub([taskId], root);
+    hub.refresh();
+    const meta = hub.snapshot(taskId)!.task;
+    expect(meta.caller?.initial).toBeNull();
+    expect(meta.caller?.current?.session_id).toBe("late-caller"); // current round's caller still visible
+    expect(meta.caller?.session).toBeNull(); // stays in the unattributed group
   });
 
   it("shows a Claude fallback as the actual model and does not treat argument-only Codex metadata as a runtime report", () => {
