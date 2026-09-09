@@ -1,3 +1,4 @@
+import { readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import {
   type Action,
@@ -10,7 +11,7 @@ import {
   string,
 } from "./contracts.js";
 import { AgentLordError } from "./errors.js";
-import { StateStore, readJson } from "./state.js";
+import { StateStore, normalizeTask, readJson } from "./state.js";
 
 export type ActiveOperation = {
   task_id: string;
@@ -23,24 +24,70 @@ export class CheckpointScan {
   private actionOwners = new Map<string, string>();
   private byId = new Map<string, Operation>();
   private pending = new Map<string, Action>();
+  /** Parsed JSON keyed by path, reused while the file stat stays unchanged. */
+  private fileCache = new Map<string, { key: string; value: unknown }>();
+  /** Per-instance parse accounting so tests can prove unchanged files are not re-parsed. */
+  readonly stats = { parsed: 0, reused: 0 };
   tasks: Task[] = [];
   operations: Operation[] = [];
   known = new Set<string>();
   constructor(private readonly store: StateStore) {}
+  /**
+   * Parse `file` only when its stat identity changed since the last tick.
+   * The stat is taken before the read: if the file is atomically replaced
+   * between the two, the cache stores the fresh value under the stale key and
+   * the next tick simply re-parses. Records are written via atomic replace,
+   * so (mtimeMs,size,ino) changes on every cross-process update; a stat
+   * failure (for example deletion between readdir and read) falls through to
+   * the original uncached read and keeps its error contract.
+   */
+  private cachedJson<T>(file: string, parse: () => T): T {
+    let key: string | null = null;
+    try {
+      const st = statSync(file);
+      key = `${st.mtimeMs}:${st.size}:${st.ino}`;
+    } catch {
+      key = null;
+    }
+    if (key !== null) {
+      const hit = this.fileCache.get(file);
+      if (hit && hit.key === key) {
+        this.stats.reused += 1;
+        return hit.value as T;
+      }
+    }
+    const value = parse();
+    this.stats.parsed += 1;
+    if (key !== null) this.fileCache.set(file, { key, value });
+    return value;
+  }
   tick(selected?: string[]): void {
     const selection = selected ? new Set(selected) : undefined;
-    this.tasks = this.store.tasks();
+    this.tasks = readdirSync(this.store.root)
+      .filter((f) => f.endsWith(".json"))
+      .sort()
+      .map((f) => {
+        const file = path.join(this.store.root, f);
+        return this.cachedJson(file, () =>
+          normalizeTask(readJson(file, "TASK_UNKNOWN", "task disappeared")),
+        );
+      })
+      .sort((a, b) => a.created_at.localeCompare(b.created_at));
     this.operations = [];
     this.known = new Set(this.tasks.map((v) => v.task_id));
     for (const file of this.store.paths("operations")) {
       const owner = this.owners.get(file);
       if (owner) this.known.add(owner);
       if (owner && selection && !selection.has(owner)) continue;
-      const op = readJson(
+      const op = this.cachedJson(
         file,
-        "OPERATION_UNKNOWN",
-        "operation disappeared",
-      ) as unknown as Operation;
+        () =>
+          readJson(
+            file,
+            "OPERATION_UNKNOWN",
+            "operation disappeared",
+          ) as unknown as Operation,
+      );
       if (string(op.task_id)) {
         this.owners.set(file, op.task_id);
         this.known.add(op.task_id);
@@ -53,11 +100,15 @@ export class CheckpointScan {
     for (const file of this.store.paths("actions")) {
       const owner = this.actionOwners.get(file);
       if (owner && selection && !selection.has(owner)) continue;
-      const action = readJson(
+      const action = this.cachedJson(
         file,
-        "ACTION_UNKNOWN",
-        "action disappeared",
-      ) as unknown as Action;
+        () =>
+          readJson(
+            file,
+            "ACTION_UNKNOWN",
+            "action disappeared",
+          ) as unknown as Action,
+      );
       const task = this.owners.get(
         path.join(this.store.root, "operations", `${action.operation_id}.json`),
       );

@@ -436,7 +436,8 @@ export class AgentLord {
       opts.model,
       opts.effort,
     );
-    const retries = resolveRetryPlan(provider, model, opts.retry_attempts);
+    const retries =
+      opts.retry_plan ?? resolveRetryPlan(provider, model, opts.retry_attempts);
     if (typeof message !== "string" || !message)
       throw usageError("message must be non-empty");
     const source = validateSource(opts.head_sha, opts.base_sha);
@@ -2765,19 +2766,30 @@ export class AgentLord {
       active = scan.active(selected);
       result = actionable();
       if (result) return [result, false];
+      const supervised: Envelope[] = [];
       for (const { operation: op } of active) {
         let envelope: Envelope | null = null;
-        if (op.provider === "claude-cli")
-          envelope = await this.superviseClaude(op);
-        else if (["preparing", "running"].includes(op.status))
-          envelope =
-            op.provider === "mcode-cli"
-              ? await this.superviseMcode(op)
-              : op.provider === "codex-cli"
-                ? await this.superviseCodex(op)
-                : null;
-        if (envelope) return [this.checkpointBatch([envelope], active), false];
+        try {
+          if (op.provider === "claude-cli")
+            envelope = await this.superviseClaude(op);
+          else if (["preparing", "running"].includes(op.status))
+            envelope =
+              op.provider === "mcode-cli"
+                ? await this.superviseMcode(op)
+                : op.provider === "codex-cli"
+                  ? await this.superviseCodex(op)
+                  : null;
+        } catch (error) {
+          // Never drop envelopes already collected in this tick. The failing
+          // operation stays active and is supervised again on the next
+          // checkpoint tick, where a persistent error still propagates.
+          if (!supervised.length) throw error;
+          continue;
+        }
+        if (envelope) supervised.push(envelope);
       }
+      if (supervised.length)
+        return [this.checkpointBatch(supervised, active), false];
       await delay(
         Math.min(
           250,

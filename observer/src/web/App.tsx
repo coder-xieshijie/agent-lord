@@ -6,6 +6,7 @@ import {
   Circle,
   Folder,
   Loader2,
+  Pause,
   RadioTower,
   XCircle,
 } from "lucide-react";
@@ -19,7 +20,13 @@ import type {
   TaskMeta,
   TimelineItem,
 } from "../shared/types";
-import { applyItem, fetchOverview, fetchSnapshot, openStream } from "@/lib/api";
+import { applyItem, token } from "@/lib/api";
+import {
+  createHttpTransport,
+  SerialPoller,
+  TaskSyncController,
+  type SyncState,
+} from "@/lib/sync";
 import { cn } from "@/lib/utils";
 import { presentTimeline } from "@/lib/presentation";
 import { selectTask } from "@/lib/task-selection";
@@ -52,7 +59,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 
-type ConnState = "connecting" | "live" | "reconnecting";
+const transport = createHttpTransport("", token);
 
 function relativeTime(ms: number | null): string {
   if (!ms) return "—";
@@ -76,17 +83,31 @@ function StatusDot({ meta }: { meta: TaskMeta }) {
   return <span className="inline-block size-2 rounded-full bg-muted-foreground/50" />;
 }
 
-function ConnBadge({ state }: { state: ConnState }) {
-  const label = state === "live" ? "实时连接" : state === "connecting" ? "连接中" : "重连中";
+/** Truthful polling status: the page keeps current via short incremental
+ * requests (no held connection), pauses in background tabs and resumes on
+ * visibility — the badge reflects exactly that. */
+function ConnBadge({ state }: { state: SyncState }) {
+  const label =
+    state === "live" ? "增量轮询中" : state === "loading" ? "同步中" : state === "retrying" ? "重试中" : "后台已暂停";
   return (
     <Badge
       className={cn(
         "gap-1.5 rounded-full font-normal text-xs",
-        state === "live" ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400",
+        state === "live"
+          ? "text-emerald-600 dark:text-emerald-400"
+          : state === "paused"
+            ? "text-muted-foreground"
+            : "text-amber-600 dark:text-amber-400",
       )}
       variant="outline"
     >
-      {state === "live" ? <RadioTower className="size-3" /> : <Loader2 className="size-3 animate-spin" />}
+      {state === "live" ? (
+        <RadioTower className="size-3" />
+      ) : state === "paused" ? (
+        <Pause className="size-3" />
+      ) : (
+        <Loader2 className="size-3 animate-spin" />
+      )}
       {label}
     </Badge>
   );
@@ -287,7 +308,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [items, setItems] = useState<TimelineItem[]>([]);
   const [meta, setMeta] = useState<TaskMeta | null>(null);
-  const [conn, setConn] = useState<ConnState>("connecting");
+  const [conn, setConn] = useState<SyncState>("loading");
   const [truncated, setTruncated] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [view, setView] = useState<SidebarView>(DEFAULT_SIDEBAR_VIEW);
@@ -297,8 +318,8 @@ export default function App() {
   // Operation the user asked to locate from the timeline; consumed once the
   // matching [data-opid] anchor exists in the rendered task timeline.
   const pendingScroll = useRef<{ taskId: string; operationId: string } | null>(null);
-  const streamCloser = useRef<(() => void) | null>(null);
-  const syncEpoch = useRef(0);
+  const taskSync = useRef<TaskSyncController | null>(null);
+  const overviewSync = useRef<SerialPoller | null>(null);
   const sortedTasks = useMemo(() => sortTasksByActivity(tasks), [tasks]);
   const callerGroups = useMemo(() => groupTasksByCaller(tasks), [tasks]);
   // Keep the current selection visible when entering the caller view: the
@@ -306,26 +327,43 @@ export default function App() {
   const isGroupOpen = (group: CallerGroup): boolean =>
     expandedGroups[group.key] ?? groupKeyForTask(callerGroups, selectedId) === group.key;
 
-  // Overview poll (2.5s) keeps the task list & statuses fresh.
+  // Overview poll (2.5s, serial with backoff, paused while hidden) keeps the
+  // task list & statuses fresh.
   useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const overview = await fetchOverview();
-        if (cancelled) return;
-        setTasks(overview.tasks);
-        setSelectedId((current) => selectTask(overview.tasks, current, window.location.search));
-        setLoadError(null);
-      } catch (error) {
-        if (!cancelled) setLoadError(String(error instanceof Error ? error.message : error));
-      }
-    };
-    void load();
-    const timer = setInterval(() => void load(), 2500);
+    const poller = new SerialPoller(
+      async (signal) => {
+        try {
+          const overview = await transport.overview(signal);
+          if (signal.aborted) return;
+          setTasks(overview.tasks);
+          setSelectedId((current) => selectTask(overview.tasks, current, window.location.search));
+          setLoadError(null);
+        } catch (error) {
+          if (!signal.aborted) setLoadError(String(error instanceof Error ? error.message : error));
+          throw error;
+        }
+      },
+      { intervalMs: 2500 },
+    );
+    overviewSync.current = poller;
+    poller.start();
+    if (document.visibilityState === "hidden") poller.setVisible(false);
     return () => {
-      cancelled = true;
-      clearInterval(timer);
+      overviewSync.current = null;
+      poller.dispose();
     };
+  }, []);
+
+  // Background pause is a resource optimisation only: hidden pages stop
+  // scheduling requests; becoming visible re-syncs immediately.
+  useEffect(() => {
+    const onVisibility = () => {
+      const visible = document.visibilityState !== "hidden";
+      overviewSync.current?.setVisible(visible);
+      taskSync.current?.setVisible(visible);
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
   }, []);
 
   useEffect(() => {
@@ -341,61 +379,41 @@ export default function App() {
     window.history.replaceState(null, "", url.href);
   }, [selectedId]);
 
-  // Snapshot + SSE per selected task, with reset-driven resync.
-  const sync = useCallback((taskId: string) => {
-    const epoch = ++syncEpoch.current;
-    streamCloser.current?.();
-    streamCloser.current = null;
-    setConn("connecting");
-    void fetchSnapshot(taskId)
-      .then((snapshot) => {
-        if (syncEpoch.current !== epoch) return;
-        setItems(snapshot.items);
-        setMeta(snapshot.task);
-        setTruncated(snapshot.truncatedHistory);
-        setConn("live");
-        streamCloser.current = openStream(taskId, snapshot.cursor, {
-          onDelta(delta) {
-            if (syncEpoch.current !== epoch) return;
-            setItems((current) => {
-              let next = current;
-              for (const patch of delta.patches) next = applyItem(next, patch.item);
-              return next;
-            });
-            if (delta.task) setMeta(delta.task);
-          },
-          onReset() {
-            if (syncEpoch.current !== epoch) return;
-            setConn("reconnecting");
-            setTimeout(() => {
-              if (syncEpoch.current === epoch) sync(taskId);
-            }, 1200);
-          },
-          onStateChange(state) {
-            if (syncEpoch.current === epoch) setConn(state);
-          },
-        });
-      })
-      .catch(() => {
-        if (syncEpoch.current !== epoch) return;
-        setConn("reconnecting");
-        setTimeout(() => {
-          if (syncEpoch.current === epoch) sync(taskId);
-        }, 2000);
-      });
-  }, []);
-
+  // Per-task incremental sync: snapshot once, then ~1s serial delta polling
+  // with reset-driven re-snapshot. Never stops permanently — a finished
+  // session may be continued later, so polling keeps observing it.
   useEffect(() => {
     setItems([]);
     setMeta(null);
+    setTruncated(false);
     if (!selectedId) return;
-    sync(selectedId);
+    setConn("loading");
+    const controller = new TaskSyncController(selectedId, transport, {
+      onSnapshot(snapshot) {
+        setItems(snapshot.items);
+        setMeta(snapshot.task);
+        setTruncated(snapshot.truncatedHistory);
+      },
+      onDelta(delta) {
+        setItems((current) => {
+          let next = current;
+          for (const patch of delta.patches) next = applyItem(next, patch.item);
+          return next;
+        });
+        if (delta.task) setMeta(delta.task);
+      },
+      onState: setConn,
+    });
+    taskSync.current = controller;
+    controller.start();
+    if (document.visibilityState === "hidden") controller.setVisible(false);
     return () => {
-      syncEpoch.current += 1;
-      streamCloser.current?.();
-      streamCloser.current = null;
+      // Dispose aborts the in-flight request and clears timers; a late result
+      // can never pollute the next selected task.
+      taskSync.current = null;
+      controller.dispose();
     };
-  }, [selectedId, sync]);
+  }, [selectedId]);
 
   const activeMeta = (meta?.taskId === selectedId ? meta : null) ?? tasks.find((task) => task.taskId === selectedId) ?? null;
   const displayModel = activeMeta?.execution?.actualModel

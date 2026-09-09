@@ -208,6 +208,8 @@ export interface StartOptions {
   model?: string | null;
   effort?: string | null;
   retry_attempts?: number;
+  /** Replay an already-frozen plan verbatim (scripted retry); wins over `retry_attempts`. */
+  retry_plan?: RetryStage[];
   read_only?: boolean;
   head_sha?: string;
   base_sha?: string;
