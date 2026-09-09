@@ -102,7 +102,7 @@ describe("local CLI lifecycle", () => {
     ).rejects.toMatchObject({ code: "PERMISSION_UNSUPPORTED" });
     expect(h.calls()).toHaveLength(2);
   });
-  it.each([{ model: "bad" }, { model: "test/model", effort: "high" }, {}])(
+  it.each([{ model: "bad" }, { model: "test/model", effort: "high" }])(
     "MCode rejects unenforceable contracts before launch: %j",
     async (opts) => {
       await expect(
@@ -111,6 +111,23 @@ describe("local CLI lifecycle", () => {
       expect(h.calls()).toHaveLength(0);
     },
   );
+  it("MCode starts with the configured default and freezes its variant on continuation", async () => {
+    const result = await h.lord.start("task", "mcode", h.target, "work");
+    expect(result.status).toBe("SUCCEEDED");
+    expect(object(result.observed)).toMatchObject({
+      model: "custom_provider:mafia-claude/claude-fable-5",
+      variant: "xhigh",
+      variant_verification: "provider-metadata",
+    });
+    const file = path.join(h.base, "providers.json");
+    const config = JSON.parse(readFileSync(file, "utf8"));
+    config.providers["mcode-cli"].default_model = "test/other#low";
+    writeFileSync(file, JSON.stringify(config));
+    await h.lord.turn("task", "next");
+    expect(h.calls()[1].args).toContain(
+      "custom_provider:mafia-claude/claude-fable-5#xhigh",
+    );
+  });
   it("Claude retry uses a continuation query after ambiguous delivery", async () => {
     h.options({ failAttempts: 1, silent: true });
     const result = await h.lord.start(
@@ -144,6 +161,7 @@ describe("local CLI lifecycle", () => {
     h.options({ failAll: true });
     await expect(
       h.lord.start("task", "claude-cli", h.target, "work", {
+        model: "claude-opus-5",
         retry_attempts: 2,
       }),
     ).rejects.toMatchObject({
