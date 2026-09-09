@@ -39,7 +39,7 @@ Before a node can satisfy a barrier, validate its terminal envelope against the 
 
 For a role that must be independent, inspect the observed execution rather than the requested label. In particular, a Fable-family task with `observed.fallback_used=true` ran on the configured fallback model and cannot satisfy an independent-Fable barrier. Mark that check `UNVERIFIED` and return the required decision, unless the named pipeline documents another disposition for its own frozen fallback stage; never label it `PASS`.
 
-A `SKILL.md` `RESULT_INVALID` replacement session is a new `task_id` and a new endpoint. Carry its `replacement_for` lineage in the manifest, and re-run these identity and independence checks against the replacement instead of inheriting the original node's result.
+A `RESULT_INVALID` replacement session created by `retry-invalid` (see `SKILL.md`) is a new `task_id` and a new endpoint. Carry its `replacement_for` lineage in the manifest, and re-run these identity and independence checks against the replacement instead of inheriting the original node's result.
 
 ## Converge and stop
 

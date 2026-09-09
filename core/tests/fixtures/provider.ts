@@ -115,6 +115,10 @@ if (provider === "claude-cli") {
   event("exec.started");
   event(args.includes("--session") ? "session.resumed" : "session.started");
   event("turn.started");
+  for (let i = 0; i < (options.itemEvents ?? 0); i++)
+    event("item.updated", {
+      item: { id: `item-${i}`, type: "agent_message", text: `chunk ${i}` },
+    });
   if (options.toolWait)
     event("item.started", {
       item: {
