@@ -24,6 +24,8 @@ The task-record compatibility CLI is `node core/dist/task-store.js` with `put`, 
 
 See [SKILL.md](SKILL.md) for orchestration policy, [the protocol](references/protocol.md) for envelopes and recovery, and [Observer](observer/README.md) for the read-only UI.
 
+The Skill uses `dangerously_bypass` for every new CLI dispatch, including reviews and handoffs, without `--read-only`. Task prompts retain review, code-change, and external-write boundaries. Task-required worktrees and isolated local branches need no additional confirmation; concurrent CLI tasks, including reviews, still use separate worktrees under exclusive workspace/branch leases. Runtime read-only compatibility remains available as documented in the protocol. Isolation grants no additional workflow nodes, endpoint replacements, external writes, or exceptions to source verification.
+
 ## Runtime structure
 
 CLI 负责派发、监督和结果核验；观察器只读取执行记录并展示；宿主接口只负责打开链接。
