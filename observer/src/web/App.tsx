@@ -3,7 +3,6 @@ import {
   CheckCircle2,
   ChevronDown,
   Circle,
-  Copy,
   Loader2,
   RadioTower,
   XCircle,
@@ -21,6 +20,10 @@ import type {
 import { applyItem, fetchOverview, fetchSnapshot, openStream } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { presentTimeline } from "@/lib/presentation";
+import { selectTask } from "@/lib/task-selection";
+import { CopyButton } from "@/components/copy-button";
+import { RequestRow } from "@/components/request-row";
+import { ExecutionDetails, callerStatus } from "@/components/execution-details";
 import { AppearanceControls } from "@/components/appearance-controls";
 import { ToolRow, CompletedToolGroup, type Expansion, type SetExpanded } from "@/components/tool-row";
 import {
@@ -31,7 +34,6 @@ import {
 } from "@/components/ai-elements/conversation";
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   Collapsible,
   CollapsibleContent,
@@ -75,22 +77,6 @@ function ConnBadge({ state }: { state: ConnState }) {
       {state === "live" ? <RadioTower className="size-3" /> : <Loader2 className="size-3 animate-spin" />}
       {label}
     </Badge>
-  );
-}
-
-function CopyButton({ text, label }: { text: string; label: string }) {
-  const [copied, setCopied] = useState(false);
-  const onCopy = useCallback(() => {
-    void navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  }, [text]);
-  return (
-    <Button className="h-7 gap-1.5 px-2 text-xs" onClick={onCopy} size="sm" variant="outline">
-      <Copy className="size-3" />
-      {copied ? "已复制" : label}
-    </Button>
   );
 }
 
@@ -162,6 +148,8 @@ function FinalRow({ item }: { item: FinalItem }) {
 
 function TimelineRow({ item, expanded, setExpanded }: { item: TimelineItem; expanded: Expansion; setExpanded: SetExpanded }) {
   switch (item.kind) {
+    case "request":
+      return <RequestRow item={item} open={expanded[item.id] ?? false} onOpenChange={(value) => setExpanded(item.id, value)} />;
     case "message": {
       const message = item as MessageItem;
       return (
@@ -231,11 +219,7 @@ export default function App() {
         const overview = await fetchOverview();
         if (cancelled) return;
         setTasks(overview.tasks);
-        setSelectedId((current) => {
-          if (current) return current;
-          const running = overview.tasks.find((task) => task.running);
-          return (running ?? overview.tasks[0])?.taskId ?? null;
-        });
+        setSelectedId((current) => selectTask(overview.tasks, current, window.location.search));
         setLoadError(null);
       } catch (error) {
         if (!cancelled) setLoadError(String(error instanceof Error ? error.message : error));
@@ -248,6 +232,19 @@ export default function App() {
       clearInterval(timer);
     };
   }, []);
+
+  useEffect(() => {
+    const navigate = () => setSelectedId(selectTask(tasks, null, window.location.search));
+    window.addEventListener("popstate", navigate);
+    return () => window.removeEventListener("popstate", navigate);
+  }, [tasks]);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("task", selectedId);
+    window.history.replaceState(null, "", url.href);
+  }, [selectedId]);
 
   // Snapshot + SSE per selected task, with reset-driven resync.
   const sync = useCallback((taskId: string) => {
@@ -294,9 +291,9 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!selectedId) return;
     setItems([]);
     setMeta(null);
+    if (!selectedId) return;
     sync(selectedId);
     return () => {
       syncEpoch.current += 1;
@@ -305,7 +302,10 @@ export default function App() {
     };
   }, [selectedId, sync]);
 
-  const activeMeta = meta ?? tasks.find((task) => task.taskId === selectedId) ?? null;
+  const activeMeta = (meta?.taskId === selectedId ? meta : null) ?? tasks.find((task) => task.taskId === selectedId) ?? null;
+  const displayModel = activeMeta?.execution?.actualModel
+    ? `${activeMeta.execution.actualModel}${activeMeta.execution.actualVariant ? `#${activeMeta.execution.actualVariant}` : ""}`
+    : activeMeta?.model;
   const { rows: visibleItems, details: executionDetails } = useMemo(() => presentTimeline(items), [items]);
   const [expansion, setExpansion] = useState<Record<string, Expansion>>({});
   const expanded = expansion[selectedId ?? ""] ?? {};
@@ -363,10 +363,12 @@ export default function App() {
               <Badge className="rounded-full font-normal text-xs" variant="secondary">
                 {activeMeta.providerLabel}
               </Badge>
-              {activeMeta.model ? (
-                <span className="max-w-56 truncate font-mono text-muted-foreground text-xs">{activeMeta.model}</span>
+              {displayModel ? (
+                <span className="max-w-56 truncate font-mono text-muted-foreground text-xs" title={displayModel}>{displayModel}</span>
               ) : null}
               <span className="text-muted-foreground text-xs">{activeMeta.status}</span>
+              <span className="text-muted-foreground text-xs">{callerStatus(activeMeta.caller?.lifecycle)}</span>
+              {activeMeta.artifact && <a className="text-xs underline" href={`/api/tasks/${encodeURIComponent(activeMeta.taskId)}/artifact?operation_id=${encodeURIComponent(activeMeta.artifact.operationId)}&token=${encodeURIComponent(new URLSearchParams(window.location.search).get("token") ?? "")}`}>下载最终产物</a>}
               {activeMeta.delivery ? (
                 <Badge className={cn("rounded-full font-normal text-xs", activeMeta.delivery.status === "incomplete" && "text-amber-600 dark:text-amber-400")} variant="outline">
                   {activeMeta.delivery.status === "verified" ? "声明的交付项已核验" : activeMeta.delivery.status === "incomplete" ? "交付项未齐" : "交付未核验"}
@@ -405,6 +407,7 @@ export default function App() {
               <CollapsibleContent className="mt-2 space-y-1.5 rounded-md bg-muted/40 p-3">
                 <DetailRow name="任务 ID" value={activeMeta.taskId} />
                 <DetailRow name="最近操作" value={activeMeta.lastOperationId} />
+                <ExecutionDetails meta={activeMeta} />
                 {activeMeta.delivery ? (
                   <div className="space-y-1 border-b pb-2">
                     <p className="text-muted-foreground text-xs">交付核验仅检查声明的非空文件和提交；测试结果与页面效果需单独验收。</p>
@@ -422,7 +425,6 @@ export default function App() {
                 <DetailRow mono={false} name="能力" value={activeMeta.capability} />
                 <DetailRow mono={false} name="事件粒度" value={activeMeta.granularity} />
                 <DetailRow mono={false} name="数据根" value={activeMeta.resume.dataRootNote} />
-                {activeMeta.effort ? <DetailRow mono={false} name="Effort" value={activeMeta.effort} /> : null}
                 {activeMeta.permissionMode ? (
                   <DetailRow mono={false} name="权限模式" value={activeMeta.permissionMode} />
                 ) : null}
@@ -455,6 +457,9 @@ export default function App() {
             较早的时间线条目已超出保留窗口，仅显示最近部分
           </div>
         ) : null}
+        {!selectedId && tasks.length > 0 && new URLSearchParams(window.location.search).has("task") && (
+          <p role="status" className="border-b px-4 py-3 text-sm">链接指定的任务不在观察列表中，请从列表选择任务。</p>
+        )}
 
         <Conversation className="min-h-0 flex-1" key={selectedId} initial="instant">
           <ConversationContent className="mx-auto w-full max-w-3xl gap-1 px-4 pt-5 pb-12 sm:px-8">

@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { parseArgs } from "../src/server/main.js";
-import { startPreview, stopPreview, previewStatus, type LaunchOptions } from "../src/server/preview.js";
+import { attachPreview, startPreview, stopPreview, previewStatus, type LaunchOptions } from "../src/server/preview.js";
 import { metadataPath, previewToken, readMetadata, writeMetadata, type PreviewRecord } from "../src/server/runtime.js";
 
 const cleanups: Array<() => void | Promise<void>> = [];
@@ -29,6 +29,31 @@ async function fixture(): Promise<LaunchOptions> {
 }
 
 describe("preview lifecycle", () => {
+  it("attaches using HTTP, preserves other tasks and configuration, and focuses the requested task without a browser", async () => {
+    const options = await fixture();
+    let owned: PreviewRecord | null = null;
+    cleanups.push(async () => { if (owned) await stopPreview(options.stateDir, options.port); });
+    const first = await attachPreview(options);
+    owned = first.record;
+    expect(first).toMatchObject({ binding_verified: true, page_http_verified: true, focus_task: "fixture-task" });
+    expect(new URL(first.url).searchParams.get("task")).toBe("fixture-task");
+    expect(first.tasks[0].available).toBe(false); // valid pre-task binding, not a claim of execution
+    const next = await attachPreview({ ...options, tasks: ["fixture-other"], focusTask: "fixture-other", token: "ignored-new-token", refreshMs: 900 });
+    owned = next.record;
+    expect(next.record.tasks).toEqual(["fixture-other", "fixture-task"]);
+    expect(next.record.refresh_ms).toBe(options.refreshMs);
+    expect(previewToken(next.record)).toBe(previewToken(first.record));
+    expect(next.record.web_root).toBe(first.record.web_root);
+    expect(next.record.entrypoint).toBe(first.record.entrypoint);
+    expect(new URL(next.url).searchParams.get("task")).toBe("fixture-other");
+    const again = await attachPreview({ ...options, tasks: ["fixture-other"] });
+    expect(again.record.instance_id).toBe(next.record.instance_id);
+    await expect(stopPreview(options.stateDir, options.port, first.record.instance_id)).rejects.toThrow("实例已变化");
+    writeMetadata({ ...owned, pid: process.pid });
+    await expect(attachPreview(options)).rejects.toThrow("无法核验");
+    writeMetadata(owned);
+    expect((await previewStatus(options.stateDir, options.port)).status).toBe("running");
+  }, 15_000);
   it("starts once, verifies readiness, closes SSE and preserves the address across restart", async () => {
     const options = await fixture();
     let owned: PreviewRecord | null = null;
@@ -86,5 +111,6 @@ describe("preview lifecycle", () => {
       expect(() => parseArgs(["--tasks", "fixture-task", "--refresh-ms", value])).toThrow("refresh-ms");
     }
     expect(() => parseArgs([])).toThrow("allowlist");
+    expect(() => parseArgs(["--tasks", "fixture-task", "--focus-task", "other"])).toThrow("focus-task");
   });
 });

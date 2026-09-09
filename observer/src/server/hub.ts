@@ -19,6 +19,7 @@ import {
   pidAlive,
   readCompleteLines,
   readTaskRecord,
+  readFinalArtifact,
   validStdoutPath,
   type OperationRecord,
 } from "./scan.js";
@@ -37,6 +38,18 @@ import { McodeProjector } from "./projector/mcode.js";
 import { CodexProjector } from "./projector/codex.js";
 import { ClaudeProjector } from "./projector/claude.js";
 import { clip, clipTitle, TOOL_TEXT_CLIP } from "./sanitize.js";
+import { CallerLifecycleReader } from "./caller-lifecycle.js";
+import type { CallerIdentity } from "@agent-lord/core/contracts";
+
+function displayCaller(caller: CallerIdentity | undefined) {
+  if (!caller) return null;
+  const { kind, session_id, turn_id, identity_source } = caller;
+  return { kind, session_id, turn_id, identity_source };
+}
+function timestamp(value: string | null): number | null {
+  const ms = value ? Date.parse(value) : NaN;
+  return Number.isFinite(ms) ? ms : null;
+}
 
 /** Journal event types that must sort after the operation's stream output. */
 const POST_JOURNAL_TYPES = new Set([
@@ -129,6 +142,7 @@ interface TaskState {
   journalOffset: number;
   journalLineNo: number;
   readers: Map<string, OpReader>;
+  requestOps: Set<string>;
   streamSessionId: string | null;
   meta: TaskMeta;
   metaJson: string;
@@ -189,6 +203,7 @@ function emptyMeta(taskId: string): TaskMeta {
 }
 
 export class Hub {
+  private readonly callerLifecycle = new CallerLifecycleReader();
   readonly generation: string;
   private readonly root: string;
   private readonly tasks = new Map<string, TaskState>();
@@ -204,6 +219,7 @@ export class Hub {
         journalOffset: 0,
         journalLineNo: 0,
         readers: new Map(),
+        requestOps: new Set(),
         streamSessionId: null,
         meta: emptyMeta(taskId),
         metaJson: "",
@@ -251,6 +267,10 @@ export class Hub {
       items: state.timeline.snapshotItems(),
       truncatedHistory: state.timeline.truncatedHistory,
     };
+  }
+
+  artifact(taskId: string, operationId: string): Buffer | null {
+    return this.tasks.has(taskId) ? readFinalArtifact(this.root, taskId, operationId) : null;
   }
 
   delta(taskId: string, afterSeq: number): { cursor: string; patches: Patch[]; task: TaskMeta } | null {
@@ -324,15 +344,29 @@ export class Hub {
         ts: event.ts,
       });
     };
-    for (const event of pre) emitJournal(event);
+    const opIds = new Set(operations.map((op) => op.operationId));
+    for (const event of pre) if (!event.opId || !opIds.has(event.opId)) emitJournal(event);
 
-    // 2. Native exec streams for each operation, oldest first.
+    // Replay each complete round in order, including requests on reconnect.
     for (const operation of operations) {
+      for (const event of pre) if (event.opId === operation.operationId) emitJournal(event);
+      if (!state.requestOps.has(operation.operationId) && (operation.message || operation.invocation?.user_request)) {
+        const invocation = operation.invocation;
+        const base = {
+          kind: "request" as const, trigger: invocation?.trigger ?? "unspecified" as const,
+          caller: displayCaller(invocation?.caller), originalRecorded: Boolean(invocation?.user_request),
+          opId: operation.operationId, ord: 0, tsMs: timestamp(operation.createdAt) ?? undefined,
+        };
+        if (invocation?.user_request) state.timeline.upsert({ ...base, id: `${operation.operationId}/request/user`, role: "user", text: invocation.user_request, reason: null });
+        if (operation.message) state.timeline.upsert({ ...base, id: `${operation.operationId}/request/caller`, role: "caller", text: operation.message, reason: invocation?.reason ?? null });
+        state.requestOps.add(operation.operationId);
+      }
       this.pumpOperation(state, operation);
+      for (const event of post) if (event.opId === operation.operationId) emitJournal(event);
     }
 
     // 3. Post journal events (terminal states, artifacts) after stream output.
-    for (const event of post) emitJournal(event);
+    for (const event of post) if (!event.opId || !opIds.has(event.opId)) emitJournal(event);
 
     // 4. Metadata.
     this.rebuildMeta(state, task, operations);
@@ -391,6 +425,7 @@ export class Hub {
     const target = task?.target ?? lastOp?.target ?? null;
     const { status, statusKind, running, pidAlive: alive } = deriveStatus(operations, pidAlive);
     const evidence = sessionEvidence(task, operations, state.streamSessionId);
+    const lifecycle = this.callerLifecycle.observe(lastOp?.invocation?.caller, lastOp?.operationId ?? "", lastOp?.createdAt ?? "", timestamp(lastOp?.completedAt ?? null));
     const activityCandidates = [
       fileMtimeMs(journalPath(this.root, state.taskId)),
       ...(lastOp
@@ -406,6 +441,14 @@ export class Hub {
       providerLabel: provider ? PROVIDER_LABELS[provider] : (providerRaw ?? "未知"),
       model: task?.model ?? lastOp?.model ?? null,
       effort: task?.effort ?? null,
+      execution: lastOp?.execution,
+      caller: { initial: displayCaller(operations[0]?.invocation?.caller), current: displayCaller(lastOp?.invocation?.caller), lifecycle },
+      timing: {
+        providerCompletedAtMs: lastOp?.providerCompletedAtMs ?? (lastOp ? state.readers.get(lastOp.operationId)?.projector?.completedAtMs : null) ?? null,
+        artifactReadyAtMs: lastOp?.artifact ? timestamp(lastOp.completedAt) : null,
+        callerReceivedAtMs: lifecycle.receivedAtMs, callerCompletedAtMs: lifecycle.completedAtMs,
+      },
+      artifact: lastOp?.artifact,
       permissionMode: task?.permissionMode ?? null,
       target,
       status,

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
@@ -64,6 +65,7 @@ import {
   verifyManagedAdvance,
 } from "./workspace.js";
 import { resolvePath } from "./paths.js";
+import { resolveInvocation } from "./invocation.js";
 import {
   deliveryRequirements,
   sameDeliveryRequest,
@@ -420,6 +422,7 @@ export class AgentLord {
     opts: StartOptions = {},
   ): Promise<Envelope> {
     validateIdentifier("task_id", taskId);
+    const invocation = resolveInvocation(opts.invocation);
     const provider = normalizeProvider(rawProvider);
     providerConfig(provider);
     const cli = provider !== "codex-app";
@@ -674,6 +677,7 @@ export class AgentLord {
             {
               operation_id: id,
               parallel_plan: plan,
+              invocation,
               ...(cli ? { controller_pid: process.pid } : {}),
               ...(provider === "claude-cli"
                 ? { endpoint_id: randomUUID() }
@@ -727,6 +731,7 @@ export class AgentLord {
     } = {},
   ): Promise<Envelope> {
     validateIdentifier("task_id", taskId);
+    const invocation = resolveInvocation(opts.invocation);
     const packet = loadHandoffPacket(packetFile);
     const digest = validateHandoffPacket(packet);
     if (object(packet.continuation).task_id !== taskId)
@@ -886,6 +891,7 @@ export class AgentLord {
             {
               operation_id: id,
               controller_pid: process.pid,
+              invocation,
               ...(provider === "claude-cli"
                 ? { endpoint_id: randomUUID() }
                 : {}),
@@ -941,11 +947,18 @@ export class AgentLord {
   async turn(
     taskId: string,
     message: string,
-    opts: Pick<StartOptions, "required_files" | "require_commit"> & {
+    opts: Pick<
+      StartOptions,
+      "required_files" | "require_commit" | "invocation"
+    > & {
       recovery_from?: string;
     } = {},
   ): Promise<Envelope> {
     validateIdentifier("task_id", taskId);
+    const invocation = resolveInvocation(
+      opts.invocation,
+      Boolean(opts.recovery_from),
+    );
     if (typeof message !== "string" || !message)
       throw usageError("message must be non-empty");
     let writes: Lease | undefined;
@@ -1081,6 +1094,7 @@ export class AgentLord {
             workspace,
             {
               operation_id: id,
+              invocation,
               ...(cli
                 ? { controller_pid: process.pid, endpoint_id: task.endpoint_id }
                 : {}),
@@ -1117,9 +1131,13 @@ export class AgentLord {
       writes?.release();
     }
   }
-  recover(taskId: string, id: string): Promise<Envelope> {
+  recover(
+    taskId: string,
+    id: string,
+    opts: Pick<StartOptions, "invocation"> = {},
+  ): Promise<Envelope> {
     validateIdentifier("operation_id", id);
-    return this.turn(taskId, "continue", { recovery_from: id });
+    return this.turn(taskId, "continue", { ...opts, recovery_from: id });
   }
   private ensureMcodeTask(id: string, endpoint: string): Task {
     const op = this.store.operation(id);
@@ -2014,6 +2032,18 @@ export class AgentLord {
       source: op.source,
       workspace: op.workspace ?? {},
       parallel_plan: op.parallel_plan ?? {},
+      ...(op.invocation ? { invocation: op.invocation } : {}),
+      provider_return_code:
+        typeof op.provider_return_code === "number"
+          ? op.provider_return_code
+          : null,
+      timing: {
+        created_at_ms: Date.parse(op.created_at),
+        completed_at_ms:
+          typeof op.completed_at === "string"
+            ? Date.parse(op.completed_at)
+            : null,
+      },
     };
     if (op.handoff) {
       const h = op.handoff;
@@ -2046,6 +2076,56 @@ export class AgentLord {
       result.warnings = op.observed.warnings;
     if (action) result.action = actionPublic(action);
     return result;
+  }
+  /** Opt-in, operation-bound final text; no provider calls or additional status transitions. */
+  withResponse(envelope: Envelope): Envelope {
+    if (envelope.actionable)
+      return {
+        ...envelope,
+        actionable: envelope.actionable.map((item) => this.withResponse(item)),
+      };
+    if (envelope.status !== "SUCCEEDED" || !envelope.operation_id)
+      return envelope;
+    const op = this.store.operation(envelope.operation_id);
+    if (
+      op.task_id !== envelope.task_id ||
+      op.status !== "succeeded" ||
+      !op.artifact
+    )
+      throw usageError("final response is not bound to a succeeded operation");
+    let text: string;
+    try {
+      const expected = path.join(
+        realpathSync(this.root),
+        "artifacts",
+        op.task_id,
+        `${op.operation_id}.md`,
+      );
+      if (
+        realpathSync(op.artifact.path) !== expected ||
+        realpathSync(expected) !== expected
+      )
+        throw new Error("artifact path mismatch");
+      const bytes = readFileSync(expected);
+      if (
+        bytes.length !== op.artifact.bytes ||
+        sha256(bytes) !== op.artifact.sha256
+      )
+        throw new Error("artifact integrity mismatch");
+      text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch (error) {
+      throw new AgentLordError(
+        "ARTIFACT_INVALID",
+        "cannot read the canonical final response",
+        {
+          details: {
+            operation_id: op.operation_id,
+            reason: error instanceof Error ? error.message : String(error),
+          },
+        },
+      );
+    }
+    return { ...envelope, response: { text, read_at_ms: Date.now() } };
   }
   // Checkpoint takes over only after the original controller has released its lease.
   private claudeController(op: Operation): unknown {

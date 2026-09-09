@@ -206,10 +206,12 @@ describe("durable process recovery", () => {
         "work",
         provider === "mcode-cli" ? { model: "test/model" } : {},
       );
+      expect(h.calls()).toHaveLength(1);
       h.lord.store.updateOperation(first.operation_id!, (op) => ({
         ...op,
         status: "running",
         controller_pid: 2147483647,
+        recovery_controller_pid: null,
         artifact: null,
         observed: {},
       }));
@@ -249,6 +251,8 @@ describe("durable process recovery", () => {
     expect(h.calls()).toHaveLength(0);
   });
   it("Claude stall fences a real provider and sends exactly one continuation", async () => {
+    h.cleanup();
+    h = harness({ claude_stall_seconds: 1, claude_tool_stall_seconds: 2 });
     h.options({ delayMs: 20000, delayFirstOnly: true });
     const result = await h.lord.start(
       "task",
@@ -263,6 +267,8 @@ describe("durable process recovery", () => {
     expect(pidAlive(h.calls()[0].pid)).toBe(false);
   }, 10000);
   it("a killed Claude controller is recovered by one detached worker across concurrent checkpoints", async () => {
+    h.cleanup();
+    h = harness({ claude_stall_seconds: 1, claude_tool_stall_seconds: 2 });
     h.options({ delayMs: 20000, delayFirstOnly: true });
     const prompt = path.join(h.base, "prompt.txt");
     writeFileSync(prompt, "original mutation");

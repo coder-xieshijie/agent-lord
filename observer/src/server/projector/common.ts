@@ -8,6 +8,7 @@ import type { Timeline } from "../timeline.js";
 export abstract class OpProjector {
   /** Native session id observed in the stream itself (evidence for resume). */
   observedSessionId: string | null = null;
+  completedAtMs: number | null = null;
 
   constructor(
     protected readonly timeline: Timeline,

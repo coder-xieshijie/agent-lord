@@ -232,9 +232,17 @@ export async function runChild(spec: ChildSpec): Promise<number> {
       resolveExit = resolve;
     });
     try {
+      // A provider owns its own caller identity; inherited parent ids are misleading in nested dispatches.
+      const childEnv = { ...(spec.env ?? process.env) };
+      for (const key of [
+        "CODEX_THREAD_ID",
+        "CODEX_SESSION_ID",
+        "CODEX_TURN_ID",
+      ])
+        delete childEnv[key];
       child = spawn(spec.command[0], spec.command.slice(1), {
         cwd: spec.target,
-        env: spec.env,
+        env: childEnv,
         stdio: descriptors as [number, number, number],
         detached: spec.detached && process.platform !== "win32",
         windowsHide: true,

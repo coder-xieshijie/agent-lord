@@ -7,10 +7,13 @@
  * records that already carry the allow-listed task_id.
  */
 
-import { readdirSync, readFileSync, statSync, openSync, readSync, closeSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, openSync, readSync, closeSync, realpathSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { TaskMeta } from "../shared/types.js";
+import type { Invocation } from "@agent-lord/core/contracts";
+import { IDENTIFIER_PATTERN } from "@agent-lord/core/contracts";
 import { clipTitle } from "./sanitize.js";
 export { IDENTIFIER_PATTERN } from "@agent-lord/core/contracts";
 
@@ -28,6 +31,11 @@ export interface OperationRecord {
   observedSessionId: string | null;
   target: string | null;
   model: string | null;
+  message: string | null;
+  invocation?: Invocation;
+  execution: NonNullable<TaskMeta["execution"]>;
+  artifact?: TaskMeta["artifact"];
+  providerCompletedAtMs: number | null;
   errorCode: string | null;
   errorMessage: string | null;
   activity?: TaskMeta["activity"];
@@ -60,6 +68,23 @@ function asString(value: unknown): string | null {
 
 function object(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function invocation(value: unknown): Invocation | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = object(value);
+  const c = object(raw.caller);
+  const source = c.identity_source;
+  const trigger = raw.trigger;
+  return {
+    caller: {
+      kind: asString(c.kind) ?? "unknown", session_id: asString(c.session_id), turn_id: asString(c.turn_id),
+      identity_source: source === "runtime-env" || source === "caller-declared" ? source : "unavailable",
+      ...(typeof c.data_root === "string" ? { data_root: c.data_root } : {}),
+    },
+    trigger: trigger === "user_request" || trigger === "caller_followup" || trigger === "recovery" ? trigger : "unspecified",
+    user_request: asString(raw.user_request), reason: asString(raw.reason),
+  };
 }
 
 function displayEvidence(value: Record<string, unknown>): Pick<OperationRecord, "activity" | "delivery" | "recovery"> {
@@ -146,6 +171,15 @@ function parseOperationFile(file: string): OperationRecord | null {
     const operationId = asString(value.operation_id);
     const taskId = asString(value.task_id);
     if (!operationId || !taskId) return null;
+    const requestedModel = asString(expected.model);
+    const modelVerification = asString(observed.model_verification) ?? (observed.main_model_verified === true ? "provider-metadata" : null);
+    const models = Array.isArray(observed.models) ? observed.models.filter((v): v is string => typeof v === "string" && Boolean(v)) : [];
+    const actualModel = asString(observed.model) ?? asString(observed.main_model)
+      ?? (models.length === 1 && modelVerification !== "argument-enforced" ? models[0] : null);
+    const rawArtifact = object(value.artifact);
+    const artifact = value.status === "succeeded" && asString(rawArtifact.path) && asString(rawArtifact.sha256)
+      && typeof rawArtifact.bytes === "number" && rawArtifact.bytes > 0
+      ? { operationId, path: String(rawArtifact.path), sha256: String(rawArtifact.sha256), bytes: rawArtifact.bytes } : undefined;
     return {
       operationId,
       taskId,
@@ -160,6 +194,16 @@ function parseOperationFile(file: string): OperationRecord | null {
       observedSessionId: asString(observed.session_id),
       target: asString(value.target),
       model: asString(expected.model) ?? asString(observed.model),
+      message: asString(value.message),
+      invocation: invocation(value.invocation),
+      execution: {
+        requestedModel, requestedEffort: asString(expected.effort),
+        requestedVariant: value.provider === "mcode-cli" && requestedModel?.includes("#") ? requestedModel.slice(requestedModel.indexOf("#") + 1) : null,
+        actualModel, actualEffort: asString(observed.effort), actualVariant: asString(observed.variant),
+        modelVerification, effortVerification: asString(observed.effort_verification), variantVerification: asString(observed.variant_verification),
+      },
+      artifact,
+      providerCompletedAtMs: typeof observed.provider_completed_at_ms === "number" && Number.isFinite(observed.provider_completed_at_ms) ? observed.provider_completed_at_ms : null,
       errorCode: error ? asString(error.code) : null,
       errorMessage: error ? asString(error.message) : null,
       ...displayEvidence(value),
@@ -167,6 +211,20 @@ function parseOperationFile(file: string): OperationRecord | null {
   } catch {
     return null;
   }
+}
+
+/** Only the exact canonical artifact named by an allow-listed operation may be downloaded. */
+export function readFinalArtifact(root: string, taskId: string, opId: string): Buffer | null {
+  if (!IDENTIFIER_PATTERN.test(taskId) || !IDENTIFIER_PATTERN.test(opId)) return null;
+  try {
+    const operation = parseOperationFile(path.join(root, "operations", `${opId}.json`));
+    if (operation?.taskId !== taskId || operation.operationId !== opId || operation.status !== "succeeded" || !operation.artifact) return null;
+    const expected = path.join(realpathSync(root), "artifacts", taskId, `${opId}.md`);
+    if (realpathSync(operation.artifact.path) !== expected || realpathSync(expected) !== expected) return null;
+    const bytes = readFileSync(expected);
+    if (bytes.length !== operation.artifact.bytes || createHash("sha256").update(bytes).digest("hex") !== operation.artifact.sha256) return null;
+    return bytes;
+  } catch { return null; }
 }
 
 /** All operations belonging to `taskId`, sorted by created_at.

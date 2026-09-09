@@ -113,7 +113,7 @@ export function createObserverServer(options: ObserverServerOptions): Server {
       return;
     }
 
-    const taskMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)\/(snapshot|delta|stream)$/);
+    const taskMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)\/(snapshot|delta|stream|artifact)$/);
     if (taskMatch) {
       let taskId: string;
       try {
@@ -125,6 +125,14 @@ export function createObserverServer(options: ObserverServerOptions): Server {
       const action = taskMatch[2];
       if (!IDENTIFIER_PATTERN.test(taskId) || !hub.has(taskId)) {
         sendJson(res, 404, { error: "task 不在 allowlist 中" });
+        return;
+      }
+      if (action === "artifact") {
+        const opId = url.searchParams.get("operation_id") ?? "";
+        const bytes = hub.artifact(taskId, opId);
+        if (!bytes) { sendJson(res, 404, { error: "最终产物不可用或完整性核验失败" }); return; }
+        res.writeHead(200, { "content-type": "text/markdown; charset=utf-8", "cache-control": "no-store", "content-disposition": `attachment; filename="${opId}.md"` });
+        res.end(bytes);
         return;
       }
       if (action === "snapshot") {

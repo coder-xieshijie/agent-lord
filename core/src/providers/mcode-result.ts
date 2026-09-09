@@ -363,6 +363,7 @@ export function validateMcodeOutput(
       session_id: identity[1],
       turn_id: identity[2],
       terminal_status: status,
+      provider_completed_at_ms: terminals[0].timestampMs,
       progress_seq: stream.sequence,
     },
   };

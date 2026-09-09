@@ -113,6 +113,21 @@ export interface Artifact {
   bytes: number;
   [key: string]: unknown;
 }
+/** Invocation metadata describes the caller, never the provider endpoint or its frozen contract. */
+export interface CallerIdentity {
+  kind: string;
+  session_id: string | null;
+  turn_id: string | null;
+  identity_source: "runtime-env" | "caller-declared" | "unavailable";
+  /** Local Codex data root, used only for a session-bound lifecycle read. */
+  data_root?: string;
+}
+export interface Invocation {
+  caller: CallerIdentity;
+  trigger: "user_request" | "caller_followup" | "recovery" | "unspecified";
+  user_request: string | null;
+  reason: string | null;
+}
 export interface Operation extends Data {
   version: 1;
   operation_id: string;
@@ -144,6 +159,7 @@ export interface Operation extends Data {
   continuation?: Data;
   handoff?: Data;
   resume?: boolean;
+  invocation?: Invocation;
 }
 export interface Action extends Data {
   version: 1;
@@ -173,6 +189,10 @@ export interface Envelope extends Data {
   operation_id?: string;
   error?: ErrorRecord;
   artifact?: Artifact | null;
+  invocation?: Invocation;
+  response?: { text: string; read_at_ms: number };
+  provider_return_code?: number | null;
+  timing?: { created_at_ms: number; completed_at_ms: number | null };
   action?: Data;
   actionable?: Envelope[];
   active?: Data[];
@@ -184,6 +204,7 @@ export interface ProviderResult extends Data {
   effort: string | null;
 }
 export interface StartOptions {
+  invocation?: unknown;
   model?: string | null;
   effort?: string | null;
   retry_attempts?: number;
