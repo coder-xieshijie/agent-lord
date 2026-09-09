@@ -2,6 +2,8 @@
 
 Load this policy whenever the user asks Agent Lord for “交叉 Review”, “交叉审查”, or `cross-review`. It is the documented expansion of that shorthand. Read [common.md](common.md) first.
 
+The scheduling caller directly starts the reviewers, exchanges their final artifacts through `turn`, maintains the verdict ledger, and starts the independent checker after the barrier. Each reviewer or checker receives its current review assignment and the [executor constraint](../../SKILL.md#scheduling-ownership). Keep this orchestration in the caller instead of creating a cross-review coordinator CLI.
+
 ## Authorized graph and defaults
 
 Unless the user overrides them, freeze these three roles at one repository and fixed review head/base:
