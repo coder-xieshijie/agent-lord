@@ -1,14 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { object, type Data, type Envelope } from "../src/contracts.js";
 import { CheckpointScan } from "../src/checkpoint-scan.js";
+import { sha256 } from "../src/json.js";
 import {
   INVALID_RETRY_POLICY,
+  invalidFingerprint,
   invalidRetryMessage,
   retryResultInvalid,
 } from "../src/invalid-retry.js";
-import { harness, operation } from "./helpers.js";
+import { harness, operation, waitFor } from "./helpers.js";
 import { main } from "../src/cli.js";
 let h: ReturnType<typeof harness>;
 beforeEach(() => {
@@ -60,6 +63,35 @@ describe("O1: MCode progress journal throttling", () => {
     const second = await h.lord.turn("task", "next");
     expect(second.endpoint_id).toBe(first.endpoint_id);
     expect(h.calls()[1].args).toContain(String(first.endpoint_id));
+  });
+  it("a tool event inside the throttle window is flushed by a later quiet poll", async () => {
+    // item.started lands right after session.started (inside the one-second
+    // window) and the tool then stays silent; the coalesced summary must still
+    // reach the journal within about a second instead of being dropped.
+    h.options({ toolWait: true, delayMs: 2200 });
+    const run = h.lord.start("task", "mcode", h.target, "work", {
+      model: "test/model",
+    });
+    try {
+      await waitFor(() => {
+        const op = h.lord.store.operations("task")[0];
+        return Boolean(
+          op?.stdout_path &&
+            readFileSync(String(op.stdout_path), "utf8").includes(
+              '"type":"item.started"',
+            ),
+        );
+      });
+      await delay(1200);
+      const op = h.lord.store.operations("task")[0];
+      expect(op.status).toBe("running"); // stream still mid-silence
+      expect(op.observed.supervision).toMatchObject({
+        active_tool_count: 1,
+        last_event_type: "item.started",
+      });
+    } finally {
+      await run;
+    }
   });
 });
 
@@ -349,6 +381,158 @@ describe("O2: scripted Claude RESULT_INVALID retry", () => {
       retryResultInvalid(h.lord, "task", "fail-1"),
     ).rejects.toMatchObject({ code: "STATE_BUSY", retryable: true });
     expect(h.calls()).toHaveLength(1);
+  });
+  it("a retry adopted after a controller crash is stamped with the shared lineage", async () => {
+    await h.lord.start("task", "claude-cli", h.target, "initial work");
+    const error = {
+      code: "RESULT_INVALID",
+      message: "invalid shape",
+      retryable: false,
+      requires_authorization: false,
+    };
+    const original = "authorized original work";
+    const marker = invalidRetryMessage("root-failed", 1, original);
+    // Persisted crash shape: the dispatch created and terminalized the child,
+    // but the controller died before writing the child's root annotation.
+    invalidOp("task", "root-failed", {
+      message: original,
+      message_sha256: sha256(original),
+      error,
+      invalid_retry_ledger: {
+        policy: INVALID_RETRY_POLICY,
+        budget: 3,
+        failures: [
+          {
+            operation_id: "root-failed",
+            fingerprint: invalidFingerprint(error),
+            observed_at: "2026-09-09T00:00:00+00:00",
+          },
+        ],
+        attempts: [
+          {
+            attempt: 1,
+            mode: "same-session",
+            task_id: "task",
+            after_failure_operation_id: "root-failed",
+            message_sha256: sha256(marker),
+            controller_pid: 2147483647,
+            dispatched_at: "2026-09-09T00:00:00+00:00",
+            operation_id: null,
+          },
+        ],
+      },
+    });
+    invalidOp("task", "child-failed", {
+      message: marker,
+      message_sha256: sha256(marker),
+      error,
+    });
+    const adopted = await retryResultInvalid(h.lord, "task", "root-failed");
+    expect(object(adopted.invalid_retry as Data).outcome).toBe("adopted");
+    // The adopted child now resolves back to the shared ledger.
+    expect(object(h.lord.store.operation("child-failed").invalid_retry)).toMatchObject({
+      root_operation_id: "root-failed",
+      attempt: 1,
+      mode: "same-session",
+    });
+    // A follow-up retry against the child spends the same shared budget
+    // instead of opening a fresh three-retry ledger on the child.
+    const retry = await retryResultInvalid(h.lord, "task", "child-failed");
+    expect(object(retry.invalid_retry as Data)).toMatchObject({
+      root_operation_id: "root-failed",
+      attempt: 2,
+      budget_remaining: 1,
+    });
+    const rootLedger = object(
+      h.lord.store.operation("root-failed").invalid_retry_ledger,
+    );
+    expect(rootLedger.attempts).toHaveLength(2);
+    expect(
+      object(h.lord.store.operation("child-failed").invalid_retry_ledger)
+        .attempts ?? [],
+    ).toEqual([]);
+  });
+  it("an authorized replacement replays the frozen retry plan verbatim", async () => {
+    h.options({ missingTerminal: true });
+    await expect(
+      h.lord.start("original", "claude-cli", h.target, "authorized work", {
+        model: "claude-opus-5",
+        retry_attempts: 1,
+      }),
+    ).rejects.toMatchObject({ code: "RESULT_INVALID" });
+    const failed = h.lord.store.operations("original")[0]!;
+    expect(failed.expected.retry_plan).toEqual([
+      { model: "claude-opus-5", attempts: 1 },
+    ]);
+    h.options({});
+    const replacement = await retryResultInvalid(
+      h.lord,
+      "original",
+      failed.operation_id,
+      { replacement_task_id: "replacement" },
+    );
+    expect(replacement.status).toBe("SUCCEEDED");
+    // The frozen plan is replayed instead of re-resolving the default plan.
+    expect(object(replacement.expected as Data).retry_plan).toEqual(
+      failed.expected.retry_plan,
+    );
+    expect(h.lord.store.task("replacement").contract.retry_plan).toEqual(
+      failed.expected.retry_plan,
+    );
+    expect(
+      object(replacement.invalid_retry as Data).contract_mismatch,
+    ).toBeUndefined();
+  });
+  it("a replacement session resets the identical-fingerprint streak", async () => {
+    await h.lord.start("task", "claude-cli", h.target, "initial work", {
+      model: "claude-opus-5",
+      retry_attempts: 1,
+    });
+    h.options({ missingTerminal: true });
+    await expect(h.lord.turn("task", "authorized follow-up")).rejects.toMatchObject({
+      code: "RESULT_INVALID",
+    });
+    const rootId = h.lord.store.task("task").last_operation_id!;
+    await expect(retryResultInvalid(h.lord, "task", rootId)).rejects.toMatchObject({
+      code: "RESULT_INVALID",
+    });
+    const ledger = () =>
+      object(h.lord.store.operation(rootId).invalid_retry_ledger).attempts as Data[];
+    await expect(
+      retryResultInvalid(h.lord, "task", String(ledger()[0].operation_id)),
+    ).rejects.toMatchObject({ code: "RESULT_INVALID" });
+    const second = ledger()[1];
+    expect(second.mode).toBe("new-session");
+    expect(h.lord.store.hasTask(String(second.task_id))).toBe(false);
+    // The replacement's failure is the first fingerprint of the new session:
+    // the reset streak selects the same-session route, which lacks a durable
+    // task and must therefore require explicit replacement authorization
+    // instead of silently opening yet another session.
+    await expect(
+      retryResultInvalid(
+        h.lord,
+        String(second.task_id),
+        String(second.operation_id),
+      ),
+    ).rejects.toMatchObject({
+      code: "RECOVERY_UNAVAILABLE",
+      requires_authorization: true,
+    });
+    expect(ledger()).toHaveLength(2); // the refusal consumed no budget
+    h.options({});
+    const authorized = await retryResultInvalid(
+      h.lord,
+      String(second.task_id),
+      String(second.operation_id),
+      { replacement_task_id: "task-authorized" },
+    );
+    expect(authorized.status).toBe("SUCCEEDED");
+    expect(object(authorized.invalid_retry as Data)).toMatchObject({
+      root_operation_id: rootId,
+      attempt: 3,
+      mode: "new-session",
+      forced_new_session: true,
+    });
   });
   it("only a terminal claude-cli RESULT_INVALID failure qualifies", async () => {
     const ok = await h.lord.start("task", "claude-cli", h.target, "work");

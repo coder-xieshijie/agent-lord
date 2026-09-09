@@ -436,7 +436,8 @@ export class AgentLord {
       opts.model,
       opts.effort,
     );
-    const retries = resolveRetryPlan(provider, model, opts.retry_attempts);
+    const retries =
+      opts.retry_plan ?? resolveRetryPlan(provider, model, opts.retry_attempts);
     if (typeof message !== "string" || !message)
       throw usageError("message must be non-empty");
     const source = validateSource(opts.head_sha, opts.base_sha);

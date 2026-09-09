@@ -18,6 +18,7 @@ import {
   type Envelope,
   type ErrorRecord,
   type Operation,
+  type RetryStage,
   type StartOptions,
   type Task,
   TERMINAL_STATES,
@@ -125,7 +126,8 @@ function frozenContract(task: Task | null, root: Operation): Data {
   const readOnly = task ? task.contract.read_only : root.read_only;
   const source = object(task ? task.contract.source : root.source);
   const workspace = object(task ? task.contract.workspace : root.workspace);
-  return { model, effort, read_only: readOnly, source, workspace };
+  const retryPlan = task ? task.contract.retry_plan : root.expected.retry_plan;
+  return { model, effort, read_only: readOnly, source, workspace, retry_plan: retryPlan };
 }
 function attachInfo(envelope: Envelope, info: Data): Envelope {
   return { ...envelope, invalid_retry: info };
@@ -244,8 +246,22 @@ export async function retryResultInvalid(
     }
     // 7. Route: same saved task/session first; only after two consecutive
     // identical fingerprints does the next retry run in a new session/task.
-    const streak = trailingStreak(ledger.failures);
+    // A replacement session resets the identical-result streak (SKILL.md
+    // "Replacement trigger"), so only failures observed in the session of the
+    // failure being retried count toward the next replacement decision.
     const chainTask = failed.task_id;
+    const attemptTaskOf = new Map(
+      ledger.attempts
+        .filter((a) => a.operation_id)
+        .map((a) => [a.operation_id!, a.task_id]),
+    );
+    const streak = trailingStreak(
+      ledger.failures.filter(
+        (f) =>
+          (attemptTaskOf.get(f.operation_id) ??
+            store.operation(f.operation_id).task_id) === chainTask,
+      ),
+    );
     const durable = store.hasTask(chainTask);
     let mode: LedgerAttempt["mode"] = streak >= 2 ? "new-session" : "same-session";
     let forced = false;
@@ -307,8 +323,31 @@ export async function retryResultInvalid(
   });
   if (refusal) throw refusal;
   if (!decision) throw new AgentLordError("STATE_CORRUPT", "invalid-retry produced no decision");
-  if (decision.kind === "existing")
+  if (decision.kind === "existing") {
+    // Crash window: the retry operation may exist (adopted, or dispatched just
+    // before a controller death) without its `invalid_retry` root stamp. Every
+    // operation on the chain must resolve back to the shared ledger
+    // (protocol.md "Scripted Claude RESULT_INVALID retry"), so backfill it here.
+    const existingId = decision.operationId;
+    const existing = store.operation(existingId);
+    if (!string(object(existing.invalid_retry).root_operation_id)) {
+      const entry = ledgerOf(store.operation(rootId)).attempts.find(
+        (a) => a.operation_id === existingId,
+      );
+      if (entry)
+        store.updateOperation(existingId, (value) => ({
+          ...value,
+          invalid_retry: {
+            root_operation_id: rootId,
+            attempt: entry.attempt,
+            mode: entry.mode,
+            after_failure_operation_id: entry.after_failure_operation_id,
+            ...(entry.replacement_for ? { replacement_for: entry.replacement_for } : {}),
+          },
+        }));
+    }
     return attachInfo(host.envelope(store.operation(decision.operationId)), terminalInfo!);
+  }
   const attempt = decision.attempt;
   const message = invalidRetryMessage(rootId, attempt.attempt, root.message);
   const chainTask = failed.task_id;
@@ -331,6 +370,7 @@ export async function retryResultInvalid(
         ...shared,
         model: string(contract.model),
         effort: string(contract.effort),
+        retry_plan: contract.retry_plan as RetryStage[],
         ...(contract.read_only ? { read_only: true } : {}),
         ...(string(source.head_sha) ? { head_sha: String(source.head_sha) } : {}),
         ...(string(source.base_sha) ? { base_sha: String(source.base_sha) } : {}),

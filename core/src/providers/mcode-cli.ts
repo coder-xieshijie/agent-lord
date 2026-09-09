@@ -154,6 +154,10 @@ export async function runMcode(
     "exec.completed",
   ]);
   let lastJournaled = 0;
+  // The coalesced item-level summary survives across observe polls so an event
+  // arriving inside the one-second window is still journaled by a later quiet
+  // poll (or the final flush) instead of being dropped.
+  let pending: [string, Data] | null = null;
   const journal = (eventType: string, summary: Data): void => {
     const identity = stream.identity!;
     const now = Date.now();
@@ -236,7 +240,6 @@ export async function runMcode(
           { details: { error: errorMessage(error) } },
         );
       }
-      let pending: [string, Data] | null = null;
       for (const line of lines) {
         if (!line) continue;
         const event = stream.feed(line);
@@ -249,8 +252,10 @@ export async function runMcode(
             identityCallback(stream.identity![1]);
         } else pending = [type, summary];
       }
-      if (pending && (final || performance.now() - lastJournaled >= 1000))
+      if (pending && (final || performance.now() - lastJournaled >= 1000)) {
         journal(pending[0], pending[1]);
+        pending = null;
+      }
     },
     exited: (code) => {
       store.updateOperation(op.operation_id, (value) => ({
