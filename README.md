@@ -13,7 +13,7 @@ node core/dist/cli.js --help
 node core/dist/cli.js start --task-id example --provider codex \
   --target /absolute/workspace --message-file /absolute/prompt.txt
 node core/dist/cli.js turn --task-id example --message-file /absolute/next.txt
-node core/dist/cli.js checkpoint --task-id example --seconds 150
+node core/dist/cli.js checkpoint --task-id example --seconds 120
 ```
 
 `codex` and `mcode` remain aliases for `codex-cli` and `mcode-cli`. Defaults are Codex CLI `gpt-6-astra` / `xhigh`, Claude CLI `claude-fable-5` / `xhigh`, and MCode `custom_provider:mafia-claude/claude-fable-5#xhigh`. Explicit arguments override defaults; MCode accepts a qualified `--model provider/model[#variant]` and has no separate effort flag. `check` reads state; `checkpoint` also supervises orphaned CLI processes. A quiet checkpoint prints one compact JSON envelope and exits **124**. Provider execution success and declared delivery evidence remain separate fields.
