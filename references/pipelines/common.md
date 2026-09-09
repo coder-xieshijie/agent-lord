@@ -6,12 +6,14 @@ Load this reference when one request selects multiple Agent Lord endpoints or na
 
 Write one compact run manifest outside the target repository:
 
-- `run_id`, goal, final deliverable, repository, source branch, fixed head/base, and read/write posture;
+- `run_id`, goal, final deliverable, repository, source branch, fixed head/base, process permission mode, and task-level write boundaries;
 - every authorized node with stable `task_id`, role, provider, model, effort, inputs, outputs, and workspace policy;
 - dependency edges, ready-set concurrency, barriers, retry/stop bounds, and the authority required for any expansion;
 - role-independence requirements, including whether provider or model fallback invalidates a result.
 
-A named pipeline expands only the nodes documented by that policy. User-specified endpoints, models, efforts, nodes, and order override defaults. Do not silently add a planner, arbiter, integrator, checker, or replacement endpoint. If required isolation would add user-visible branches, worktrees, merge order, or an integrator, return the decision before dispatch.
+A named pipeline expands only the nodes documented by that policy. User-specified endpoints, models, efforts, nodes, and order override defaults. Do not silently add a planner, arbiter, integrator, checker, or replacement endpoint. Follow [the Skill workspace policy](../../SKILL.md#workspace-and-parallel-write-policy) to create task-required worktrees and isolated local branches without confirmation. Return a decision only for an unauthorized workflow expansion, such as a merge order or integrator, or other missing authority.
+
+New CLI nodes use `dangerously_bypass` without `--read-only`; put task-level write limits in each prompt. Allocate a distinct `isolated` worktree and `--workspace-branch` to each concurrent repo-managed CLI node, including reviews. Review-only concurrency needs no integration metadata or integrator. The runtime treats these processes as writable and enforces exclusive workspace/branch leases regardless of prompt restrictions.
 
 ## Execute the graph
 
@@ -32,7 +34,7 @@ A named pipeline expands only the nodes documented by that policy. User-specifie
 
 Before a node can satisfy a barrier, validate its terminal envelope against the manifest:
 
-- source head/base, target, read/write posture, expected model and effort;
+- source head/base (unchanged for reviews), target, process permission mode, task-level write boundaries, expected model and effort;
 - endpoint identity continuity across turns;
 - artifact presence and operation identity;
 - role-specific independence.

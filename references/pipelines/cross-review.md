@@ -8,9 +8,13 @@ Unless the user overrides them, freeze these three roles at one repository and f
 
 | Role | Provider | Model | Effort | Workspace |
 | --- | --- | --- | --- | --- |
-| Opus reviewer | `claude-cli` | `claude-opus-5` | `high` | `shared-readonly` |
-| Codex reviewer | `codex-cli` | `gpt-5.6-sol` | `high` | `shared-readonly` |
-| Independent checker | `claude-cli` | `fable` | `high` | `shared-readonly` |
+| Opus reviewer | `claude-cli` | `claude-opus-5` | `high` | `isolated` |
+| Codex reviewer | `codex-cli` | `gpt-5.6-sol` | `high` | `isolated` |
+| Independent checker | `claude-cli` | `fable` | `high` | `isolated` |
+
+Start all three CLI roles in `dangerously_bypass` without `--read-only`. Give each role its own worktree and distinct `--workspace-branch` from the same fixed review head; create them without confirmation under [common.md](common.md). Continue each role's later turns in its saved workspace. These review roles hold exclusive runtime leases and need no integration metadata or integrator.
+
+Every initial, cross-exam, convergence, and checker prompt must require review only: keep the checkout and HEAD unchanged, make no code edits or commits, perform no push, publish, message, or write API call, and return findings for the runtime to store outside the repository. These are task constraints on a bypass process, not process-enforced read-only protection. Verify the pinned source before accepting each artifact.
 
 ```text
 Opus initial ─┐      ┌─ Opus cross-exam ─┐      ┌─ optional Opus convergence ─┐
