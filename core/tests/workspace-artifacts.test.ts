@@ -278,11 +278,14 @@ describe("delivery and artifact boundaries", () => {
   ])(
     "rejected export %s/%s preserves an existing success",
     async (model, effort, code) => {
-      const first = await h.lord.start("task", "codex", h.target, "work");
+      const first = await h.lord.start("task", "codex", h.target, "work", {
+        model: "gpt-5.6-sol",
+        effort: "high",
+      });
       const file = codexLog(first.operation_id!, model!, effort);
       expect(() =>
         h.lord.exportArtifact("task", first.operation_id!, file, "codex-jsonl"),
-      ).toThrow();
+      ).toThrow(expect.objectContaining({ code }));
       const saved = h.lord.store.operation(first.operation_id!);
       expect(saved.status).toBe("succeeded");
       expect(saved.artifact).toEqual(first.artifact);
@@ -290,7 +293,10 @@ describe("delivery and artifact boundaries", () => {
     },
   );
   it("successful export selects the last final assistant message", async () => {
-    const first = await h.lord.start("task", "codex", h.target, "work");
+    const first = await h.lord.start("task", "codex", h.target, "work", {
+      model: "gpt-5.6-sol",
+      effort: "high",
+    });
     const result = h.lord.exportArtifact(
       "task",
       first.operation_id!,
@@ -302,7 +308,10 @@ describe("delivery and artifact boundaries", () => {
     );
   });
   it("Claude export binds the saved session and declares its effort evidence gap", async () => {
-    const first = await h.lord.start("task", "claude-cli", h.target, "work");
+    const first = await h.lord.start("task", "claude-cli", h.target, "work", {
+      model: "claude-opus-5",
+      effort: "high",
+    });
     const file = path.join(h.base, "claude.jsonl");
     const entry = {
       type: "assistant",

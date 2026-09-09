@@ -211,7 +211,7 @@ export function parseMcodeModel(value: unknown): {
 } {
   const fail = () =>
     usageError(
-      "mcode-cli requires an explicit --model in provider/model or provider/model#variant form",
+      "mcode-cli requires a model in provider/model or provider/model#variant form",
       { model: value },
     );
   if (typeof value !== "string" || !value || /[\s\x00-\x1f]/u.test(value))
@@ -235,7 +235,9 @@ export function parseMcodeModel(value: unknown): {
 function claudeResolution(): Data {
   const policy = object(providerConfig("claude-cli").default_resolution);
   if (
-    policy.source !== "claude-user-settings" ||
+    !["claude-user-settings", "provider-config"].includes(
+      String(policy.source),
+    ) ||
     [
       "config_dir_env",
       "default_config_dir",
@@ -312,14 +314,16 @@ export function resolveExecutionDefaults(
   const config = providerConfig(provider);
   if (provider === "mcode-cli") {
     if (effort) validateEffort(provider, effort);
-    parseMcodeModel(model);
-    return [model!, null];
+    const resolvedModel = model ?? string(config.default_model);
+    parseMcodeModel(resolvedModel);
+    return [resolvedModel, null];
   }
   let settings: Data = {};
   let policy: Data = {};
   if (provider === "claude-cli" && (model == null || effort == null)) {
     policy = claudeResolution();
-    settings = loadClaudeUserSettings();
+    if (policy.source === "claude-user-settings")
+      settings = loadClaudeUserSettings();
   }
   const resolvedModel =
     model ??

@@ -14,13 +14,19 @@ import { canonicalPacketBytes, validateHandoffPacket } from "../src/handoff.js";
 import { type Data } from "../src/contracts.js";
 import { harness, packet } from "./helpers.js";
 let h: ReturnType<typeof harness>;
+function useClaudeDefaults(source: string): void {
+  const file = path.join(h.base, "providers.json");
+  const config = JSON.parse(readFileSync(file, "utf8"));
+  config.providers["claude-cli"].default_resolution.source = source;
+  writeFileSync(file, JSON.stringify(config));
+}
 beforeEach(() => {
   h = harness();
 });
 afterEach(() => h.cleanup());
 describe("frozen configuration", () => {
   it.each([
-    [{}, undefined, undefined, ["claude-opus-5", "high"]],
+    [{}, undefined, undefined, ["claude-fable-5", "xhigh"]],
     [
       { model: "fable", effortLevel: "xhigh" },
       undefined,
@@ -44,11 +50,12 @@ describe("frozen configuration", () => {
       { model: "   ", effortLevel: "   " },
       undefined,
       undefined,
-      ["claude-opus-5", "high"],
+      ["claude-fable-5", "xhigh"],
     ],
   ] as const)(
     "resolves model and effort independently: %j",
     (settings, model, effort, expected) => {
+      useClaudeDefaults("claude-user-settings");
       writeFileSync(
         path.join(h.base, "claude", "settings.json"),
         JSON.stringify(settings),
@@ -58,6 +65,59 @@ describe("frozen configuration", () => {
       );
     },
   );
+  it.each([
+    [undefined, undefined, ["claude-fable-5", "xhigh"]],
+    ["opus", undefined, ["opus", "xhigh"]],
+    [undefined, "low", ["claude-fable-5", "low"]],
+    ["opus", "max", ["opus", "max"]],
+  ] as const)(
+    "provider defaults override user settings while explicit fields win: %j %j",
+    (model, effort, expected) => {
+      writeFileSync(
+        path.join(h.base, "claude", "settings.json"),
+        JSON.stringify({ model: "sonnet", effortLevel: "medium" }),
+      );
+      expect(resolveExecutionDefaults("claude-cli", model, effort)).toEqual(
+        expected,
+      );
+    },
+  );
+  it("uses Codex CLI defaults independently of Codex App", () => {
+    expect(resolveExecutionDefaults("codex-cli")).toEqual([
+      "gpt-6-astra",
+      "xhigh",
+    ]);
+    expect(resolveExecutionDefaults("codex-app")).toEqual([
+      "gpt-5.6-sol",
+      "high",
+    ]);
+    expect(resolveExecutionDefaults("codex-cli", "gpt-5.6-sol", "low")).toEqual(
+      ["gpt-5.6-sol", "low"],
+    );
+  });
+  it("resolves a qualified MCode default and preserves explicit models and variants", () => {
+    expect(resolveExecutionDefaults("mcode-cli")).toEqual([
+      "custom_provider:mafia-claude/claude-fable-5#xhigh",
+      null,
+    ]);
+    expect(resolveExecutionDefaults("mcode-cli", "test/model#deep")).toEqual([
+      "test/model#deep",
+      null,
+    ]);
+    expect(resolveExecutionDefaults("mcode-cli", "test/model")).toEqual([
+      "test/model",
+      null,
+    ]);
+    expect(() =>
+      resolveExecutionDefaults("mcode-cli", undefined, "xhigh"),
+    ).toThrow();
+    expect(() => resolveExecutionDefaults("mcode-cli", "")).toThrow();
+    const file = path.join(h.base, "providers.json");
+    const config = JSON.parse(readFileSync(file, "utf8"));
+    config.providers["mcode-cli"].default_model = null;
+    writeFileSync(file, JSON.stringify(config));
+    expect(() => resolveExecutionDefaults("mcode-cli")).toThrow();
+  });
   it("only settings-owned model/effort environment variables are removed from a child", () => {
     vi.stubEnv("ANTHROPIC_MODEL", "stale");
     vi.stubEnv("CLAUDE_CODE_EFFORT_LEVEL", "low");
@@ -73,6 +133,7 @@ describe("frozen configuration", () => {
     expect(process.env.ANTHROPIC_MODEL).toBe("stale");
   });
   it("turns keep model/effort and permission mode despite changing defaults", async () => {
+    useClaudeDefaults("claude-user-settings");
     writeFileSync(
       path.join(h.base, "claude", "settings.json"),
       JSON.stringify({ model: "fable", effortLevel: "high" }),

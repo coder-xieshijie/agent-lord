@@ -16,7 +16,7 @@ node core/dist/cli.js turn --task-id example --message-file /absolute/next.txt
 node core/dist/cli.js checkpoint --task-id example --seconds 150
 ```
 
-`codex` and `mcode` remain aliases for `codex-cli` and `mcode-cli`. MCode requires an explicit `--model provider/model[#variant]`. `check` reads state; `checkpoint` also supervises orphaned CLI processes. A quiet checkpoint prints one compact JSON envelope and exits **124**. Provider execution success and declared delivery evidence remain separate fields.
+`codex` and `mcode` remain aliases for `codex-cli` and `mcode-cli`. Defaults are Codex CLI `gpt-6-astra` / `xhigh`, Claude CLI `claude-fable-5` / `xhigh`, and MCode `custom_provider:mafia-claude/claude-fable-5#xhigh`. Explicit arguments override defaults; MCode accepts a qualified `--model provider/model[#variant]` and has no separate effort flag. `check` reads state; `checkpoint` also supervises orphaned CLI processes. A quiet checkpoint prints one compact JSON envelope and exits **124**. Provider execution success and declared delivery evidence remain separate fields.
 
 The default state directory is `~/.codex/state/agent-lord`; set `AGENT_LORD_STATE_DIR` to use another directory. Provider profiles remain in `config/providers.json`, overridable with `AGENT_LORD_PROVIDER_CONFIG`. The compiled runtime resolves its default profile relative to the package, independently of the caller's working directory.
 

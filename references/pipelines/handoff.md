@@ -4,7 +4,7 @@ Load this reference when the user asks to hand the current session's work off to
 
 ## Selection and authorization
 
-The handoff shorthand authorizes exactly one node: one new local CLI continuation endpoint (`claude-cli`, `codex-cli`, or `mcode-cli`) that continues the user-specified task. It never authorizes a planner, reviewer, tester, integrator, replacement endpoint, or any other user-visible node, and never selects `codex-app`. The user decides the provider, model, applicable effort, and write posture per invocation; the packet's `contract_request` carries those decisions when the command line omits them, and an explicit argument that contradicts the packet fails closed. MCode handoffs require an explicit qualified model, omit effort, and are writable because MCode has no enforceable read-only mode.
+The handoff shorthand authorizes exactly one node: one new local CLI continuation endpoint (`claude-cli`, `codex-cli`, or `mcode-cli`) that continues the user-specified task. It never authorizes a planner, reviewer, tester, integrator, replacement endpoint, or any other user-visible node, and never selects `codex-app`. The user decides the provider, model, applicable effort, and write posture per invocation; the packet's `contract_request` carries those decisions when the command line omits them, and an explicit argument that contradicts the packet fails closed. MCode handoffs resolve the qualified model from explicit input or provider defaults, omit effort, and are writable because MCode has no enforceable read-only mode.
 
 ## Identity and lineage
 
