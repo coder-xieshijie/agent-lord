@@ -10,11 +10,11 @@ function verification(value: string | null | undefined): string {
     : value === "argument-enforced" || value === "config-argument-enforced" ? "由启动参数约束"
       : value === "not-supported" ? "运行端不支持" : value === "not-requested" ? "未指定" : value ?? "未核验";
 }
-function Row({ name, value, missing = "未记录", note }: { name: string; value: string | null | undefined; missing?: string; note?: string }) {
+function Row({ name, value, missing = "未记录", note, copyable = false }: { name: string; value: string | null | undefined; missing?: string; note?: string; copyable?: boolean }) {
   return <div className="flex min-w-0 flex-wrap items-start gap-x-3 gap-y-1 text-xs">
     <span className="w-28 shrink-0 text-muted-foreground">{name}</span>
     <div className="min-w-0 flex-1 break-all"><span>{value ?? missing}</span>{note && <span className="ml-2 text-muted-foreground">（{note}）</span>}</div>
-    {value && <CopyButton text={value} label={`复制${name}`} />}
+    {copyable && value && <CopyButton text={value} label={`复制${name}`} />}
   </div>;
 }
 function time(value: number | null | undefined): string | null {
@@ -32,7 +32,7 @@ export function ExecutionDetails({ meta }: { meta: TaskMeta }) {
   const identitySource = (source: string | undefined) => source === "runtime-env" ? "宿主环境" : source === "caller-declared" ? "调用方声明" : "未记录";
   const timing = meta.timing;
   return <div className="space-y-2 border-b pb-3">
-    <Row name="创建时间" value={time(meta.createdAt ? Date.parse(meta.createdAt) : null)} />
+    <Row name="创建时间" value={time(meta.createdAt ? Date.parse(meta.createdAt) : null)} copyable />
     <details>
       <summary className="cursor-pointer text-xs text-muted-foreground">模型与调度信息</summary>
       <div className="mt-2 space-y-2">
