@@ -32,6 +32,7 @@ export function ExecutionDetails({ meta }: { meta: TaskMeta }) {
   const identitySource = (source: string | undefined) => source === "runtime-env" ? "宿主环境" : source === "caller-declared" ? "调用方声明" : "未记录";
   const timing = meta.timing;
   return <div className="space-y-2 border-b pb-3">
+    <Row name="创建时间" value={time(meta.createdAt ? Date.parse(meta.createdAt) : null)} />
     <details>
       <summary className="cursor-pointer text-xs text-muted-foreground">模型与调度信息</summary>
       <div className="mt-2 space-y-2">
