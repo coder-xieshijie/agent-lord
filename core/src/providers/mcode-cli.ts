@@ -1,6 +1,7 @@
 import path from "node:path";
 import { statSync, unlinkSync } from "node:fs";
 import {
+  type Data,
   type Operation,
   type ProviderResult,
   object,
@@ -142,6 +143,55 @@ export async function runMcode(
   const progress = new McodeProgress();
   const stream = new McodeStream(Boolean(op.resume), op.endpoint_id ?? null);
   const tail = new LogTail(stdout, true);
+  // Identity and lifecycle transitions journal immediately; item-level
+  // progress coalesces to at most one journal write per second (mirroring the
+  // Claude progress throttle) with a mandatory flush when the stream ends.
+  const IMMEDIATE_EVENTS = new Set([
+    "session.started",
+    "session.resumed",
+    "turn.completed",
+    "turn.failed",
+    "exec.completed",
+  ]);
+  let lastJournaled = 0;
+  const journal = (eventType: string, summary: Data): void => {
+    const identity = stream.identity!;
+    const now = Date.now();
+    store.updateOperation(op.operation_id, (value) => {
+      const active = object(value.active_attempt);
+      if (active.attempt_id !== attemptId)
+        throw new AgentLordError(
+          "STATE_CONFLICT",
+          "MCode progress belongs to a superseded attempt",
+        );
+      value.active_attempt = {
+        ...active,
+        run_id: identity[0],
+        session_id: identity[1],
+        turn_id: identity[2],
+        progress_seq: stream.sequence,
+        last_event_type: eventType,
+        progress_state: summary.state,
+        last_progress_at_ms: now,
+      };
+      value.run_id = identity[0];
+      value.turn_id = identity[2];
+      if (["session.started", "session.resumed"].includes(eventType))
+        value.endpoint_id = identity[1];
+      value.observed = {
+        ...value.observed,
+        supervision: {
+          ...summary,
+          progress_seq: stream.sequence,
+          last_progress_at_ms: now,
+          provider_pid: active.pid,
+          process_group_id: active.process_group_id,
+        },
+      };
+      return value;
+    });
+    lastJournaled = performance.now();
+  };
   await runChild({
     command,
     target: op.target,
@@ -186,50 +236,21 @@ export async function runMcode(
           { details: { error: errorMessage(error) } },
         );
       }
+      let pending: [string, Data] | null = null;
       for (const line of lines) {
         if (!line) continue;
         const event = stream.feed(line);
-        const identity = stream.identity!;
+        const type = String(event.type);
         const summary = progress.observe(event);
-        const now = Date.now();
-        store.updateOperation(op.operation_id, (value) => {
-          const active = object(value.active_attempt);
-          if (active.attempt_id !== attemptId)
-            throw new AgentLordError(
-              "STATE_CONFLICT",
-              "MCode progress belongs to a superseded attempt",
-            );
-          value.active_attempt = {
-            ...active,
-            run_id: identity[0],
-            session_id: identity[1],
-            turn_id: identity[2],
-            progress_seq: stream.sequence,
-            last_event_type: event.type,
-            progress_state: summary.state,
-            last_progress_at_ms: now,
-          };
-          value.run_id = identity[0];
-          value.turn_id = identity[2];
-          if (
-            ["session.started", "session.resumed"].includes(String(event.type))
-          )
-            value.endpoint_id = identity[1];
-          value.observed = {
-            ...value.observed,
-            supervision: {
-              ...summary,
-              progress_seq: stream.sequence,
-              last_progress_at_ms: now,
-              provider_pid: active.pid,
-              process_group_id: active.process_group_id,
-            },
-          };
-          return value;
-        });
-        if (["session.started", "session.resumed"].includes(String(event.type)))
-          identityCallback(identity[1]);
+        if (IMMEDIATE_EVENTS.has(type)) {
+          journal(type, summary);
+          pending = null;
+          if (["session.started", "session.resumed"].includes(type))
+            identityCallback(stream.identity![1]);
+        } else pending = [type, summary];
       }
+      if (pending && (final || performance.now() - lastJournaled >= 1000))
+        journal(pending[0], pending[1]);
     },
     exited: (code) => {
       store.updateOperation(op.operation_id, (value) => ({

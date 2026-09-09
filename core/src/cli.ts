@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { pathToFileURL } from "node:url";
 import { AgentLord } from "./engine.js";
+import { retryResultInvalid } from "./invalid-retry.js";
 import { AgentLordError, usageError } from "./errors.js";
 import { controlConfig } from "./config.js";
 import { type StartOptions, PROVIDERS } from "./contracts.js";
@@ -59,6 +60,18 @@ export const COMMANDS: Record<string, CommandSpec> = {
   recover: {
     description: "Consume one bounded same-session continuation action",
     strings: ["task-id", "operation-id", "invocation-file"],
+    booleans: ["include-response"],
+    required: ["task-id", "operation-id"],
+  },
+  "retry-invalid": {
+    description:
+      "Scripted Claude RESULT_INVALID retry with a persistent budget, fingerprint streak, and replacement lineage",
+    strings: [
+      "task-id",
+      "operation-id",
+      "replacement-task-id",
+      "invocation-file",
+    ],
     booleans: ["include-response"],
     required: ["task-id", "operation-id"],
   },
@@ -161,6 +174,11 @@ export async function main(
       );
     else if (command === "recover")
       result = await lord.recover(get("task-id"), get("operation-id"), opts);
+    else if (command === "retry-invalid")
+      result = await retryResultInvalid(lord, get("task-id"), get("operation-id"), {
+        replacement_task_id: valueString(v, "replacement-task-id") ?? undefined,
+        ...(opts.invocation !== undefined ? { invocation: opts.invocation } : {}),
+      });
     else if (command === "handoff")
       result = await lord.handoff(get("task-id"), get("packet-file"), {
         ...opts,
