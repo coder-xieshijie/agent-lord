@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import path from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import { object, type Data, type Envelope } from "../src/contracts.js";
 import { CheckpointScan } from "../src/checkpoint-scan.js";
 import { sha256 } from "../src/json.js";
@@ -66,8 +65,14 @@ describe("O1: MCode progress journal throttling", () => {
   });
   it("a tool event inside the throttle window is flushed by a later quiet poll", async () => {
     // item.started lands right after session.started (inside the one-second
-    // window) and the tool then stays silent; the coalesced summary must still
-    // reach the journal within about a second instead of being dropped.
+    // window) and the tool then stays silent for 2.2s; the coalesced summary
+    // must still reach the journal while the stream is mid-silence — i.e.
+    // without any further provider event and before any lifecycle flush. A
+    // dropped pending summary never journals this state at any point, so the
+    // bounded wait below fails on the pre-fix implementation. The wait is
+    // anchored on the journal itself (not wall-clock) because the one-second
+    // throttle counts from the session.started journal write, which can lag
+    // the stream file on a slow runner.
     h.options({ toolWait: true, delayMs: 2200 });
     const run = h.lord.start("task", "mcode", h.target, "work", {
       model: "test/model",
@@ -75,19 +80,15 @@ describe("O1: MCode progress journal throttling", () => {
     try {
       await waitFor(() => {
         const op = h.lord.store.operations("task")[0];
-        return Boolean(
-          op?.stdout_path &&
-            readFileSync(String(op.stdout_path), "utf8").includes(
-              '"type":"item.started"',
-            ),
+        if (!op) return false;
+        // Only a pre-terminal observation qualifies: the flush must come from
+        // a quiet poll during the silence, not from the end-of-stream events.
+        const supervision = object(op.observed.supervision);
+        return (
+          op.status === "running" &&
+          supervision.active_tool_count === 1 &&
+          supervision.last_event_type === "item.started"
         );
-      });
-      await delay(1200);
-      const op = h.lord.store.operations("task")[0];
-      expect(op.status).toBe("running"); // stream still mid-silence
-      expect(op.observed.supervision).toMatchObject({
-        active_tool_count: 1,
-        last_event_type: "item.started",
       });
     } finally {
       await run;
