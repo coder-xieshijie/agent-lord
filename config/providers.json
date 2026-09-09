@@ -1,7 +1,7 @@
 {
   "version": 1,
   "control": {
-    "checkpoint_seconds": 150,
+    "checkpoint_seconds": 120,
     "dead_process_result_grace_seconds": 5,
     "finalize_lock_attempts": 40,
     "finalize_lock_retry_interval_ms": 50,

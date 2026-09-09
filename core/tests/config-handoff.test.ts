@@ -179,14 +179,14 @@ describe("frozen configuration", () => {
     expect(() => resolveRetryPlan("codex-cli", "gpt-5.6-sol", 2)).toThrow();
     expect(() => resolveRetryPlan("claude-cli", "opus", 0)).toThrow();
   });
-  it("legacy configurations receive supervision defaults and checkpoint keeps 150 seconds", () => {
+  it("legacy configurations receive supervision defaults and checkpoint keeps 120 seconds", () => {
     const file = path.join(h.base, "providers.json");
     const config = JSON.parse(readFileSync(file, "utf8"));
     delete config.control.claude_stall_seconds;
     delete config.control.mcode_progress_poll_interval_ms;
     writeFileSync(file, JSON.stringify(config));
     expect(controlConfig()).toMatchObject({
-      checkpoint_seconds: 150,
+      checkpoint_seconds: 120,
       claude_stall_seconds: 900,
       mcode_progress_poll_interval_ms: 100,
     });
