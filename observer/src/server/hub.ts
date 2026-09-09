@@ -40,6 +40,8 @@ import { ClaudeProjector } from "./projector/claude.js";
 import { clip, clipTitle, TOOL_TEXT_CLIP } from "./sanitize.js";
 import { CallerLifecycleReader } from "./caller-lifecycle.js";
 import { CallerSessionReader } from "./caller-session.js";
+import { buildSchedule, type OpJournalTimes } from "./schedule.js";
+import type { ScheduleResponse } from "../shared/types.js";
 import type { CallerIdentity } from "@agent-lord/core/contracts";
 
 function displayCaller(caller: CallerIdentity | undefined) {
@@ -149,6 +151,10 @@ interface TaskState {
   metaJson: string;
   metaDirty: boolean;
   listeners: Set<HubListener>;
+  /** Every operation of the task from the latest scan (never lastOp only). */
+  operations: OperationRecord[];
+  /** Journal-observed per-operation timestamps (evidence, not inference). */
+  opTimes: Map<string, OpJournalTimes>;
 }
 
 function makeProjector(
@@ -227,6 +233,8 @@ export class Hub {
         metaJson: "",
         metaDirty: false,
         listeners: new Set(),
+        operations: [],
+        opTimes: new Map(),
       });
     }
   }
@@ -331,6 +339,7 @@ export class Hub {
       state.journalLineNo += 1;
       const event = parseJournalLine(line, state.journalLineNo);
       if (!event) continue;
+      this.recordOpTime(state, event);
       (POST_JOURNAL_TYPES.has(event.type) ? post : pre).push(event);
     }
     const emitJournal = (event: JournalEvent): void => {
@@ -372,9 +381,43 @@ export class Hub {
 
     // 4. Metadata.
     this.rebuildMeta(state, task, operations);
+    state.operations = operations;
 
     // 5. Broadcast to listeners.
     this.broadcast(state);
+  }
+
+  /** Keep evidence-based per-operation journal timestamps for the schedule
+   * view. Journal replay from offset 0 after a restart rebuilds this map. */
+  private recordOpTime(state: TaskState, event: JournalEvent): void {
+    if (!event.opId) return;
+    const ts = event.ts ? Date.parse(event.ts) : NaN;
+    if (!Number.isFinite(ts)) return;
+    let times = state.opTimes.get(event.opId);
+    if (!times) {
+      times = { startedAtMs: null, artifactExportedAtMs: null };
+      state.opTimes.set(event.opId, times);
+    }
+    if ((event.type === "operation-started" || event.type === "operation-continued") && times.startedAtMs === null) {
+      times.startedAtMs = ts;
+    } else if (event.type === "artifact-exported" && times.artifactExportedAtMs === null) {
+      times.artifactExportedAtMs = ts;
+    }
+  }
+
+  /** Scheduling-timeline aggregate over every allow-listed task. */
+  schedule(): ScheduleResponse {
+    return buildSchedule({
+      generation: this.generation,
+      now: Date.now(),
+      tasks: [...this.tasks.values()].map((state) => ({
+        meta: state.meta,
+        operations: state.operations,
+        opTimes: state.opTimes,
+      })),
+      lifecycle: this.callerLifecycle,
+      sessions: this.callerSession,
+    });
   }
 
   private pumpOperation(state: TaskState, operation: OperationRecord): void {
@@ -455,7 +498,9 @@ export class Hub {
       caller: { initial: displayCaller(operations[0]?.invocation?.caller), current: displayCaller(lastOp?.invocation?.caller), lifecycle, session: callerSession },
       timing: {
         providerCompletedAtMs: lastOp?.providerCompletedAtMs ?? (lastOp ? state.readers.get(lastOp.operationId)?.projector?.completedAtMs : null) ?? null,
-        artifactReadyAtMs: lastOp?.artifact ? timestamp(lastOp.completedAt) : null,
+        artifactReadyAtMs: lastOp?.artifact
+          ? state.opTimes.get(lastOp.operationId)?.artifactExportedAtMs ?? timestamp(lastOp.completedAt)
+          : null,
         callerReceivedAtMs: lifecycle.receivedAtMs, callerCompletedAtMs: lifecycle.completedAtMs,
       },
       artifact: lastOp?.artifact,

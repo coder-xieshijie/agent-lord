@@ -106,6 +106,12 @@ export function createObserverServer(options: ObserverServerOptions): Server {
       sendJson(res, 200, { tasks: hub.overview(), generation: hub.generation });
       return;
     }
+    if (url.pathname === "/api/schedule") {
+      // Same read boundary as /api/overview: aggregates only allow-listed
+      // tasks; session ids only — data roots and full paths never ship.
+      sendJson(res, 200, hub.schedule());
+      return;
+    }
     if (url.pathname === "/api/fonts") {
       void fonts().then((catalog) => {
         if (!res.destroyed) sendJson(res, 200, catalog);

@@ -6,7 +6,7 @@
  * the browser's per-host HTTP/1.1 connection pool and block other pages.
  */
 
-import type { FontCatalog, TimelineItem } from "../../shared/types";
+import type { FontCatalog, ScheduleResponse, TimelineItem } from "../../shared/types";
 
 export const token = new URLSearchParams(window.location.search).get("token") ?? "";
 
@@ -15,6 +15,10 @@ async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(`${path}${sep}token=${encodeURIComponent(token)}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return (await res.json()) as T;
+}
+
+export function fetchSchedule(): Promise<ScheduleResponse> {
+  return getJson<ScheduleResponse>("/api/schedule");
 }
 
 export function fetchFonts(): Promise<FontCatalog> {

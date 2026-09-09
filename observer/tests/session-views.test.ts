@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { CallerSessionMeta, TaskMeta } from "../src/shared/types.js";
 import {
+  DEFAULT_SIDEBAR_VIEW,
   groupKeyForTask,
   groupTasksByCaller,
+  SIDEBAR_VIEWS,
   sortTasksByActivity,
   UNATTRIBUTED_GROUP_KEY,
 } from "../src/web/lib/session-views.js";
@@ -86,6 +88,14 @@ describe("groupTasksByCaller", () => {
     const groups = groupTasksByCaller([task("no-time", null, session("sess-quiet")), task("active", 100, session("sess-live"))]);
     expect(groups.map((group) => group.key)).toEqual(["caller:sess-live", "caller:sess-quiet"]);
     expect(groups[1].lastActivityMs).toBeNull();
+  });
+});
+
+describe("sidebar view constants", () => {
+  it("puts the scheduling-session toggle first and opens on it by default", () => {
+    expect(SIDEBAR_VIEWS.map(([id]) => id)).toEqual(["caller", "cli"]);
+    expect(SIDEBAR_VIEWS[0][1]).toBe("调度会话");
+    expect(DEFAULT_SIDEBAR_VIEW).toBe(SIDEBAR_VIEWS[0][0]);
   });
 });
 

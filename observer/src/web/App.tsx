@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
   ChevronDown,
@@ -31,14 +31,17 @@ import { cn } from "@/lib/utils";
 import { presentTimeline } from "@/lib/presentation";
 import { selectTask } from "@/lib/task-selection";
 import {
+  DEFAULT_SIDEBAR_VIEW,
   groupKeyForTask,
   groupTasksByCaller,
+  SIDEBAR_VIEWS,
   sortTasksByActivity,
   type CallerGroup,
   type SidebarView,
 } from "@/lib/session-views";
 import { CopyButton } from "@/components/copy-button";
 import { RequestRow } from "@/components/request-row";
+import { ScheduleTimelinePanel } from "@/components/schedule-timeline";
 import { ExecutionDetails, callerStatus } from "@/components/execution-details";
 import { AppearanceControls } from "@/components/appearance-controls";
 import { ToolRow, CompletedToolGroup, type Expansion, type SetExpanded } from "@/components/tool-row";
@@ -234,18 +237,34 @@ function CallerGroupEntry({
   group,
   open,
   selectedId,
+  timelineOpen,
   onToggle,
   onSelect,
+  onOpenTimeline,
 }: {
   group: CallerGroup;
   open: boolean;
   selectedId: string | null;
+  timelineOpen: boolean;
   onToggle: () => void;
   onSelect: (taskId: string) => void;
+  onOpenTimeline: () => void;
 }) {
   const label = group.name ?? (group.sessionId ? "未命名调度会话" : "未记录调度会话");
   return (
-    <div className="rounded-lg">
+    <div className="relative rounded-lg">
+      <button
+        aria-pressed={timelineOpen}
+        className={cn(
+          "absolute top-1.5 right-1.5 z-10 rounded-md border px-1.5 py-0.5 text-[10px] transition-colors",
+          timelineOpen ? "border-primary/40 bg-accent font-medium" : "border-transparent text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+        )}
+        onClick={onOpenTimeline}
+        title="打开该调度会话的时间线"
+        type="button"
+      >
+        时间线
+      </button>
       <button
         className={cn(
           "w-full rounded-lg border border-transparent px-3 py-2 text-left transition-colors hover:bg-accent/60",
@@ -255,7 +274,7 @@ function CallerGroupEntry({
         title={group.sessionId ?? undefined}
         type="button"
       >
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 pr-12">
           <ChevronRight className={cn("size-3 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
           <span className="min-w-0 truncate font-medium text-sm">{label}</span>
         </div>
@@ -292,8 +311,13 @@ export default function App() {
   const [conn, setConn] = useState<SyncState>("loading");
   const [truncated, setTruncated] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [view, setView] = useState<SidebarView>("cli");
+  const [view, setView] = useState<SidebarView>(DEFAULT_SIDEBAR_VIEW);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  // Which caller group's scheduling timeline is open (group key), if any.
+  const [timelineKey, setTimelineKey] = useState<string | null>(null);
+  // Operation the user asked to locate from the timeline; consumed once the
+  // matching [data-opid] anchor exists in the rendered task timeline.
+  const pendingScroll = useRef<{ taskId: string; operationId: string } | null>(null);
   const taskSync = useRef<TaskSyncController | null>(null);
   const overviewSync = useRef<SerialPoller | null>(null);
   const sortedTasks = useMemo(() => sortTasksByActivity(tasks), [tasks]);
@@ -396,6 +420,24 @@ export default function App() {
     ? `${activeMeta.execution.actualModel}${activeMeta.execution.actualVariant ? `#${activeMeta.execution.actualVariant}` : ""}`
     : activeMeta?.model;
   const { rows: visibleItems, details: executionDetails } = useMemo(() => presentTimeline(items), [items]);
+  const timelineGroup = timelineKey ? callerGroups.find((group) => group.key === timelineKey) ?? null : null;
+  const [locateTick, setLocateTick] = useState(0);
+  const locateOperation = useCallback((taskId: string, operationId: string) => {
+    pendingScroll.current = { taskId, operationId };
+    setSelectedId(taskId);
+    setLocateTick((tick) => tick + 1);
+  }, []);
+  // Scroll to the located operation once its [data-opid] anchor is rendered
+  // in the task timeline (snapshot may still be loading right after switch).
+  useEffect(() => {
+    const pending = pendingScroll.current;
+    if (!pending || pending.taskId !== selectedId) return;
+    const anchor = document.querySelector(`[data-opid="${CSS.escape(pending.operationId)}"]`);
+    if (anchor) {
+      pendingScroll.current = null;
+      anchor.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+  }, [selectedId, visibleItems, locateTick]);
   const [expansion, setExpansion] = useState<Record<string, Expansion>>({});
   const expanded = expansion[selectedId ?? ""] ?? {};
   const setExpanded: SetExpanded = (id, open) => {
@@ -413,7 +455,7 @@ export default function App() {
             {view === "caller" ? `${callerGroups.length} 个调度会话 · ${tasks.length} 个会话` : `${tasks.length} 个会话`}
           </p>
           <div className="mt-2 grid grid-cols-2 gap-0.5 rounded-lg bg-muted/70 p-0.5" role="group" aria-label="任务列表视图">
-            {([["cli", "执行会话"], ["caller", "调度会话"]] as Array<[SidebarView, string]>).map(([id, label]) => (
+            {SIDEBAR_VIEWS.map(([id, label]) => (
               <button
                 aria-pressed={view === id}
                 className={cn(
@@ -445,8 +487,10 @@ export default function App() {
                   key={group.key}
                   onSelect={setSelectedId}
                   onToggle={() => setExpandedGroups((current) => ({ ...current, [group.key]: !isGroupOpen(group) }))}
+                  onOpenTimeline={() => setTimelineKey((current) => (current === group.key ? null : group.key))}
                   open={isGroupOpen(group)}
                   selectedId={selectedId}
+                  timelineOpen={timelineKey === group.key}
                 />
               ))}
           {!tasks.length && !loadError ? (
@@ -472,6 +516,15 @@ export default function App() {
             ))}
           </select>
         </div>
+
+        {timelineGroup ? (
+          <ScheduleTimelinePanel
+            groupLabel={timelineGroup.name ?? (timelineGroup.sessionId ? "未命名调度会话" : "未记录调度会话")}
+            onClose={() => setTimelineKey(null)}
+            onLocateOperation={locateOperation}
+            sessionId={timelineGroup.sessionId}
+          />
+        ) : null}
 
         {activeMeta ? (
           <header className="max-h-[45vh] shrink-0 overflow-y-auto border-b px-4 py-4 sm:px-6">

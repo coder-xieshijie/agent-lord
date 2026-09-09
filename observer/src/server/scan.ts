@@ -41,6 +41,13 @@ export interface OperationRecord {
   activity?: TaskMeta["activity"];
   delivery?: TaskMeta["delivery"];
   recovery?: TaskMeta["recovery"];
+  /** Structured parallel-plan evidence recorded on the operation itself. */
+  parallel?: {
+    group: string;
+    role: "worker" | "integrator";
+    integratorTaskId: string | null;
+    workers: string[];
+  };
 }
 
 export interface TaskRecord {
@@ -85,6 +92,21 @@ function invocation(value: unknown): Invocation | undefined {
     trigger: trigger === "user_request" || trigger === "caller_followup" || trigger === "recovery" ? trigger : "unspecified",
     user_request: asString(raw.user_request), reason: asString(raw.reason),
   };
+}
+
+/** Only well-formed worker/integrator plans count as dependency evidence. */
+function parallelPlan(value: unknown): OperationRecord["parallel"] {
+  const plan = object(value);
+  const group = asString(plan.group);
+  if (!group) return undefined;
+  if (plan.role === "worker" && asString(plan.integrator_task_id)) {
+    return { group, role: "worker", integratorTaskId: String(plan.integrator_task_id), workers: [] };
+  }
+  if (plan.role === "integrator" && Array.isArray(plan.integration_workers)) {
+    const workers = plan.integration_workers.filter((item): item is string => typeof item === "string" && Boolean(item)).slice(0, 50);
+    if (workers.length) return { group, role: "integrator", integratorTaskId: null, workers };
+  }
+  return undefined;
 }
 
 function displayEvidence(value: Record<string, unknown>): Pick<OperationRecord, "activity" | "delivery" | "recovery"> {
@@ -176,6 +198,7 @@ function parseOperationFile(file: string): OperationRecord | null {
     const models = Array.isArray(observed.models) ? observed.models.filter((v): v is string => typeof v === "string" && Boolean(v)) : [];
     const actualModel = asString(observed.model) ?? asString(observed.main_model)
       ?? (models.length === 1 && modelVerification !== "argument-enforced" ? models[0] : null);
+    const parallel = parallelPlan(value.parallel_plan);
     const rawArtifact = object(value.artifact);
     const artifact = value.status === "succeeded" && asString(rawArtifact.path) && asString(rawArtifact.sha256)
       && typeof rawArtifact.bytes === "number" && rawArtifact.bytes > 0
@@ -206,6 +229,7 @@ function parseOperationFile(file: string): OperationRecord | null {
       providerCompletedAtMs: typeof observed.provider_completed_at_ms === "number" && Number.isFinite(observed.provider_completed_at_ms) ? observed.provider_completed_at_ms : null,
       errorCode: error ? asString(error.code) : null,
       errorMessage: error ? asString(error.message) : null,
+      ...(parallel ? { parallel } : {}),
       ...displayEvidence(value),
     };
   } catch {
