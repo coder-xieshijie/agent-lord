@@ -10,7 +10,7 @@ export function requestLabel(item: RequestItem): string {
 
 export function RequestRow({ item, open = false, onOpenChange }: { item: RequestItem; open?: boolean; onOpenChange?: (open: boolean) => void }) {
   const long = item.text.length > 800 || item.text.split("\n").length > 12;
-  return <section className="my-3 min-w-0 rounded-lg border bg-muted/30 p-3" aria-label={requestLabel(item)}>
+  return <section className="my-3 min-w-0 rounded-lg border bg-muted/30 p-3" aria-label={requestLabel(item)} data-opid={item.opId}>
     <div className="flex flex-wrap items-center justify-between gap-2">
       <span className="text-sm font-medium">{requestLabel(item)}</span>
       <CopyButton text={item.text} label="复制请求" />

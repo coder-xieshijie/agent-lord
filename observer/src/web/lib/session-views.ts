@@ -13,6 +13,15 @@ import type { TaskMeta } from "../../shared/types";
 
 export type SidebarView = "cli" | "caller";
 
+/** Toggle order as rendered: scheduling sessions before execution sessions. */
+export const SIDEBAR_VIEWS: ReadonlyArray<readonly [SidebarView, string]> = [
+  ["caller", "调度会话"],
+  ["cli", "执行会话"],
+];
+
+/** The sidebar opens on the scheduling-session view. */
+export const DEFAULT_SIDEBAR_VIEW: SidebarView = "caller";
+
 export const UNATTRIBUTED_GROUP_KEY = "caller:unattributed";
 
 export interface CallerGroup {

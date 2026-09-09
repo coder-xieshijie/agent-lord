@@ -37,6 +37,36 @@ describe("bound Codex caller lifecycle", () => {
     expect(reader.observe({ ...caller, turn_id: "later-turn" }, "fixture-operation", created, ready).status).toBe("unknown");
   });
 
+  it("sessionTimeline exposes every verified turn and cross-turn multi-status receipts", () => {
+    const { file, caller, reader } = fixture();
+    // Turn 1 completes; a second turn opens; receipts for two operations
+    // arrive during turn 2 — one SUCCEEDED, one ERROR (non-success receipts
+    // are visible here even though observe() ignores them).
+    appendFileSync(file, line("event_msg", { type: "task_complete", turn_id: "fixture-turn" }, "2026-09-09T04:30:00Z"));
+    appendFileSync(file, line("event_msg", { type: "task_started", turn_id: "turn-2" }, "2026-09-09T04:31:00Z"));
+    appendFileSync(file, line("response_item", { type: "function_call_output", output: JSON.stringify({ actionable: [{ status: "SUCCEEDED", operation_id: "op-cross" }, { status: "ERROR", operation_id: "op-broken" }] }) }, "2026-09-09T04:32:00Z"));
+    const timeline = reader.sessionTimeline(caller);
+    expect(timeline.note).toBe("");
+    expect(timeline.turns).toEqual([
+      { turnId: "fixture-turn", startedAtMs: Date.parse("2026-09-09T04:20:00Z"), completedAtMs: Date.parse("2026-09-09T04:30:00Z"), aborted: false },
+      { turnId: "turn-2", startedAtMs: Date.parse("2026-09-09T04:31:00Z"), completedAtMs: null, aborted: false },
+    ]);
+    // Receipts land on the turn active at arrival (cross-turn reception).
+    expect(timeline.receipts.get("op-cross")).toEqual({ turnId: "turn-2", atMs: Date.parse("2026-09-09T04:32:00Z"), status: "SUCCEEDED" });
+    expect(timeline.receipts.get("op-broken")).toEqual({ turnId: "turn-2", atMs: Date.parse("2026-09-09T04:32:00Z"), status: "ERROR" });
+    // observe() keeps its original narrow contract for the same data.
+    expect(reader.observe(caller, "fixture-operation", created, null).status).toBe("completed");
+  });
+
+  it("sessionTimeline reports an honest note instead of fabricated turns when the session is unverifiable", () => {
+    const { caller, reader } = fixture();
+    const missing = reader.sessionTimeline({ ...caller, session_id: "absent-session" });
+    expect(missing.turns).toEqual([]);
+    expect(missing.receipts.size).toBe(0);
+    expect(missing.note).not.toBe("");
+    expect(reader.sessionTimeline(undefined).note).not.toBe("");
+  });
+
   it("never fabricates a finished state from a later turn or an unrelated completion", () => {
     const { file, caller, reader } = fixture();
     appendFileSync(file, line("event_msg", { type: "task_complete", turn_id: "unrelated" }, "2026-09-09T04:30:00Z"));

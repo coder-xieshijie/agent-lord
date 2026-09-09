@@ -4,6 +4,7 @@ import type {
   DeltaResponse,
   FontCatalog,
   OverviewResponse,
+  ScheduleResponse,
   SnapshotResponse,
   TimelineItem,
 } from "../../shared/types";
@@ -19,6 +20,10 @@ async function getJson<T>(path: string): Promise<T> {
 
 export function fetchOverview(): Promise<OverviewResponse> {
   return getJson<OverviewResponse>("/api/overview");
+}
+
+export function fetchSchedule(): Promise<ScheduleResponse> {
+  return getJson<ScheduleResponse>("/api/schedule");
 }
 
 export function fetchFonts(): Promise<FontCatalog> {

@@ -177,4 +177,23 @@ describe("HTTP surface", () => {
     }
     controller.abort();
   });
+
+  it("serves the schedule aggregate behind the same token without leaking paths", async () => {
+    const { root, hub, taskId } = makeFixture();
+    const opFile = path.join(root, "operations", "fixture-op-http.json");
+    const op = JSON.parse(readFileSync(opFile, "utf8"));
+    writeFileSync(opFile, j({ ...op, invocation: { caller: { kind: "codex", session_id: "fixture-sched-session", turn_id: null, identity_source: "caller-declared", data_root: root }, trigger: "user_request" } }));
+    hub.refresh();
+    const { base } = await startServer(hub);
+    expect((await fetch(`${base}/api/schedule`)).status).toBe(401);
+    const response = await fetch(`${base}/api/schedule?token=${TOKEN}`);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.groups).toHaveLength(1);
+    expect(body.groups[0].sessionId).toBe("fixture-sched-session");
+    expect(body.groups[0].tasks[0].taskId).toBe(taskId);
+    expect(body.groups[0].tasks[0].operations.map((operation: { operationId: string }) => operation.operationId)).toEqual(["fixture-op-http"]);
+    // Session ids only: the caller data_root / absolute paths never ship.
+    expect(JSON.stringify(body)).not.toContain(root);
+  });
 });

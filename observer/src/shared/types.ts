@@ -235,3 +235,91 @@ export interface OverviewResponse {
   tasks: TaskMeta[];
   generation: string;
 }
+
+/** ---- Scheduling timeline aggregate (read-only, evidence-based) ---- */
+
+/** One scheduling-session Turn observed from verified lifecycle evidence. */
+export interface ScheduleTurn {
+  turnId: string;
+  startedAtMs: number;
+  completedAtMs: number | null;
+  aborted: boolean;
+}
+
+/** Structured receipt of one operation inside the scheduling session,
+ * recorded on the Turn that was active when the receipt arrived (so a
+ * receipt may land on a later Turn than the dispatching one). */
+export interface ScheduleReceipt {
+  turnId: string | null;
+  atMs: number;
+  status: "SUCCEEDED" | "ERROR" | "NEEDS_DECISION";
+}
+
+/** Evidence-only time points of one operation. Missing evidence stays null;
+ * nothing here is inferred from polling time or file mtimes. */
+export interface ScheduleOperation {
+  operationId: string;
+  kind: string | null;
+  status: string | null;
+  trigger: Invocation["trigger"];
+  /** This round's actual caller session (may differ from the group owner). */
+  callerSessionId: string | null;
+  /** Dispatch Turn binding and how it was established. */
+  dispatchTurnId: string | null;
+  dispatchBinding: "recorded" | "inferred-by-create-time" | "none";
+  /** Operation record creation (= dispatch time). */
+  createdAtMs: number | null;
+  /** Journal operation-started / operation-continued timestamp; null without evidence. */
+  executorStartedAtMs: number | null;
+  /** Operation record completed_at (terminal states only). */
+  completedAtMs: number | null;
+  providerCompletedAtMs: number | null;
+  /** Journal artifact-exported timestamp when available. */
+  artifactExportedAtMs: number | null;
+  /** completed_at fallback used by the legacy artifactReadyAtMs semantics. */
+  artifactReadyApprox: boolean;
+  hasArtifact: boolean;
+  receipt: ScheduleReceipt | null;
+  deliveryStatus: "verified" | "incomplete" | "unverified" | null;
+  /** Same-session continuation attempt (structured continuation evidence). */
+  attempt: number | null;
+  errorCode: string | null;
+  /** completed_at earlier than created_at etc.; rendered, never swapped. */
+  clockAnomaly: boolean;
+  running: boolean;
+}
+
+export interface ScheduleTask {
+  taskId: string;
+  title: string;
+  providerLabel: string;
+  statusKind: TaskMeta["statusKind"];
+  /** First dispatch time; lane order is stable by this value then taskId. */
+  firstDispatchMs: number | null;
+  /** Structured parallel-plan evidence (all-of worker→integrator), if any. */
+  parallel: {
+    group: string;
+    role: "worker" | "integrator";
+    integratorTaskId: string | null;
+    workers: string[];
+  } | null;
+  operations: ScheduleOperation[];
+}
+
+export interface ScheduleGroup {
+  /** Attributed scheduling session id; null for the unattributed group. */
+  sessionId: string | null;
+  name: string | null;
+  projectName: string | null;
+  /** Verified lifecycle turns, oldest first; [] when unavailable. */
+  turns: ScheduleTurn[];
+  /** Why turns are missing / incomplete; empty when fully observed. */
+  turnsNote: string;
+  tasks: ScheduleTask[];
+}
+
+export interface ScheduleResponse {
+  generation: string;
+  now: number;
+  groups: ScheduleGroup[];
+}

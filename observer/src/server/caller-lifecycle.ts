@@ -3,15 +3,31 @@
 import { readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import type { CallerIdentity } from "@agent-lord/core/contracts";
-import type { CallerLifecycle } from "../shared/types.js";
+import type { CallerLifecycle, ScheduleReceipt, ScheduleTurn } from "../shared/types.js";
 import { readCompleteLines } from "./scan.js";
 
+/** Structured receipt statuses projected from the caller's rollout log. */
+const RECEIPT_STATUSES = new Set(["SUCCEEDED", "ERROR", "NEEDS_DECISION"]);
+
+interface Receipt {
+  atMs: number;
+  status: ScheduleReceipt["status"];
+}
 interface Turn {
   id: string;
   started: number;
   completed: number | null;
   aborted: boolean;
-  receipts: Map<string, number>;
+  receipts: Map<string, Receipt>;
+}
+
+export interface SessionTimeline {
+  /** Verified turns, oldest first. */
+  turns: ScheduleTurn[];
+  /** operation_id → structured receipt (turn active at arrival; cross-turn). */
+  receipts: Map<string, ScheduleReceipt>;
+  /** Empty when fully observed; otherwise why data is missing/partial. */
+  note: string;
 }
 interface Reader {
   file: string | null;
@@ -55,8 +71,9 @@ function receipts(value: unknown, turn: Turn, ts: number, depth = 0): void {
     for (const item of value.slice(0, 1000)) receipts(item, turn, ts, depth + 1);
   } else {
     const item = object(value);
-    if (item.status === "SUCCEEDED" && typeof item.operation_id === "string" && !turn.receipts.has(item.operation_id)) {
-      turn.receipts.set(item.operation_id, ts);
+    if (typeof item.status === "string" && RECEIPT_STATUSES.has(item.status)
+      && typeof item.operation_id === "string" && !turn.receipts.has(item.operation_id)) {
+      turn.receipts.set(item.operation_id, { atMs: ts, status: item.status as ScheduleReceipt["status"] });
       if (turn.receipts.size > 1000) turn.receipts.delete(turn.receipts.keys().next().value!);
     }
     for (const key of ["output", "text", "content", "value", "result", "actionable"]) if (key in item) receipts(item[key], turn, ts, depth + 1);
@@ -66,9 +83,13 @@ function receipts(value: unknown, turn: Turn, ts: number, depth = 0): void {
 export class CallerLifecycleReader {
   private readers = new Map<string, Reader>();
 
-  observe(caller: CallerIdentity | undefined, opId: string, createdAt: string, readyAt: number | null): CallerLifecycle {
+  /** Locate + incrementally consume the session's rollout log. Returns the
+   * up-to-date reader with the current stat, or an honest failure note. */
+  private pump(caller: CallerIdentity | undefined):
+    | { reader: Reader; size: number; mtimeMs: number }
+    | { note: string } {
     if (caller?.kind !== "codex" || !caller.session_id || !caller.data_root || !path.isAbsolute(caller.data_root)
-      || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(caller.session_id)) return unknown("未记录可核验的 Codex 调度会话来源");
+      || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(caller.session_id)) return { note: "未记录可核验的 Codex 调度会话来源" };
     const key = `${caller.data_root}\0${caller.session_id}`;
     let reader = this.readers.get(key);
     if (!reader) {
@@ -79,7 +100,7 @@ export class CallerLifecycleReader {
       reader.file = locateRolloutFile(caller.data_root, caller.session_id);
       reader.lookupAt = Date.now();
     }
-    if (!reader.file) return unknown("未找到唯一匹配的 Codex Session 日志");
+    if (!reader.file) return { note: "未找到唯一匹配的 Codex Session 日志" };
     try {
       const stat = statSync(reader.file);
       if ((reader.inode && reader.inode !== stat.ino) || stat.size < reader.offset) {
@@ -116,24 +137,52 @@ export class CallerLifecycleReader {
           if (turn) receipts(payload.output, turn, ts);
         }
       }
-      if (!reader.verified || reader.rejected) return unknown("Codex 日志的 Session 身份不匹配");
-      if (reader.offset < stat.size) return unknown("正在读取调度生命周期记录");
-      const created = Date.parse(createdAt);
-      const ordered = [...reader.turns.values()].sort((a, b) => a.started - b.started);
-      const turn = caller.turn_id ? reader.turns.get(caller.turn_id) : ordered.filter((item) => item.started <= created).at(-1);
-      if (!turn || !Number.isFinite(created) || created < turn.started || (turn.completed !== null && created > turn.completed)) return unknown("无法将本次操作绑定到调度 Turn");
-      const hasLaterTurn = ordered.some((item) => item.started > turn.started);
-      const received = turn.receipts.get(opId) ?? null;
-      return {
-        status: turn.completed !== null ? turn.aborted ? "aborted" : "completed" : hasLaterTurn ? "unknown" : "running",
-        turnId: turn.id, startedAtMs: turn.started, completedAtMs: turn.completed,
-        receivedAtMs: received !== null && (readyAt === null || received >= readyAt) ? received : null,
-        observedAtMs: stat.mtimeMs,
-        note: "来自匹配 Session/Turn 的宿主生命周期事件；未观测的时间点保持为空",
-      };
+      if (!reader.verified || reader.rejected) return { note: "Codex 日志的 Session 身份不匹配" };
+      if (reader.offset < stat.size) return { note: "正在读取调度生命周期记录" };
+      return { reader, size: stat.size, mtimeMs: stat.mtimeMs };
     } catch {
       reader.file = null;
-      return unknown("调度生命周期记录暂不可读");
+      return { note: "调度生命周期记录暂不可读" };
     }
+  }
+
+  /** Cross-turn session view for the scheduling timeline: every verified
+   * Turn plus a cross-turn, multi-status receipt index. observe() keeps its
+   * original narrower contract (creation turn + SUCCEEDED only). */
+  sessionTimeline(caller: CallerIdentity | undefined): SessionTimeline {
+    const pumped = this.pump(caller);
+    if ("note" in pumped) return { turns: [], receipts: new Map(), note: pumped.note };
+    const turns = [...pumped.reader.turns.values()].sort((a, b) => a.started - b.started);
+    const index = new Map<string, ScheduleReceipt>();
+    for (const turn of turns) {
+      for (const [opId, receipt] of turn.receipts) {
+        if (!index.has(opId)) index.set(opId, { turnId: turn.id, atMs: receipt.atMs, status: receipt.status });
+      }
+    }
+    return {
+      turns: turns.map((turn) => ({ turnId: turn.id, startedAtMs: turn.started, completedAtMs: turn.completed, aborted: turn.aborted })),
+      receipts: index,
+      note: "",
+    };
+  }
+
+  observe(caller: CallerIdentity | undefined, opId: string, createdAt: string, readyAt: number | null): CallerLifecycle {
+    const pumped = this.pump(caller);
+    if ("note" in pumped) return unknown(pumped.note);
+    const reader = pumped.reader;
+    const created = Date.parse(createdAt);
+    const ordered = [...reader.turns.values()].sort((a, b) => a.started - b.started);
+    const turn = caller?.turn_id ? reader.turns.get(caller.turn_id) : ordered.filter((item) => item.started <= created).at(-1);
+    if (!turn || !Number.isFinite(created) || created < turn.started || (turn.completed !== null && created > turn.completed)) return unknown("无法将本次操作绑定到调度 Turn");
+    const hasLaterTurn = ordered.some((item) => item.started > turn.started);
+    const receipt = turn.receipts.get(opId) ?? null;
+    const received = receipt && receipt.status === "SUCCEEDED" ? receipt.atMs : null;
+    return {
+      status: turn.completed !== null ? turn.aborted ? "aborted" : "completed" : hasLaterTurn ? "unknown" : "running",
+      turnId: turn.id, startedAtMs: turn.started, completedAtMs: turn.completed,
+      receivedAtMs: received !== null && (readyAt === null || received >= readyAt) ? received : null,
+      observedAtMs: pumped.mtimeMs,
+      note: "来自匹配 Session/Turn 的宿主生命周期事件；未观测的时间点保持为空",
+    };
   }
 }
