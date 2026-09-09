@@ -28,7 +28,7 @@ export interface CallerGroup {
   key: string;
   /** Scheduling session id; null for the group of tasks without one. */
   sessionId: string | null;
-  /** Recorded thread name of the scheduling session; null when unknown. */
+  /** Name or request preview of the scheduling session; null when unknown. */
   name: string | null;
   /** Basename of the scheduling session's project directory; null when unknown. */
   projectName: string | null;

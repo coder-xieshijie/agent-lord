@@ -65,7 +65,10 @@ describe("preview lifecycle", () => {
     expect(await (await fetch(first.url)).text()).toContain("Fixture preview");
     expect(statSync(metadataPath(options.stateDir, options.port)).mode & 0o777).toBe(0o600);
     const log = readFileSync(path.join(options.stateDir, "observer", `server-${options.port}.log`), "utf8");
-    expect(JSON.parse(log.trim()).event).toBe("preview-ready");
+    // stdout events and Node diagnostics (for example node:sqlite warnings)
+    // share the log. Readiness is a structured event tied to this instance.
+    const events = log.split("\n").filter((line) => line.startsWith("{")).map((line) => JSON.parse(line));
+    expect(events).toEqual([expect.objectContaining({ event: "preview-ready", instance_id: first.instance_id, pid: first.pid })]);
     const headers = { authorization: `Bearer ${previewToken(first)}` };
     const base = `http://127.0.0.1:${first.port}`;
     const snapshot = await (await fetch(`${base}/api/tasks/fixture-task/snapshot`, { headers })).json() as { cursor: string };
