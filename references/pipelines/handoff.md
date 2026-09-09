@@ -4,7 +4,7 @@ Load this reference when the user asks to hand the current session's work off to
 
 ## Selection and authorization
 
-The handoff shorthand authorizes exactly one node: one new local CLI continuation endpoint (`claude-cli`, `codex-cli`, or `mcode-cli`) that continues the user-specified task. It never authorizes a planner, reviewer, tester, integrator, replacement endpoint, or any other user-visible node, and never selects `codex-app`. The user decides the provider, model, applicable effort, and write posture per invocation; the packet's `contract_request` carries those decisions when the command line omits them, and an explicit argument that contradicts the packet fails closed. MCode handoffs resolve the qualified model from explicit input or provider defaults, omit effort, and are writable because MCode has no enforceable read-only mode.
+The handoff shorthand authorizes exactly one node: one new local CLI continuation endpoint (`claude-cli`, `codex-cli`, or `mcode-cli`) that continues the user-specified task. It never authorizes a planner, reviewer, tester, integrator, replacement endpoint, or any other user-visible node, and never selects `codex-app`. The user decides the provider, model, applicable effort, and task-level write boundaries; the packet's `contract_request` carries provider/model/effort choices when the command line omits them, and an explicit argument that contradicts the packet fails closed. Every new handoff uses `dangerously_bypass` without `--read-only` under [the Skill invariants](../../SKILL.md#invariants). MCode handoffs resolve the qualified model from explicit input or provider defaults and omit effort.
 
 The originating [scheduling caller](../../SKILL.md#scheduling-ownership) retains orchestration and performs the deterministic loop below. The continuation CLI executes the named task and returns its result; handoff does not transfer scheduling authority.
 
@@ -23,12 +23,14 @@ Treat the `handoff-v1` packet as a compact handoff document for a fresh agent. A
 
 Include the [executor constraint](../../SKILL.md#scheduling-ownership) in the packet's `constraints` array so the fresh endpoint receives its role boundary in the rendered prompt.
 
+The existing schema couples `authorization.workspace_writes` to the process mode: bypass requires `true`, including for review continuations. Record narrower task limits in `constraints` explicitly (for example, keep the checkout and HEAD unchanged; no code edits or commits). Set `authorization.external_writes` only from the user's actual authorization. The process field does not override these constraints or grant broader task or external-write authority; a strict review prompt is not a read-only process.
+
 Write the caller-owned JSON file to a private path in the operating system's temporary directory, never into the target repository. `schemas/handoff-v1.schema.json` is the authoritative shape; the control plane enforces it with closed objects, 64 KiB canonical bytes, 8 KiB strings, 64-item lists, workspace-relative evidence paths, an all-false sanitization attestation, an `integrity.sha256` self-digest, and a high-confidence secret-pattern scan. The scan cannot prove secrets are absent, so sanitizing the content remains the source session's obligation.
 
 ## Deterministic loop
 
 1. Author the packet and optionally pre-check it: `handoff --validate-only` validates schema, integrity, task binding, contract request, and write-posture consistency without touching durable state (its envelope carries `handoff.validated_only`).
-2. Consume it: `node core/dist/cli.js handoff --task-id <new-task> --packet-file <file> --provider <cli> --target <workspace> [--model … --effort … --read-only --head-sha … --retry-attempts …]`. The command validates, freezes the contract, snapshots the workspace, journals a `handoff` operation, stores the canonical packet as an input artifact, renders the deterministic continuation prompt (packet content plus digest and contract), and starts the provider.
+2. Consume it: `node core/dist/cli.js handoff --task-id <new-task> --packet-file <file> --provider <cli> --target <workspace> [--model … --effort … --head-sha … --retry-attempts …]`. The command validates, freezes the contract, snapshots the workspace, journals a `handoff` operation, stores the canonical packet as an input artifact, renders the deterministic continuation prompt (packet content plus digest and contract), and starts the provider.
 3. Process the returned envelope and every later round exactly as the standard loop in `SKILL.md`: `turn` continues the same saved endpoint, `checkpoint` supervises and recovers it. Handoff adds no second runtime.
 4. Remove the caller-owned packet file after the command has consumed it; the canonical copy persists as `artifacts/<task-id>/<operation-id>.handoff-v1.json` under the state directory.
 
