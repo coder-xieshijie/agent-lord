@@ -115,6 +115,9 @@ describe("Hub ordering and incremental refresh", () => {
     expect(snapshot.items.filter((item) => item.kind === "request" || item.kind === "message").map((item) => "text" in item ? item.text : "")).toEqual(["用户原话\n不能改写", "dispatch first", "reply-fixture-first", "dispatch follow-up", "reply-fixture-second"]);
     expect(snapshot.task.caller?.initial?.session_id).toBe("caller-first");
     expect(snapshot.task.caller?.current?.session_id).toBe("caller-second");
+    // Attribution: the latest operation that recorded a caller session id owns
+    // the task; unverifiable metadata stays an honest null and no data_root leaks.
+    expect(snapshot.task.caller?.session).toEqual({ sessionId: "caller-second", name: null, projectName: null });
     expect(snapshot.task.execution).toMatchObject({ requestedModel: "test/fable#xhigh", actualModel: "test/fable", requestedVariant: "xhigh", actualVariant: "xhigh", actualEffort: null });
     expect(JSON.stringify(snapshot)).not.toContain("/private/not-for-web");
     const ids = snapshot.items.map((item) => item.id);
@@ -133,6 +136,7 @@ describe("Hub ordering and incremental refresh", () => {
     const old = hub.snapshot("fixture-codex-model")!;
     expect(old.task.execution?.actualModel).toBeNull();
     expect(old.task.caller?.current).toBeNull();
+    expect(old.task.caller?.session).toBeNull(); // historical task without any caller record stays reachable, unattributed
     expect(old.items.find((item) => item.kind === "request")).toMatchObject({ text: "legacy dispatch", role: "caller", originalRecorded: false });
   });
   it("separates execution success, delivery evidence and recovery activity", () => {

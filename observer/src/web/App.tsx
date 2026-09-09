@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   Circle,
+  Folder,
   Loader2,
   RadioTower,
   XCircle,
@@ -21,6 +23,13 @@ import { applyItem, fetchOverview, fetchSnapshot, openStream } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { presentTimeline } from "@/lib/presentation";
 import { selectTask } from "@/lib/task-selection";
+import {
+  groupKeyForTask,
+  groupTasksByCaller,
+  sortTasksByActivity,
+  type CallerGroup,
+  type SidebarView,
+} from "@/lib/session-views";
 import { CopyButton } from "@/components/copy-button";
 import { RequestRow } from "@/components/request-row";
 import { ExecutionDetails, callerStatus } from "@/components/execution-details";
@@ -200,6 +209,60 @@ function TaskListEntry({ meta, selected, onSelect }: { meta: TaskMeta; selected:
   );
 }
 
+function CallerGroupEntry({
+  group,
+  open,
+  selectedId,
+  onToggle,
+  onSelect,
+}: {
+  group: CallerGroup;
+  open: boolean;
+  selectedId: string | null;
+  onToggle: () => void;
+  onSelect: (taskId: string) => void;
+}) {
+  const label = group.name ?? (group.sessionId ? "未命名调度会话" : "未记录调度会话");
+  return (
+    <div className="rounded-lg">
+      <button
+        className={cn(
+          "w-full rounded-lg border border-transparent px-3 py-2 text-left transition-colors hover:bg-accent/60",
+          !open && group.tasks.some((task) => task.taskId === selectedId) && "bg-accent/40",
+        )}
+        onClick={onToggle}
+        title={group.sessionId ?? undefined}
+        type="button"
+      >
+        <div className="flex items-center gap-1.5">
+          <ChevronRight className={cn("size-3 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
+          <span className="min-w-0 truncate font-medium text-sm">{label}</span>
+        </div>
+        <div className="mt-1 flex items-center gap-1.5 pl-[18px] text-muted-foreground text-xs">
+          <Folder className="size-3 shrink-0" />
+          <span className={cn("min-w-0 truncate", !group.projectName && "italic")}>
+            {group.projectName ?? "项目未记录"}
+          </span>
+          <span className="ml-auto shrink-0">{relativeTime(group.lastActivityMs)}</span>
+        </div>
+        <p className="mt-0.5 pl-[18px] text-muted-foreground text-xs">{group.tasks.length} 个执行会话</p>
+      </button>
+      {open ? (
+        <div className="mt-0.5 space-y-1 border-muted-foreground/20 border-l pl-2 ml-3">
+          {group.tasks.map((task) => (
+            <TaskListEntry
+              key={task.taskId}
+              meta={task}
+              onSelect={() => onSelect(task.taskId)}
+              selected={task.taskId === selectedId}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function App() {
   const [tasks, setTasks] = useState<TaskMeta[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -208,8 +271,16 @@ export default function App() {
   const [conn, setConn] = useState<ConnState>("connecting");
   const [truncated, setTruncated] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [view, setView] = useState<SidebarView>("cli");
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const streamCloser = useRef<(() => void) | null>(null);
   const syncEpoch = useRef(0);
+  const sortedTasks = useMemo(() => sortTasksByActivity(tasks), [tasks]);
+  const callerGroups = useMemo(() => groupTasksByCaller(tasks), [tasks]);
+  // Keep the current selection visible when entering the caller view: the
+  // group holding the selected task opens unless the user closed it manually.
+  const isGroupOpen = (group: CallerGroup): boolean =>
+    expandedGroups[group.key] ?? groupKeyForTask(callerGroups, selectedId) === group.key;
 
   // Overview poll (2.5s) keeps the task list & statuses fresh.
   useEffect(() => {
@@ -318,19 +389,48 @@ export default function App() {
     <div className="flex h-full">
       {/* Wide layout: sidebar task list */}
       <aside className="hidden w-64 shrink-0 flex-col border-r bg-muted/20 lg:flex">
-        <div className="px-4 pt-5 pb-4">
+        <div className="px-4 pt-5 pb-3">
           <h1 className="font-semibold text-sm">任务</h1>
-          <p className="mt-1 text-xs text-muted-foreground">{tasks.length} 个会话</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {view === "caller" ? `${callerGroups.length} 个调度会话 · ${tasks.length} 个会话` : `${tasks.length} 个会话`}
+          </p>
+          <div className="mt-2 grid grid-cols-2 gap-0.5 rounded-lg bg-muted/70 p-0.5" role="group" aria-label="任务列表视图">
+            {([["cli", "执行会话"], ["caller", "调度会话"]] as Array<[SidebarView, string]>).map(([id, label]) => (
+              <button
+                aria-pressed={view === id}
+                className={cn(
+                  "rounded-md px-2 py-1 text-xs transition-colors",
+                  view === id ? "bg-background font-medium shadow-sm" : "text-muted-foreground hover:text-foreground",
+                )}
+                key={id}
+                onClick={() => setView(id)}
+                type="button"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
         <nav className="flex-1 space-y-1 overflow-y-auto px-2 pb-4">
-          {tasks.map((task) => (
-            <TaskListEntry
-              key={task.taskId}
-              meta={task}
-              onSelect={() => setSelectedId(task.taskId)}
-              selected={task.taskId === selectedId}
-            />
-          ))}
+          {view === "cli"
+            ? sortedTasks.map((task) => (
+                <TaskListEntry
+                  key={task.taskId}
+                  meta={task}
+                  onSelect={() => setSelectedId(task.taskId)}
+                  selected={task.taskId === selectedId}
+                />
+              ))
+            : callerGroups.map((group) => (
+                <CallerGroupEntry
+                  group={group}
+                  key={group.key}
+                  onSelect={setSelectedId}
+                  onToggle={() => setExpandedGroups((current) => ({ ...current, [group.key]: !isGroupOpen(group) }))}
+                  open={isGroupOpen(group)}
+                  selectedId={selectedId}
+                />
+              ))}
           {!tasks.length && !loadError ? (
             <p className="px-2 text-muted-foreground text-xs">正在加载任务…</p>
           ) : null}
@@ -347,7 +447,7 @@ export default function App() {
             onChange={(event) => setSelectedId(event.target.value)}
             value={selectedId ?? ""}
           >
-            {tasks.map((task) => (
+            {sortedTasks.map((task) => (
               <option key={task.taskId} value={task.taskId}>
                 {task.title} · {task.status}
               </option>
