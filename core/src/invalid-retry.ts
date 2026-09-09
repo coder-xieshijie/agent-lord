@@ -5,10 +5,13 @@
  * code+message fingerprint streak, and the cross-session `replacement_for`
  * lineage. Every retry operation is stamped with its root so a later
  * invocation against any failed member of the chain finds the same ledger.
- * Same-session retries replay through `turn` on the saved task; after two
- * consecutive identical fingerprints (or when no durable task record exists)
- * the next retry starts a new task/session with the frozen contract. The
- * `task_id` of the failed chain is never rebound.
+ * Same-session retries replay through `turn` on the saved task; only after two
+ * consecutive identical fingerprints does the next retry start a new
+ * task/session with the frozen contract. When the original failure never
+ * published a durable task the same-session path is unavailable, and the
+ * command refuses with a structured decision unless the caller explicitly
+ * authorizes a replacement via `--replacement-task-id`. The `task_id` of the
+ * failed chain is never rebound.
  */
 import {
   type Data,
@@ -68,6 +71,7 @@ interface LedgerAttempt extends Data {
   operation_id: string | null;
   replacement_for?: string;
   forced_new_session?: boolean;
+  parallel_role?: string;
 }
 interface Ledger extends Data {
   policy: typeof INVALID_RETRY_POLICY;
@@ -238,30 +242,41 @@ export async function retryResultInvalid(
       value.invalid_retry_ledger = ledger;
       return value;
     }
-    // 7. Route: same saved task/session first; after two consecutive identical
-    // fingerprints the next retry must run in a new session/task.
+    // 7. Route: same saved task/session first; only after two consecutive
+    // identical fingerprints does the next retry run in a new session/task.
     const streak = trailingStreak(ledger.failures);
     const chainTask = failed.task_id;
     const durable = store.hasTask(chainTask);
     let mode: LedgerAttempt["mode"] = streak >= 2 ? "new-session" : "same-session";
     let forced = false;
     if (mode === "same-session" && !durable) {
-      mode = "new-session";
-      forced = true;
-    }
-    const number = ledger.attempts.length + 1;
-    let attemptTask = chainTask;
-    if (mode === "new-session") {
-      const role = object(failed.parallel_plan).role ?? object(root.parallel_plan).role;
-      if (role) {
+      // A failed Claude start never published a durable task handle, so the
+      // saved-session replay path cannot be used and the session identity
+      // cannot be trusted for a same-endpoint retry. Missing identity is not
+      // a silent replacement trigger: report the missing decision and let the
+      // caller authorize the replacement session explicitly.
+      if (opts.replacement_task_id) {
+        mode = "new-session";
+        forced = true;
+      } else {
         refusal = new AgentLordError(
-          "REPLACEMENT_UNAVAILABLE",
-          "a parallel-group member cannot be replaced automatically; replay the group member manually",
-          { requires_authorization: true, details: { root_operation_id: rootId, parallel_role: role } },
+          "RECOVERY_UNAVAILABLE",
+          "the failed operation has no durable task, so a same-session retry cannot be replayed; pass --replacement-task-id to explicitly authorize a replacement session",
+          {
+            requires_authorization: true,
+            details: { root_operation_id: rootId, task_id: chainTask, streak },
+          },
         );
         value.invalid_retry_ledger = ledger;
         return value;
       }
+    }
+    const number = ledger.attempts.length + 1;
+    let attemptTask = chainTask;
+    const parallelRole =
+      string(object(failed.parallel_plan).role) ??
+      string(object(root.parallel_plan).role);
+    if (mode === "new-session") {
       attemptTask = opts.replacement_task_id ?? `${chainTask}-r${number}`;
       validateIdentifier("task_id", attemptTask);
       if (store.hasTask(attemptTask)) {
@@ -283,6 +298,7 @@ export async function retryResultInvalid(
       operation_id: null,
       ...(mode === "new-session" ? { replacement_for: chainTask } : {}),
       ...(forced ? { forced_new_session: true } : {}),
+      ...(parallelRole ? { parallel_role: parallelRole } : {}),
     };
     ledger.attempts.push(attempt);
     decision = { kind: "dispatch", attempt };
@@ -414,6 +430,7 @@ export async function retryResultInvalid(
       after_failure_operation_id: operationId,
       fingerprint,
       ...(attempt.replacement_for ? { replacement_for: attempt.replacement_for } : {}),
+      ...(attempt.parallel_role ? { parallel_role: attempt.parallel_role } : {}),
     },
     retryOpId ?? undefined,
   );
@@ -425,6 +442,7 @@ export async function retryResultInvalid(
     budget_remaining: INVALID_RETRY_BUDGET - attempt.attempt,
     ...(attempt.replacement_for ? { replacement_for: attempt.replacement_for } : {}),
     ...(attempt.forced_new_session ? { forced_new_session: true } : {}),
+    ...(attempt.parallel_role ? { parallel_role: attempt.parallel_role } : {}),
     ...(mismatched.length ? { contract_mismatch: mismatched } : {}),
   });
 }

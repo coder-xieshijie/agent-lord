@@ -9,11 +9,28 @@ import {
   retryResultInvalid,
 } from "../src/invalid-retry.js";
 import { harness, operation } from "./helpers.js";
+import { main } from "../src/cli.js";
 let h: ReturnType<typeof harness>;
 beforeEach(() => {
   h = harness();
 });
 afterEach(() => h.cleanup());
+const invalidOp = (taskId: string, operationId: string, extra: Data = {}) =>
+  h.lord.store.createOperation(
+    operation("claude-cli", {
+      task_id: taskId,
+      operation_id: operationId,
+      target: h.target,
+      status: "failed",
+      error: {
+        code: "RESULT_INVALID",
+        message: "provider output lacked the required result shape",
+        retryable: false,
+        requires_authorization: false,
+      },
+      ...extra,
+    }),
+  );
 
 describe("O1: MCode progress journal throttling", () => {
   it("journals item progress at a bounded rate without losing identity or the final state", async () => {
@@ -132,22 +149,6 @@ describe("O4: batched checkpoint supervision", () => {
 });
 
 describe("O2: scripted Claude RESULT_INVALID retry", () => {
-  const invalidOp = (taskId: string, operationId: string, extra: Data = {}) =>
-    h.lord.store.createOperation(
-      operation("claude-cli", {
-        task_id: taskId,
-        operation_id: operationId,
-        target: h.target,
-        status: "failed",
-        error: {
-          code: "RESULT_INVALID",
-          message: "provider output lacked the required result shape",
-          retryable: false,
-          requires_authorization: false,
-        },
-        ...extra,
-      }),
-    );
   it("replays a marked continuation on the same session and is idempotent", async () => {
     await h.lord.start("task", "claude-cli", h.target, "perform original work");
     invalidOp("task", "fail-1");
@@ -256,26 +257,63 @@ describe("O2: scripted Claude RESULT_INVALID retry", () => {
     for (const attempt of ledger.attempts as Data[])
       expect(attempt.operation_id).toBeTruthy();
   });
-  it("a failure without a durable task forces a new session with recorded lineage", async () => {
+  it("a failure without a durable task refuses silently replacing and honors explicit authorization", async () => {
     invalidOp("ghost", "ghost-fail");
-    const result = await retryResultInvalid(h.lord, "ghost", "ghost-fail");
+    // Missing durable task means the same-session path cannot be replayed;
+    // that is a reported decision, never a silent replacement trigger.
+    await expect(
+      retryResultInvalid(h.lord, "ghost", "ghost-fail"),
+    ).rejects.toMatchObject({
+      code: "RECOVERY_UNAVAILABLE",
+      requires_authorization: true,
+    });
+    expect(h.calls()).toHaveLength(0);
+    // No budget was consumed by the refusal.
+    expect(
+      object(h.lord.store.operation("ghost-fail").invalid_retry_ledger)
+        .attempts,
+    ).toEqual([]);
+    const result = await retryResultInvalid(h.lord, "ghost", "ghost-fail", {
+      replacement_task_id: "ghost-replay",
+    });
     expect(result.status).toBe("SUCCEEDED");
     expect(object(result.invalid_retry as Data)).toMatchObject({
       mode: "new-session",
       forced_new_session: true,
       replacement_for: "ghost",
     });
-    expect(h.lord.store.hasTask("ghost-r1")).toBe(true);
+    expect(h.lord.store.hasTask("ghost-replay")).toBe(true);
   });
-  it("a parallel-group member is never replaced automatically", async () => {
-    invalidOp("member", "member-fail", {
-      parallel_plan: { role: "worker" },
+  it("a parallel-group member retries on the same session and replaces with disclosed lineage", async () => {
+    await h.lord.start("task", "claude-cli", h.target, "perform original work");
+    invalidOp("task", "fail-1", { parallel_plan: { role: "worker" } });
+    // Same-session retry is never blocked by group membership.
+    const retry = await retryResultInvalid(h.lord, "task", "fail-1");
+    expect(retry.status).toBe("SUCCEEDED");
+    expect(object(retry.invalid_retry as Data)).toMatchObject({
+      mode: "same-session",
+      parallel_role: "worker",
     });
-    await expect(
-      retryResultInvalid(h.lord, "member", "member-fail"),
-    ).rejects.toMatchObject({
-      code: "REPLACEMENT_UNAVAILABLE",
-      requires_authorization: true,
+    // An explicitly authorized replacement also proceeds for a group member,
+    // carrying parallel_role for the pipeline's identity re-evaluation.
+    invalidOp("member", "member-f1", { parallel_plan: { role: "worker" } });
+    const replacement = await retryResultInvalid(
+      h.lord,
+      "member",
+      "member-f1",
+      { replacement_task_id: "member-replay" },
+    );
+    expect(replacement.status).toBe("SUCCEEDED");
+    expect(object(replacement.invalid_retry as Data)).toMatchObject({
+      mode: "new-session",
+      replacement_for: "member",
+      parallel_role: "worker",
+    });
+    const ledger = object(
+      h.lord.store.operation("member-f1").invalid_retry_ledger,
+    );
+    expect((ledger.attempts as Data[])[0]).toMatchObject({
+      parallel_role: "worker",
     });
   });
   it("a live concurrent dispatcher is not taken over", async () => {
@@ -321,5 +359,77 @@ describe("O2: scripted Claude RESULT_INVALID retry", () => {
     await expect(
       retryResultInvalid(h.lord, "other", "other-fail"),
     ).rejects.toMatchObject({ code: "CONFIG_INVALID" });
+  });
+});
+
+describe("O2: retry-invalid CLI entry", () => {
+  it("routes arguments, returns the structured envelope, and surfaces structured decisions", async () => {
+    await h.lord.start("task", "claude-cli", h.target, "perform original work");
+    invalidOp("task", "fail-1");
+    let out = "";
+    expect(
+      await main(
+        ["retry-invalid", "--task-id", "task", "--operation-id", "fail-1"],
+        (text) => {
+          out += text;
+        },
+      ),
+    ).toBe(0);
+    const envelope = JSON.parse(out);
+    expect(envelope).toMatchObject({ status: "SUCCEEDED", task_id: "task" });
+    expect(object(envelope.invalid_retry)).toMatchObject({
+      root_operation_id: "fail-1",
+      attempt: 1,
+      mode: "same-session",
+      budget_remaining: 2,
+    });
+    // A missing durable task surfaces the structured missing-decision refusal.
+    invalidOp("ghost", "ghost-fail");
+    out = "";
+    expect(
+      await main(
+        ["retry-invalid", "--task-id", "ghost", "--operation-id", "ghost-fail"],
+        (text) => {
+          out += text;
+        },
+      ),
+    ).toBe(1);
+    expect(JSON.parse(out)).toMatchObject({
+      status: "NEEDS_DECISION",
+      error: { code: "RECOVERY_UNAVAILABLE", requires_authorization: true },
+    });
+    // --replacement-task-id routes through as the explicit authorization.
+    out = "";
+    expect(
+      await main(
+        [
+          "retry-invalid",
+          "--task-id",
+          "ghost",
+          "--operation-id",
+          "ghost-fail",
+          "--replacement-task-id",
+          "ghost-cli",
+        ],
+        (text) => {
+          out += text;
+        },
+      ),
+    ).toBe(0);
+    const replay = JSON.parse(out);
+    expect(replay.task_id).toBe("ghost-cli");
+    expect(object(replay.invalid_retry)).toMatchObject({
+      mode: "new-session",
+      forced_new_session: true,
+      replacement_for: "ghost",
+    });
+    // Required flags are enforced with one structured usage error.
+    out = "";
+    expect(
+      await main(["retry-invalid", "--task-id", "task"], (text) => {
+        out += text;
+      }),
+    ).toBe(2);
+    expect(JSON.parse(out).error.code).toBe("CONFIG_INVALID");
   });
 });
