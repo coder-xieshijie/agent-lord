@@ -10,11 +10,11 @@ function verification(value: string | null | undefined): string {
     : value === "argument-enforced" || value === "config-argument-enforced" ? "由启动参数约束"
       : value === "not-supported" ? "运行端不支持" : value === "not-requested" ? "未指定" : value ?? "未核验";
 }
-function Row({ name, value, missing = "未记录", note }: { name: string; value: string | null | undefined; missing?: string; note?: string }) {
+function Row({ name, value, missing = "未记录", note, copyable = false }: { name: string; value: string | null | undefined; missing?: string; note?: string; copyable?: boolean }) {
   return <div className="flex min-w-0 flex-wrap items-start gap-x-3 gap-y-1 text-xs">
     <span className="w-28 shrink-0 text-muted-foreground">{name}</span>
     <div className="min-w-0 flex-1 break-all"><span>{value ?? missing}</span>{note && <span className="ml-2 text-muted-foreground">（{note}）</span>}</div>
-    {value && <CopyButton text={value} label={`复制${name}`} />}
+    {copyable && value && <CopyButton text={value} label={`复制${name}`} />}
   </div>;
 }
 function time(value: number | null | undefined): string | null {
@@ -32,14 +32,20 @@ export function ExecutionDetails({ meta }: { meta: TaskMeta }) {
   const identitySource = (source: string | undefined) => source === "runtime-env" ? "宿主环境" : source === "caller-declared" ? "调用方声明" : "未记录";
   const timing = meta.timing;
   return <div className="space-y-2 border-b pb-3">
-    <Row name="请求模型" value={model?.requestedModel ?? meta.model} />
-    <Row name="实际模型" value={model?.actualModel} missing="运行端未回报" note={verification(model?.modelVerification)} />
-    <Row name={mcode ? "请求推理档位" : "请求 Effort"} value={mcode ? model?.requestedVariant : model?.requestedEffort} missing="未指定" note={mcode ? "MCode variant" : undefined} />
-    <Row name={mcode ? "实际推理档位" : "执行 Effort"} value={mcode ? model?.actualVariant : model?.actualEffort} missing="未回报" note={verification(mcode ? model?.variantVerification : model?.effortVerification)} />
-    <Row name="最初调度 Session" value={meta.caller?.initial?.session_id} note={identitySource(meta.caller?.initial?.identity_source)} />
-    <Row name="本轮调度 Session" value={meta.caller?.current?.session_id} note={identitySource(meta.caller?.current?.identity_source)} />
-    <Row name="调度者" value={meta.caller?.current?.kind} />
-    <Row name="调度 Turn" value={meta.caller?.lifecycle.turnId ?? meta.caller?.current?.turn_id} />
+    <Row name="创建时间" value={time(meta.createdAt ? Date.parse(meta.createdAt) : null)} copyable />
+    <details>
+      <summary className="cursor-pointer text-xs text-muted-foreground">模型与调度信息</summary>
+      <div className="mt-2 space-y-2">
+        <Row name="请求模型" value={model?.requestedModel ?? meta.model} />
+        <Row name="实际模型" value={model?.actualModel} missing="运行端未回报" note={verification(model?.modelVerification)} />
+        <Row name={mcode ? "请求推理档位" : "请求 Effort"} value={mcode ? model?.requestedVariant : model?.requestedEffort} missing="未指定" note={mcode ? "MCode variant" : undefined} />
+        <Row name={mcode ? "实际推理档位" : "执行 Effort"} value={mcode ? model?.actualVariant : model?.actualEffort} missing="未回报" note={verification(mcode ? model?.variantVerification : model?.effortVerification)} />
+        <Row name="最初调度 Session" value={meta.caller?.initial?.session_id} note={identitySource(meta.caller?.initial?.identity_source)} />
+        <Row name="本轮调度 Session" value={meta.caller?.current?.session_id} note={identitySource(meta.caller?.current?.identity_source)} />
+        <Row name="调度者" value={meta.caller?.current?.kind} />
+        <Row name="调度 Turn" value={meta.caller?.lifecycle.turnId ?? meta.caller?.current?.turn_id} />
+      </div>
+    </details>
     <p className="text-xs text-muted-foreground">{callerStatus(meta.caller?.lifecycle)}。{meta.caller?.lifecycle.note}</p>
     <details>
       <summary className="cursor-pointer text-xs text-muted-foreground">完成时间与收尾耗时</summary>
