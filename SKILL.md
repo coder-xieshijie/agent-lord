@@ -36,7 +36,7 @@ For an existing Python installation, drain its running controllers and provider 
 ## Pipeline routing
 
 - For every multi-endpoint or named pipeline, read [references/pipelines/common.md](references/pipelines/common.md) and freeze its run manifest, barriers, role checks, convergence bound, and final deliverable before dispatch.
-- When the request says “交叉 Review”, “交叉审查”, or `cross-review`, also read [references/pipelines/cross-review.md](references/pipelines/cross-review.md) and execute that exact Opus + Codex mutual-review → independent Fable-check policy, including its documented `Opus fallback` checker outcome. The phrase authorizes only the nodes documented there; explicit user overrides still win.
+- When the request says “交叉 Review”, “交叉审查”, or `cross-review`, also read [references/pipelines/cross-review.md](references/pipelines/cross-review.md) and execute its MCode Fable 5 `xhigh` + Codex `gpt-6-astra` / `max` mutual-review → independent new-session MCode Fable 5 `xhigh` check policy. The phrase authorizes only the nodes documented there; explicit user overrides still win.
 - When the request says “handoff” or “交接”, or asks to hand the current session's work to a new local CLI that continues a user-named task, read [references/pipelines/handoff.md](references/pipelines/handoff.md) as the complete handoff authoring and execution contract, then use the `handoff` command with a sanitized `handoff-v1` packet. The phrase authorizes exactly one new local CLI continuation endpoint — a sanitized context transfer with new-endpoint lineage, never a session migration; explicit user overrides still win.
 
 ## Deterministic loop

@@ -8,21 +8,23 @@ Unless the user overrides them, freeze these three roles at one repository and f
 
 | Role | Provider | Model | Effort | Workspace |
 | --- | --- | --- | --- | --- |
-| Opus reviewer | `claude-cli` | `claude-opus-5` | `high` | `isolated` |
-| Codex reviewer | `codex-cli` | `gpt-5.6-sol` | `high` | `isolated` |
-| Independent checker | `claude-cli` | `fable` | `high` | `isolated` |
+| MCode reviewer | `mcode-cli` | `custom_provider:mafia-claude/claude-fable-5#xhigh` | Omit `--effort` | `isolated` |
+| Codex reviewer | `codex-cli` | `gpt-6-astra` | `max` | `isolated` |
+| Independent MCode checker | `mcode-cli` | `custom_provider:mafia-claude/claude-fable-5#xhigh` | Omit `--effort` | `isolated` |
+
+Pass these pipeline-specific model choices explicitly, including `--effort max` for Codex. MCode's `xhigh` is the variant in its full model literal, not an independent effort argument. These choices do not change ordinary provider defaults.
 
 Start all three CLI roles in `dangerously_bypass` without `--read-only`. Give each role its own worktree and distinct `--workspace-branch` from the same fixed review head; create them without confirmation under [common.md](common.md). Continue each role's later turns in its saved workspace. These review roles hold exclusive runtime leases and need no integration metadata or integrator.
 
 Every initial, cross-exam, convergence, and checker prompt must require review only: keep the checkout and HEAD unchanged, make no code edits or commits, perform no push, publish, message, or write API call, and return findings for the runtime to store outside the repository. These are task constraints on a bypass process, not process-enforced read-only protection. Verify the pinned source before accepting each artifact.
 
 ```text
-Opus initial ─┐      ┌─ Opus cross-exam ─┐      ┌─ optional Opus convergence ─┐
-              ├──────┤                    ├──────┤                              ├─ consensus ─ Fable check ─ table
-Codex initial ┘      └─ Codex cross-exam ─┘      └─ optional Codex convergence ─┘
+MCode initial ─┐      ┌─ MCode cross-exam ─┐      ┌─ optional MCode convergence ─┐
+               ├──────┤                    ├──────┤                              ├─ consensus ─ new-session MCode check ─ table
+Codex initial ─┘      └─ Codex cross-exam ─┘      └─ optional Codex convergence ─┘
 ```
 
-The two initial reviews are one concurrent ready set. The two cross-exams are a second concurrent ready set. Run the optional convergence pair only for unresolved findings. Normal convergence costs five provider operations including Fable; one extra convergence round costs seven, excluding any Claude `RESULT_INVALID` retry (`SKILL.md`), which adds no node. Do not add an arbiter or repeat full reviews. If unresolved findings remain after that round, stop before Fable and report them as `UNRESOLVED` unless the user authorizes expansion.
+The two initial reviews are one concurrent ready set. The two cross-exams are a second concurrent ready set. Run at most one optional convergence pair, only for unresolved findings. Normal convergence costs five planned provider operations including the checker; the optional convergence round costs seven in total. Runtime recovery uses its frozen budget and adds no semantic convergence rounds or workflow nodes. Do not add an arbiter or repeat full reviews. If unresolved findings remain after that round, stop before the checker and report them as `UNRESOLVED` unless the user authorizes expansion.
 
 ## Shared review lens
 
@@ -40,7 +42,7 @@ Require source-pinned findings only. Each initial finding needs a stable reviewe
 
 ## Mutual cross-exam and ledger
 
-After both initial artifacts pass the barrier, send Opus the sanitized Codex artifact and Codex the sanitized Opus artifact in parallel. Each reviewer must challenge every candidate and may merge duplicates, but must preserve the original IDs.
+After both initial artifacts pass the barrier, send the MCode reviewer the sanitized Codex artifact and Codex the sanitized MCode artifact in parallel. Each reviewer must challenge every candidate and may merge duplicates, but must preserve the original IDs.
 
 Maintain one finding ledger outside the repository. Adjudicate these dimensions separately for each reviewer:
 
@@ -58,31 +60,30 @@ Each reviewer returns `ACCEPT`, `REJECT`, or `NEEDS_EVIDENCE` plus a source-grou
 
 The optional convergence turn receives only the unresolved ledger rows and the missing evidence requests. It must not restart a full review or introduce unrelated findings. Preserve the dropped ledger for the checker and final audit.
 
-## Independent Fable check
+## Independent MCode check
 
-Start Fable only after the ledger contains no unresolved rows. Build a de-anchored checker packet containing:
+Start the MCode checker only after the ledger contains no unresolved rows. Use a new `task_id` and provider Session that participated in neither initial review nor mutual cross-exam/convergence; never continue a reviewer session as the checker. Independence comes from that fresh session and the de-anchored input below, not from a different model family. The checker deliberately uses the same Fable model/variant as the MCode reviewer.
+
+Build a de-anchored checker packet containing:
 
 - pinned source scope and the shared review lens;
 - both unedited sanitized initial artifacts;
 - candidate IDs, locations, evidence, failure scenarios, minimal-fix dependency sets, and the dropped-candidate list;
 - no participant consensus label, final severity, or instruction to ratify the reviewers.
 
-Ask Fable to independently reclassify every candidate, verify source evidence and severity, inspect dropped candidates for false negatives, and verify that the proposed fix is minimal and complete. It may report newly discovered items only in an `OUT_OF_SCOPE` appendix; those items are not silently promoted into consensus findings.
+Ask the MCode checker to independently reclassify every candidate, verify source evidence and severity, inspect dropped candidates for false negatives, and verify that the proposed fix is minimal and complete. It may report newly discovered items only in an `OUT_OF_SCOPE` appendix; those items are not silently promoted into consensus findings.
 
-Run the checker on the frozen Fable model at the requested effort first. Two outcomes can complete this step:
+Complete this step only with a verified successful MCode result: the observed model and `xhigh` variant match the frozen contract, Session/Turn/Run and artifact identity verify, and the checker session is distinct from the reviewers. All source and barrier checks still apply.
 
-- **Verified Fable** — `observed.fallback_used=false` plus a verified Fable main model. Ordinary independent-check semantics apply, so this outcome can yield `Pipeline Check: PASS`.
-- **Verified `Opus fallback`** — the configured Fable primary stage failed, Agent Lord reached its frozen `claude-opus-5` fallback stage, and that stage returned a verified successful result. It completes the checker step and may finalize the review table and `Review Result`. Opus already participated as a reviewer here, so role independence is degraded rather than satisfied: report `Pipeline Check: PARTIAL` — not `PASS`, and not `UNVERIFIED` merely because fallback was used. Label the result `Opus fallback` in every report surface; never present it as Fable or as an independent Fable result.
+For either MCode role, follow only the frozen [MCode recovery contract](../protocol.md#safe-recovery-line): consume `safe_recovery=CONTINUE_SAME_SESSION` with `recover` on the saved task/session when offered, within its frozen continuation budget. It does not extend the convergence bound. If no safe recovery is available or the budget is exhausted, stop at the failed barrier and report the structured error. A checker that cannot produce a verified successful result stays `UNVERIFIED`; do not present checker-confirmed findings.
 
-If neither the Fable primary stage nor the configured Opus fallback yields a verified successful result, the checker stays `UNVERIFIED` and the pipeline stops without presenting checker-confirmed findings.
-
-This fallback is the existing frozen provider retry/fallback plan. It is not a replacement task or session, not a new workflow node, and not part of the caller-owned `RESULT_INVALID` retry budget in `SKILL.md`. It weakens no source, model, effort, artifact, or endpoint validation: a fallback result must still pass every one of them, and fallback never authorizes a replacement checker.
+This pipeline has no provider fallback. MCode failures do not qualify for Claude `retry-invalid` or an Opus fallback, and authorize no replacement reviewer or checker. The general Claude retry/fallback protocol remains unchanged for Claude tasks outside this default graph.
 
 ## Final deliverable
 
 Report two independent statuses:
 
-- `Pipeline Check`: `PASS` only when the role/source/barrier contract held and a verified independent Fable checker accepted the audit. Report `PARTIAL` when a verified `Opus fallback` completed the checker instead, and record `observed.fallback_used=true`, the observed main model, and why the Fable primary stage fell back. Otherwise report `FAIL`, `PARTIAL`, or `UNVERIFIED` with the exact reason. Disclose every `SKILL.md` `RESULT_INVALID` replacement session here with its `replacement_for` lineage; a replaced endpoint never silently satisfies the role-independence contract it no longer meets.
-- `Review Result`: `FAIL` when at least one confirmed issue remains, otherwise `PASS`. A successful pipeline can therefore produce `Pipeline Check: PASS` and `Review Result: FAIL`.
+- `Pipeline Check`: `PASS` only when the role/source/barrier contract held and a verified independent MCode checker accepted the audit. Report the actual model/variant, Codex effort, and the distinct reviewer/checker task/session identities. Otherwise report `FAIL`, `PARTIAL`, or `UNVERIFIED` with the exact reason; a failed or unverified checker never satisfies the final barrier.
+- `Review Result`: `FAIL` when at least one confirmed issue remains, otherwise `PASS` after completed verification. If verification could not finish, report `UNVERIFIED` with the blockers. A successful pipeline can therefore produce `Pipeline Check: PASS` and `Review Result: FAIL`.
 
-Show confirmed issues in one table with columns: ID, severity, location, issue and failure scenario, evidence, minimal fix and dependencies, Opus verdict, Codex verdict, and checker verdict. The checker column names the model that actually ran — `Fable` or `Opus fallback` — never a bare `Fable check` label over a fallback result. Follow it with compact `DROPPED`, `UNRESOLVED`, and `OUT_OF_SCOPE` appendices when non-empty. Never merge an unresolved or checker-only candidate into the confirmed table.
+Show confirmed issues in one table with columns: ID, severity, location, issue and failure scenario, evidence, minimal fix and dependencies, MCode reviewer verdict, Codex verdict, and independent MCode checker verdict. Label the MCode columns `Fable 5 xhigh` and the Codex column `GPT-6 max`, using the verified execution details above to distinguish the same-model MCode roles. Follow it with compact `DROPPED`, `UNRESOLVED`, and `OUT_OF_SCOPE` appendices when non-empty. Never merge an unresolved or checker-only candidate into the confirmed table.
