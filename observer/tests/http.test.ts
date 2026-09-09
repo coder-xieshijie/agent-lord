@@ -1,4 +1,5 @@
-import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync, rmSync, readFileSync, unlinkSync, symlinkSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
@@ -53,6 +54,32 @@ async function startServer(hub: Hub): Promise<{ base: string; server: Server }> 
 }
 
 describe("HTTP surface", () => {
+  it("downloads only an authenticated, operation-bound canonical final artifact with a valid digest", async () => {
+    const { root, hub, taskId } = makeFixture();
+    const dir = path.join(root, "artifacts", taskId); mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, "fixture-op-http.md");
+    const text = "# 最终产物\n"; writeFileSync(file, text);
+    const opFile = path.join(root, "operations", "fixture-op-http.json");
+    const op = JSON.parse(readFileSync(opFile, "utf8"));
+    writeFileSync(opFile, j({ ...op, status: "succeeded", artifact: { path: file, bytes: Buffer.byteLength(text), sha256: createHash("sha256").update(text).digest("hex") } }));
+    const { base } = await startServer(hub);
+    const route = `/api/tasks/${taskId}/artifact?operation_id=fixture-op-http`;
+    expect((await fetch(base + route)).status).toBe(401);
+    const response = await fetch(`${base}${route}&token=${TOKEN}`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-disposition")).toContain("attachment");
+    expect(await response.text()).toBe(text);
+    expect((await fetch(`${base}/api/tasks/other/artifact?operation_id=fixture-op-http&token=${TOKEN}`)).status).toBe(404);
+    expect((await fetch(`${base}/api/tasks/${taskId}/artifact?operation_id=../escape&token=${TOKEN}`)).status).toBe(404);
+    const validRecord = readFileSync(opFile, "utf8");
+    writeFileSync(opFile, j({ ...JSON.parse(validRecord), operation_id: "another-operation" }));
+    expect((await fetch(`${base}${route}&token=${TOKEN}`)).status).toBe(404);
+    writeFileSync(opFile, validRecord);
+    writeFileSync(file, "tampered");
+    expect((await fetch(`${base}${route}&token=${TOKEN}`)).status).toBe(404);
+    const outside = path.join(root, "outside.md"); writeFileSync(outside, text); unlinkSync(file); symlinkSync(outside, file);
+    expect((await fetch(`${base}${route}&token=${TOKEN}`)).status).toBe(404);
+  });
   it("keeps host font discovery behind the existing read-only token gate", async () => {
     const { hub } = makeFixture();
     const { base } = await startServer(hub);

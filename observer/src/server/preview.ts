@@ -20,9 +20,10 @@ export async function previewStatus(root: string, port: number) {
   return { status: record ? await probe(record) ? "running" : "unverified" : "stopped", port, record };
 }
 
-export async function stopPreview(root: string, port: number): Promise<PreviewRecord | null> {
+export async function stopPreview(root: string, port: number, expectedInstance?: string): Promise<PreviewRecord | null> {
   const record = readMetadata(root, port);
   if (!record) return null;
+  if (expectedInstance && record.instance_id !== expectedInstance) throw new Error("observer 实例已变化；未停止新实例，请重试绑定");
   if (!await probe(record)) throw new Error("无法确认该端口和 PID 属于记录的 observer 实例；未发送停止信号");
   process.kill(record.pid, "SIGTERM");
   const deadline = Date.now() + 5_000;
@@ -78,11 +79,55 @@ export async function startPreview(options: LaunchOptions): Promise<PreviewRecor
   throw new Error(`预览未就绪${spawnError ? `：${String(spawnError)}` : ""}；查看 ${logPath}`);
 }
 
+/** Lifecycle CLI only: preserve existing configuration, then verify through HTTP without browser control. */
+export async function attachPreview(options: LaunchOptions) {
+  if (!options.tasks.length) throw new Error("绑定需要显式 --tasks allowlist");
+  const focus = options.focusTask ?? options.tasks[0];
+  if (!options.tasks.includes(focus)) throw new Error("focus-task 必须属于本次 --tasks");
+  let record = readMetadata(options.stateDir, options.port);
+  if (record) {
+    if (!await probe(record)) throw new Error("无法核验已有 observer；未停止或替换服务");
+    const tasks = [...new Set([...record.tasks, ...options.tasks])].sort();
+    if (tasks.some((task) => !record!.tasks.includes(task))) {
+      const old = record;
+      await stopPreview(options.stateDir, options.port, old.instance_id);
+      record = await startPreview({
+        ...options, tasks, token: previewToken(old), webRoot: old.web_root,
+        refreshMs: old.refresh_ms, entrypoint: old.entrypoint,
+      });
+    }
+  } else record = await startPreview(options);
+  const headers = { authorization: `Bearer ${previewToken(record)}` };
+  const base = `http://127.0.0.1:${record.port}`;
+  const json = async (route: string) => {
+    const response = await fetch(`${base}${route}`, { headers, signal: AbortSignal.timeout(2000), redirect: "error" });
+    if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) throw new Error(`绑定 HTTP 核验失败：${route}`);
+    return response.json() as Promise<Record<string, unknown>>;
+  };
+  const overview = await json("/api/overview");
+  const tasks = Array.isArray(overview.tasks) ? overview.tasks as Array<{ taskId?: string }> : [];
+  if (options.tasks.some((task) => !tasks.some((entry) => entry.taskId === task))) throw new Error("overview 缺少本次任务");
+  const snapshots = await Promise.all(options.tasks.map(async (task) => {
+    const snapshot = await json(`/api/tasks/${encodeURIComponent(task)}/snapshot`);
+    const meta = snapshot.task as { taskId?: string; available?: boolean; status?: string } | undefined;
+    if (meta?.taskId !== task) throw new Error("snapshot 任务身份不匹配");
+    return { task_id: task, available: meta.available === true, status: meta.status ?? "未知" };
+  }));
+  const page = await fetch(base, { headers, signal: AbortSignal.timeout(2000), redirect: "error" });
+  if (!page.ok || !page.headers.get("content-type")?.includes("text/html")) throw new Error("观察页静态资源不可用");
+  await page.body?.cancel();
+  const url = new URL(record.url);
+  url.searchParams.set("task", focus);
+  return { status: "running", binding_verified: true, page_http_verified: true, focus_task: focus, url: url.href, tasks: snapshots, record };
+}
+
 async function main(): Promise<void> {
   const [action, ...argv] = process.argv.slice(2);
-  if (!["start", "status", "stop", "restart"].includes(action)) throw new Error("用法：preview start|status|stop|restart [--tasks id,...] [--port 8791]");
+  if (!["start", "status", "stop", "restart", "attach"].includes(action)) throw new Error("用法：preview start|status|stop|restart|attach [--tasks id,...] [--focus-task id] [--port 8791]");
   const options = parseArgs(argv, false);
-  if (action === "status") {
+  if (action === "attach") {
+    console.log(JSON.stringify(await attachPreview(options)));
+  } else if (action === "status") {
     console.log(JSON.stringify(await previewStatus(options.stateDir, options.port)));
   } else if (action === "stop") {
     await stopPreview(options.stateDir, options.port);

@@ -13,6 +13,7 @@
     "build:web": "vite build",
     "start": "node dist/server/main.js",
     "preview:start": "node dist/server/preview.js start",
+    "preview:attach": "node dist/server/preview.js attach",
     "preview:status": "node dist/server/preview.js status",
     "preview:stop": "node dist/server/preview.js stop",
     "preview:restart": "node dist/server/preview.js restart",

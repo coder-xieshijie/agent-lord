@@ -26,6 +26,25 @@ See [SKILL.md](SKILL.md) for orchestration policy, [the protocol](references/pro
 
 ## Runtime structure
 
+CLI 负责派发、监督和结果核验；观察器只读取执行记录并展示；宿主接口只负责打开链接。
+Agent Lord 不使用或依赖 Computer Use / CUA，也不以浏览器自动化作为核验兜底。
+
+```mermaid
+flowchart LR
+    A[主 Codex 会话] -->|派发、续聊、监督| B[Agent Lord CLI]
+    B --> C[MCode / Claude / Codex 执行端]
+    C -->|结果与执行元信息| B
+    B --> D[task / operation / artifact]
+    D -->|只读| E[Observer HTTP / SSE]
+    E --> F[观察页]
+    A -->|宿主打开链接接口| F
+```
+
+`preview:attach` 经 HTTP 核验任务绑定，返回带 `task` 参数的页面链接；续聊沿用已有页面。
+每轮请求保存独立的调用来源，详情展示请求模型、实际模型及核验来源；MCode 推理档位以 variant 显示。
+时间线区分用户原话、实际派发请求与调度方补充请求。主调度状态只来自匹配 Session/Turn 的宿主事件，
+缺失时显示未知。`checkpoint --include-response` 可将完整最终正文与执行证据一次返回，减少收尾往返。
+
 | Component | Responsibility |
 | --- | --- |
 | `core/src/cli.ts`, `task-store.ts` | Public commands and compatibility interface |

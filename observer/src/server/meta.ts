@@ -113,7 +113,7 @@ export function deriveStatus(operations: OperationRecord[], aliveOf: (pid: numbe
   const raw = last.status ?? "unknown";
   if (TERMINAL.has(raw)) {
     const kind = raw as "succeeded" | "failed" | "needs_decision";
-    const label = raw === "succeeded" ? "执行成功" : raw === "failed" ? "执行失败" : "待决策";
+    const label = raw === "succeeded" ? "本轮执行完成" : raw === "failed" ? "本轮执行失败" : "待决策";
     return { status: label, statusKind: kind, running: false, pidAlive: null };
   }
   const alive = aliveOf(last.pid);

@@ -24,6 +24,7 @@ export class McodeProjector extends OpProjector {
     }
     const type = typeof event.type === "string" ? event.type : "unknown";
     const tsMs = typeof event.timestampMs === "number" ? event.timestampMs : undefined;
+    if (type === "exec.completed" && tsMs !== undefined && Number.isFinite(tsMs)) this.completedAtMs = tsMs;
     if (type === "exec.completed" || type === "turn.failed") this.finishPending();
     if (LIFECYCLE[type]) {
       this.lifecycle(type, LIFECYCLE[type], tsMs);

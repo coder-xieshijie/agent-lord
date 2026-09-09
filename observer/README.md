@@ -17,6 +17,7 @@ pnpm typecheck      # server + web 两份 tsconfig
 pnpm test           # vitest（fixtures 全部显式标记为 fixture-*）
 pnpm build          # tsc → dist/server + vite → dist/web
 pnpm preview:start --tasks task-a,task-b --port 8791
+pnpm preview:attach --tasks task-a,task-b --focus-task task-b --port 8791
 pnpm preview:status --port 8791
 pnpm preview:restart --port 8791
 pnpm preview:stop --port 8791
@@ -43,28 +44,24 @@ allowlist，显式传入时替换整个观察列表。使用自定义 state-dir 
 ## 派发后的任务绑定
 
 Codex Desktop 的调用方按 [Skill 主流程](../SKILL.md#deterministic-loop) 接入观察页。
-绑定沿用已派发的 `task_id`；只操作观察器和浏览器，不新增执行端点。
+绑定沿用已派发的 `task_id`，使用 CLI 和认证 HTTP；不使用或依赖 Computer Use / CUA，
+也不以浏览器自动化作为失败后的兜底。
 
-1. 使用本次会话已选定的端口和 state-dir 运行 `pnpm preview:status`；首次使用默认端口
-   `8791`。本次任务集合来自已授权的派发或 pipeline，不扫描并公开其他任务。
-2. 根据查询结果处理：
-   - `stopped`：用 `pnpm preview:start --tasks <本次任务集合> --port <端口>` 启动。
-   - `running` 且已包含本次全部任务：直接复用返回的地址。
-   - `running` 但缺少本次任务：合并、去重已有 `record.tasks` 与本次任务集合，再用
-     `pnpm preview:restart --tasks <合并后的完整集合> --port <端口>` 更新。保留旧任务、
-     端口、令牌和其他已有配置；只有任务集合变化才重启。
-   - `unverified` 或启动失败：说明观察页的具体问题，继续监督原执行端点；按生命周期规则
-     核验实例身份后再处理，避免停止归属不明的进程。
-3. 检查查询或启动结果为经 HTTP 核验的 `running`，且返回的任务列表包含本次全部任务。
-   用 `open_in_codex` 的 browser target 打开返回的地址，复用已有匹配标签页，并选中本次任务。
-4. 通过浏览器 UI 确认所选任务及其状态可见；pipeline 同时确认各任务均可在列表中选择。
-   `open_in_codex` 返回 `queued` 只表示已请求打开，需继续检查已有标签页或用可用浏览器工具
-   打开并核验。保留作为交付的标签页；若当前宿主无法显示或核验，明确报告该限制并提供本机链接，
-   不把请求已发送或服务已就绪表述为页面已展示。
+1. 使用本次会话选定的端口、state-dir 运行 `pnpm preview:attach --tasks <本次任务集合>
+   --focus-task <目标任务> --port <端口>`。默认端口为 `8791`；任务集合来自已授权派发，
+   不扫描并公开其他任务。不传 focus-task 时选择本次列表排序后的首个任务。
+2. 命令复用或启动服务；只在新增绑定任务时合并 allowlist 并重启，保留原端口、令牌、
+   web-root、refresh-ms 和 entrypoint。修改服务配置或升级运行代码使用显式 `preview:restart`。
+   已有实例无法核验时返回失败，不停止或替换归属不明的服务；并发绑定遇到实例变化时重试绑定。
+3. 返回 `binding_verified: true` 表示 health、overview 和本次各任务 snapshot 均已核验；
+   `page_http_verified: true` 仅表示静态 HTML 可访问。`tasks[].available: false` 允许首轮操作
+   尚未落盘，只证明该 task 已绑定，不代表执行已经开始。
+4. 通过宿主 `open_in_codex` 链接接口请求打开返回的 URL 一次。页面读取 `task` 参数自动定位，
+   无需点击；后续手动选择会更新 URL。目标不在列表时明确提示，不静默展示其他任务。
+   `queued` 只报告“已请求打开”；无法打开时提供本机链接并继续监督。
 
-服务就绪、任务已绑定、页面已展示是分别核验的三个结果。派发控制器仍在准备任务记录时，
-可先绑定已确定的 `task_id` 并打开页面；待记录出现后，在同一页面确认任务状态。
-观察页失败不改变执行任务的成功、失败或恢复状态，原有 `checkpoint` 监督继续进行。
+同一任务的续聊、恢复和完成复用当前绑定，不再次打开或核验页面。只有任务集合变化或服务故障
+才重新 attach。观察页失败不改变执行任务状态，原有 `checkpoint` 监督继续进行。
 
 ## 展示与核验
 
@@ -73,13 +70,30 @@ Codex Desktop 的调用方按 [Skill 主流程](../SKILL.md#deterministic-loop) 
 显示为等待中；失败时未完成的流明确标记缺少终态。恢复次数显示同会话续做的
 已用次数与上限，网页本身不发起恢复。
 
-“执行成功”与“声明的交付项已核验”分别展示。调度时可以传 `--require-file`
+“本轮执行完成”、主调度状态与“声明的交付项已核验”分别展示。调度时可以传 `--require-file`
 和 `--require-commit`，核验范围仅为非空文件和新的干净提交；未声明、缺文件、
 历史记录分别如实显示。测试、UI 行为和内容正确性仍需实际验收。
 
+详情完整展示请求模型、实际模型、推理档位和核验来源。MCode 的 xhigh 是 variant，
+不是独立 effort；Codex 只有参数约束证据时，实际模型仍显示未回报。Claude fallback 显示实际模型。
+最初调度者与本轮调用者分别来自首次和当前 operation.invocation，缺失时标为未记录。
+
+每轮先显示用户原始请求（有记录时）、实际派发请求，再显示执行端输出。调度方补充和故障恢复
+分别标注来源与原因。请求正文来自持久化记录，长文折叠但保留完整内容与复制能力。
+历史 operation.message 可直接回放；不从整理过的 prompt 猜测用户原话。
+
+主调度状态由同一个扫描循环只读匹配的 Codex Session/Turn 生命周期记录。按 invocation 中的
+data-root 和 Session ID 定位唯一日志，再核验 session_meta；只投影开始、完成、中止事件及
+匹配 operation 的结构化 SUCCEEDED 回执时间，不展示主会话正文或推理。Turn 缺失时按操作创建时间
+绑定，跨 Turn、日志缺失或身份不符时显示未知。后续 Turn 开始不能代替当前 Turn 的结束证据。
+时间点保存/返回 Unix ms；缺失项保持为空，不把轮询时间当成执行完成时间。
+
+最终产物可在主调度回复前下载。下载接口要求同一令牌、任务 allowlist、精确 operation 绑定、
+canonical artifact 路径和 SHA-256/字节数一致；不提供任意路径读取。
+
 ### 阅读与外观
 
-正文以助手消息为主；工具默认只显示名称与状态。连续三个及以上已完成工具
+正文按每轮请求、助手消息的顺序展示；工具默认只显示名称与状态。连续三个及以上已完成工具
 折叠为一组，分组不跨助手消息、执行轮次或其他事件。运行中、失败工具独立
 可见；实时更新和任务切换保留手动展开状态。常规生命周期与成功记录收进
 底部“执行记录”，错误、重连和历史缺失提示仍保留。展开工具可复制命令、

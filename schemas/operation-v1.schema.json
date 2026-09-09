@@ -32,6 +32,28 @@
       "enum": ["preparing", "running", "recovering", "awaiting_action", "submitted", "succeeded", "failed", "needs_decision"]
     },
     "message": {"type": "string"},
+    "invocation": {
+      "type": "object",
+      "required": ["caller", "trigger", "user_request", "reason"],
+      "properties": {
+        "caller": {
+          "type": "object",
+          "required": ["kind", "session_id", "turn_id", "identity_source"],
+          "properties": {
+            "kind": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$", "maxLength": 160},
+            "session_id": {"type": ["string", "null"], "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$", "maxLength": 160},
+            "turn_id": {"type": ["string", "null"], "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$", "maxLength": 160},
+            "identity_source": {"enum": ["runtime-env", "caller-declared", "unavailable"]},
+            "data_root": {"type": "string", "description": "Private absolute Codex data root; never projected to the web client."}
+          },
+          "additionalProperties": false
+        },
+        "trigger": {"enum": ["user_request", "caller_followup", "recovery", "unspecified"]},
+        "user_request": {"type": ["string", "null"], "minLength": 1, "maxLength": 1000000},
+        "reason": {"type": ["string", "null"], "minLength": 1, "maxLength": 16000}
+      },
+      "additionalProperties": false
+    },
     "message_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "expected": {"type": "object"},
     "observed": {
@@ -51,6 +73,7 @@
         "session_id": {"type": "string"},
         "turn_id": {"type": "string"},
         "terminal_status": {"type": "string"},
+        "provider_completed_at_ms": {"type": "number"},
         "progress_seq": {"type": "integer", "minimum": 0}
       },
       "additionalProperties": true

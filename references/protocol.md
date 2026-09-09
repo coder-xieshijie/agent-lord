@@ -20,6 +20,40 @@ An `ACTION_REQUIRED` record is idempotent. Re-running the same `start`, `turn`, 
 
 Dispatch is serialized by a per-task filesystem lock. The journal is written before provider execution, so a concurrent caller either receives the existing operation or `STATE_BUSY`; it cannot create a second endpoint or turn.
 
+## Invocation metadata
+
+`start`、`turn`、`recover`、`handoff` 接受可选的 `--invocation-file <private-json>`，在派发前校验并把调用来源冻结在本次 `operation.invocation`。它不修改 task 的执行契约，也不会在重试、重复 start 或查询时覆盖原调用者。旧 operation 保持可读，缺失来源显示为未记录。
+
+```json
+{
+  "trigger": "user_request",
+  "user_request": "这里逐字保存本次用户原始请求，包括换行。"
+}
+```
+
+`--message-file` 仍是实际交给执行端的任务正文。`user_request` 是另存的用户原话；二者不相互推断或替代。调度方自行补充的后续轮次使用 `trigger: "caller_followup"` 和 `reason`，不伪装成用户新消息；`recover` 强制记为 `recovery`。没有来源信息时使用 `unspecified`。输入文件由调用者在结果收取后清理；durable operation 保留请求用于只读回放。
+
+| 输入字段 | 约束与来源 |
+|---|---|
+| `user_request` | 可省略或为 null；非空字符串，最多 1,000,000 字符，逐字保存 |
+| `reason` | 可省略或为 null；补充或恢复的原因，最多 16,000 字符 |
+| `trigger` | `user_request` / `caller_followup` / `recovery` / `unspecified` |
+| `caller` | 可选对象；显式填写时必须含 `kind`，可含 `session_id`、`turn_id`、`data_root` |
+
+省略 `caller` 时，脚本从宿主的 `CODEX_THREAD_ID`（兼容 `CODEX_SESSION_ID`）、可选 `CODEX_TURN_ID` 和 `CODEX_HOME` 捕获来源；数据根默认 `~/.codex`。`identity_source: "runtime-env"` 表示宿主环境来源，不是密码学身份验证。显式 caller 标记为 `caller-declared`，不会借用当前宿主的 Session、Turn 或数据根；没有 Session 则标为 `unavailable`。不要从 prompt 或最近活跃会话猜测身份。
+
+`kind` 与非空 id 只允许 `[A-Za-z0-9][A-Za-z0-9._:-]*`，最多 160 字符；Turn 必须同时提供 Session。显式 `data_root` 必须是绝对路径，仅 Codex caller 保留它。输入不接受自行声称的 `identity_source` 或其他未知字段。调用者身份变量不会传入 provider 子进程，避免后续嵌套调用误认父 Session；子运行时应提供自己的身份，否则保持未知。
+
+观察页按首次 operation 与当前 operation 分别显示最初调度者、本轮调用者，并按轮次展示原始请求和实际派发正文。Codex 生命周期读取只定位该数据根下唯一匹配的 Session 日志，并校验 `session_meta`；仅投影匹配 Turn 的开始、结束和精确 operation 成功回执时间。未观测、日志不支持、身份不匹配均显示未知，不把执行端结束当成主调度结束；宿主正文与推理内容不进入页面。`data_root` 只留在本地服务端。
+
+## Inline terminal response
+
+`start`、`turn`、`recover`、`handoff`、`accept`、`check`、`checkpoint` 支持可选的 `--include-response`。成功 envelope 增加 `response: {"text": "完整最终正文", "read_at_ms": 1788928363000}`；checkpoint 对每个成功 `actionable` 项应用同一规则。默认仍不返回正文，非成功项不附加正文。
+
+读取只接受当前 task/operation 的 canonical artifact，核对真实路径、SHA-256、字节数与 UTF-8。文件被改写、丢失或符号链接越界时返回 `ARTIFACT_INVALID`，不改变已成功的 operation。原有 `artifact` 和 `delivery` 含义不变；正文不是语义验收证明。
+
+普通 operation envelope 同时带 `provider_return_code`（未记录则 null）与 `timing.created_at_ms`、`timing.completed_at_ms`。`response.read_at_ms` 是脚本完成读取的时刻，不能替代宿主真正收到结果的时刻。观察页分别展示执行端结束、产物发布、主调度收到结果、主调度结束；缺少任一时间点时不计算对应耗时。收尾使用一次终态 envelope 和正文读取，复用已绑定的观察页，收取尚未回收的控制器句柄并清理私有输入，不再增加浏览器核验或重复状态查询。
+
 ## `check` versus `checkpoint`
 
 The two commands are not interchangeable:

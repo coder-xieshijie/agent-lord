@@ -22,6 +22,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
       "target",
       "repo",
       "message-file",
+      "invocation-file",
       "model",
       "effort",
       "head-sha",
@@ -37,7 +38,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
       "codex-environment",
       "starting-branch",
     ],
-    booleans: ["require-commit", "read-only"],
+    booleans: ["require-commit", "read-only", "include-response"],
     integers: ["retry-attempts", "integration-order"],
     multiple: ["require-file", "integration-worker"],
     required: ["task-id", "provider", "message-file"],
@@ -50,14 +51,15 @@ export const COMMANDS: Record<string, CommandSpec> = {
   },
   turn: {
     description: "Continue the exact saved endpoint",
-    strings: ["task-id", "message-file"],
-    booleans: ["require-commit"],
+    strings: ["task-id", "message-file", "invocation-file"],
+    booleans: ["require-commit", "include-response"],
     multiple: ["require-file"],
     required: ["task-id", "message-file"],
   },
   recover: {
     description: "Consume one bounded same-session continuation action",
-    strings: ["task-id", "operation-id"],
+    strings: ["task-id", "operation-id", "invocation-file"],
+    booleans: ["include-response"],
     required: ["task-id", "operation-id"],
   },
   handoff: {
@@ -66,6 +68,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     strings: [
       "task-id",
       "packet-file",
+      "invocation-file",
       "provider",
       "target",
       "model",
@@ -73,7 +76,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
       "head-sha",
       "base-sha",
     ],
-    booleans: ["read-only", "validate-only"],
+    booleans: ["read-only", "validate-only", "include-response"],
     integers: ["retry-attempts"],
     required: ["task-id", "packet-file"],
     choices: { provider: providers.filter((v) => v !== "codex-app") },
@@ -81,18 +84,20 @@ export const COMMANDS: Record<string, CommandSpec> = {
   accept: {
     description: "Validate a Codex host-tool result",
     strings: ["action-id", "result-file"],
-    booleans: ["auto-read"],
+    booleans: ["auto-read", "include-response"],
     required: ["action-id", "result-file"],
   },
   check: {
     description: "Reconstruct one task's current state",
     strings: ["task-id"],
+    booleans: ["include-response"],
     required: ["task-id"],
   },
   checkpoint: {
     description: "Bounded foreground supervision; quiet output exits 124",
     multiple: ["task-id"],
     integers: ["seconds"],
+    booleans: ["include-response"],
   },
   "export-artifact": {
     description:
@@ -126,6 +131,14 @@ export async function main(
         value,
       ]),
     ) as StartOptions;
+    if (v["invocation-file"]) {
+      try {
+        opts.invocation = parseJson(inputText(get("invocation-file")));
+      } catch (error) {
+        if (error instanceof AgentLordError) throw error;
+        throw usageError("invocation-file must contain valid JSON");
+      }
+    }
     // All parser and input validation happens before any dispatch.
     const lord = new AgentLord();
     let result;
@@ -147,7 +160,7 @@ export async function main(
         opts,
       );
     else if (command === "recover")
-      result = await lord.recover(get("task-id"), get("operation-id"));
+      result = await lord.recover(get("task-id"), get("operation-id"), opts);
     else if (command === "handoff")
       result = await lord.handoff(get("task-id"), get("packet-file"), {
         ...opts,
@@ -177,6 +190,7 @@ export async function main(
         get("source-file"),
         get("source-format"),
       );
+    if (v["include-response"]) result = lord.withResponse(result);
     write(`${stringifyJson(result, 2)}\n`);
     return quiet ? 124 : 0;
   } catch (error) {

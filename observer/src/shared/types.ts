@@ -2,6 +2,42 @@
 
 export type { Provider as ProviderId } from "@agent-lord/core/contracts";
 import type { Provider as ProviderId } from "@agent-lord/core/contracts";
+import type { CallerIdentity, Invocation } from "@agent-lord/core/contracts";
+
+export type CallerDisplay = Omit<CallerIdentity, "data_root">;
+export interface CallerLifecycle {
+  status: "running" | "completed" | "aborted" | "unknown";
+  turnId: string | null;
+  startedAtMs: number | null;
+  completedAtMs: number | null;
+  receivedAtMs: number | null;
+  observedAtMs: number | null;
+  note: string;
+}
+export interface ExecutionModel {
+  requestedModel: string | null;
+  requestedEffort: string | null;
+  requestedVariant: string | null;
+  actualModel: string | null;
+  actualEffort: string | null;
+  actualVariant: string | null;
+  modelVerification: string | null;
+  effortVerification: string | null;
+  variantVerification: string | null;
+}
+export interface RequestItem {
+  id: string;
+  kind: "request";
+  role: "user" | "caller";
+  text: string;
+  trigger: Invocation["trigger"];
+  reason: string | null;
+  caller: CallerDisplay | null;
+  originalRecorded: boolean;
+  opId: string;
+  ord: number;
+  tsMs?: number;
+}
 
 export type ToolState = "running" | "completed" | "error";
 
@@ -94,6 +130,7 @@ export interface OmittedItem {
 
 export type TimelineItem =
   | MessageItem
+  | RequestItem
   | ToolItem
   | LifecycleItem
   | JournalItem
@@ -123,6 +160,10 @@ export interface TaskMeta {
   providerLabel: string;
   model: string | null;
   effort: string | null;
+  execution?: ExecutionModel;
+  caller?: { initial: CallerDisplay | null; current: CallerDisplay | null; lifecycle: CallerLifecycle };
+  timing?: { providerCompletedAtMs: number | null; artifactReadyAtMs: number | null; callerReceivedAtMs: number | null; callerCompletedAtMs: number | null };
+  artifact?: { operationId: string; path: string; bytes: number; sha256: string };
   permissionMode: string | null;
   target: string | null;
   status: string;

@@ -25,6 +25,7 @@ export interface CliOptions {
   stateDir: string;
   webRoot: string | null;
   refreshMs: number;
+  focusTask?: string;
 }
 
 export function parseArgs(argv: string[], requireTasks = true): CliOptions {
@@ -47,6 +48,9 @@ export function parseArgs(argv: string[], requireTasks = true): CliOptions {
     switch (arg) {
       case "--tasks":
         options.tasks.push(...next().split(",").map((part) => part.trim()).filter(Boolean));
+        break;
+      case "--focus-task":
+        options.focusTask = next();
         break;
       case "--port":
         options.port = Number(next());
@@ -72,6 +76,7 @@ export function parseArgs(argv: string[], requireTasks = true): CliOptions {
   for (const taskId of options.tasks) {
     if (!IDENTIFIER_PATTERN.test(taskId)) throw new Error(`非法 task id：${taskId}`);
   }
+  if (options.focusTask && !options.tasks.includes(options.focusTask)) throw new Error("focus-task 必须属于本次 --tasks");
   if (!Number.isInteger(options.port) || options.port <= 0 || options.port > 65535) {
     throw new Error("端口必须是 1-65535 的整数");
   }

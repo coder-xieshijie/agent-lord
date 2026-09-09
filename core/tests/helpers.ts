@@ -19,6 +19,7 @@ import {
   DEFAULT_CONFIG,
   permissionPolicy,
   resolveRetryPlan,
+  type Control,
 } from "../src/config.js";
 import { type Data, type Operation, type Provider } from "../src/contracts.js";
 import { canonicalPacketBytes } from "../src/handoff.js";
@@ -102,7 +103,7 @@ export function packet(taskId: string, overrides: Data = {}): Data {
   };
   return { ...body, integrity: { sha256: sha256(canonicalPacketBytes(body)) } };
 }
-export function harness(): {
+export function harness(controlOverrides: Partial<Control> = {}): {
   base: string;
   root: string;
   target: string;
@@ -126,12 +127,15 @@ export function harness(): {
   const config = JSON.parse(readFileSync(DEFAULT_CONFIG, "utf8"));
   Object.assign(config.control, {
     dead_process_result_grace_seconds: 1,
-    claude_stall_seconds: 1,
-    claude_tool_stall_seconds: 2,
+    // Normal lifecycle tests must not mistake busy-worker startup for a stall.
+    // Stall tests opt in to short deadlines explicitly.
+    claude_stall_seconds: 15,
+    claude_tool_stall_seconds: 15,
     claude_terminate_grace_seconds: 1,
     mcode_terminate_grace_seconds: 1,
     claude_progress_poll_interval_ms: 50,
     mcode_progress_poll_interval_ms: 50,
+    ...controlOverrides,
   });
   writeFileSync(configFile, JSON.stringify(config));
   const optionsFile = path.join(base, "options.json");
