@@ -1,10 +1,31 @@
 # Agent Lord 只读实时观察器（TypeScript）
 
 对 Agent Lord 原生 exec 任务的**只读**实时网页观察：loopback + 访问令牌 +
-显式 task allowlist，snapshot + `generation:seq` cursor + SSE（超窗/跨重启
-显式 reset），三个 CLI provider（mcode / codex / claude）的流投影与
+显式 task allowlist，snapshot + `generation:seq` cursor + 增量轮询（超窗/
+跨重启显式 reset），三个 CLI provider（mcode / codex / claude）的流投影与
 Codex App 的状态观察。前端为 React + vendored Vercel AI Elements 组件
 （来源与许可见 `src/web/components/PROVENANCE.md`）。
+
+## 默认同步方式：增量轮询
+
+前端默认不再使用 SSE 长连接。浏览器对同一主机的 HTTP/1.1 并发连接有上限
+（通常 6 条），每个观察页各占一条长连接会占满连接池、阻塞同主机的其他页面；
+改为短请求增量轮询后，任意数量的页面可以同时观察同一服务。
+
+- **前台**：选中任务约每秒拉取一次 `delta?cursor=`，只取新增内容；调度是
+  串行的——上一个请求完成后才安排下一次，慢响应不会堆积请求。列表用
+  2.5 秒的 overview 轮询，同样串行。
+- **故障**：单个请求超时会被取消；失败按指数退避重试，成功后恢复正常间隔。
+  服务重启或 cursor 失效/超出保留窗口时收到显式 reset，自动重取当前快照，
+  历史截断提示如实保留。
+- **后台**：页面隐藏时暂停任务与列表轮询（纯资源优化，不依赖可见性信息
+  正确才可用）；恢复可见立即同步一次。正常完成的执行会话之后可能续聊，
+  轮询不会永久停止观察它。
+- **状态徽章**：显示真实轮询状态（同步中 / 增量轮询中 / 重试中 / 后台已暂停）。
+
+服务端的 SSE `/stream` 接口保留以兼容旧页面，但默认前端不再连接它。
+**升级后**：升级前已打开的旧页面仍运行旧 bundle（仍会开 SSE 长连接），
+需要手动刷新一次才会切换到增量轮询。
 
 ## 命令
 
@@ -38,8 +59,9 @@ allowlist，显式传入时替换整个观察列表。使用自定义 state-dir 
 服务只在静态页面、Hub 和监听端口就绪且元数据落盘后记录 `preview-ready`。
 运行记录以 0600 原子写入，日志在 `<state>/observer/server-<port>.log`。
 停止前核验访问令牌、实例 ID 与 PID；旧版记录、失配 PID 或其他服务不会被杀掉。
-旧版服务需先人工核验进程归属并停止，再用新启动器接管原端口。重启关闭 SSE，
-前端自动重新取 snapshot；旧 cursor 会显式 reset。
+旧版服务需先人工核验进程归属并停止，再用新启动器接管原端口。重启会更换
+`generation`，前端轮询收到显式 reset 后自动重取 snapshot；升级运行代码后，
+仍在运行旧 bundle 的已打开页面需手动刷新一次。
 
 ## 派发后的任务绑定
 
@@ -66,7 +88,7 @@ Codex Desktop 的调用方按 [Skill 主流程](../SKILL.md#deterministic-loop) 
 ## 展示与核验
 
 每个 allowlist 任务独立显示执行状态、时间线与原生续聊命令；切换任务读取它
-自己的 snapshot/SSE。MCode 的活动工具依据生命周期维护，完成的工具不再
+自己的 snapshot 并增量轮询。MCode 的活动工具依据生命周期维护，完成的工具不再
 显示为等待中；失败时未完成的流明确标记缺少终态。恢复次数显示同会话续做的
 已用次数与上限，网页本身不发起恢复。
 
