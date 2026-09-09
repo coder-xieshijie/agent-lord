@@ -6,6 +6,8 @@ Load this reference when the user asks to hand the current session's work off to
 
 The handoff shorthand authorizes exactly one node: one new local CLI continuation endpoint (`claude-cli`, `codex-cli`, or `mcode-cli`) that continues the user-specified task. It never authorizes a planner, reviewer, tester, integrator, replacement endpoint, or any other user-visible node, and never selects `codex-app`. The user decides the provider, model, applicable effort, and task-level write boundaries; the packet's `contract_request` carries provider/model/effort choices when the command line omits them, and an explicit argument that contradicts the packet fails closed. Every new handoff uses `dangerously_bypass` without `--read-only` under [the Skill invariants](../../SKILL.md#invariants). MCode handoffs resolve the qualified model from explicit input or provider defaults and omit effort.
 
+The originating [scheduling caller](../../SKILL.md#scheduling-ownership) retains orchestration and performs the deterministic loop below. The continuation CLI executes the named task and returns its result; handoff does not transfer scheduling authority.
+
 ## Identity and lineage
 
 A handoff is a sanitized context transfer plus new-endpoint lineage — never a native session migration:
@@ -18,6 +20,8 @@ A handoff is a sanitized context transfer plus new-endpoint lineage — never a 
 ## Packet authoring contract
 
 Treat the `handoff-v1` packet as a compact handoff document for a fresh agent. Author it from the current session's visible context and tailor `objective`, `remaining_work`, and `acceptance_criteria` to the user's named continuation task. Include `suggested_skills` that materially help the continuation. Reference existing work through `evidence` instead of duplicating specs, plans, decisions, diffs, or other durable artifacts. Redact secrets and personally identifiable information; raw provider logs, transcripts, and hidden reasoning never belong in the packet.
+
+Include the [executor constraint](../../SKILL.md#scheduling-ownership) in the packet's `constraints` array so the fresh endpoint receives its role boundary in the rendered prompt.
 
 The existing schema couples `authorization.workspace_writes` to the process mode: bypass requires `true`, including for review continuations. Record narrower task limits in `constraints` explicitly (for example, keep the checkout and HEAD unchanged; no code edits or commits). Set `authorization.external_writes` only from the user's actual authorization. The process field does not override these constraints or grant broader task or external-write authority; a strict review prompt is not a read-only process.
 
