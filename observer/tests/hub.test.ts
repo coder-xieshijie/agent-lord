@@ -1,6 +1,7 @@
 import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { Hub } from "../src/server/hub.js";
 import { validStdoutPath } from "../src/server/scan.js";
@@ -95,6 +96,32 @@ describe("Hub first-turn gap (no task record yet)", () => {
 });
 
 describe("Hub ordering and incremental refresh", () => {
+  it("projects the initial caller's Desktop preview into overview and snapshot without an index", () => {
+    const root = makeRoot();
+    const callerRoot = makeRoot();
+    const db = new DatabaseSync(path.join(callerRoot, "state_5.sqlite"));
+    try {
+      db.exec("CREATE TABLE threads (id TEXT PRIMARY KEY, name TEXT, preview TEXT, title TEXT)");
+      const insert = db.prepare("INSERT INTO threads (id, preview) VALUES (?, ?)");
+      insert.run("fixture-initial-caller", "规划调度时间线");
+      insert.run("fixture-current-caller", "后续调用者的请求");
+    } finally { db.close(); }
+    const taskId = "fixture-desktop-caller";
+    for (const [index, session] of ["fixture-initial-caller", "fixture-current-caller"].entries()) {
+      writeOperation(root, taskId, `fixture-desktop-op-${index}`, "mcode-cli", {
+        created_at: `2026-09-09T1${index}:00:00Z`,
+        invocation: { caller: { kind: "codex", session_id: session, turn_id: null, identity_source: "runtime-env", data_root: callerRoot } },
+      });
+    }
+    const hub = new Hub([taskId], root);
+    hub.refresh();
+    const expected = { sessionId: "fixture-initial-caller", name: "规划调度时间线", projectName: null };
+    expect(hub.overview()[0].caller?.session).toEqual(expected);
+    expect(hub.snapshot(taskId)!.task.caller?.session).toEqual(expected);
+    expect(JSON.stringify(hub.overview())).not.toContain(callerRoot);
+    expect(JSON.stringify(hub.overview())).not.toContain("后续调用者的请求");
+  });
+
   it("replays two complete request/response rounds in order and keeps original and current callers separate", () => {
     const root = makeRoot();
     const taskId = "fixture-request-task";

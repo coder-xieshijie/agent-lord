@@ -1,18 +1,19 @@
 /** Read-only display metadata for scheduling (caller) sessions.
  *
- * Sources, both bounded to the data root the invocation itself declared:
- *   - thread name: `<data_root>/session_index.jsonl` (append-only, latest
- *     entry per session id wins);
+ * Sources, bounded to the data root the invocation itself declared:
+ *   - thread name: newest `state_<version>.sqlite` threads.name, then
+ *     session_index.jsonl (latest entry), then threads.preview / legacy title;
  *   - project name: basename of the caller session's own `cwd` from the
  *     `session_meta` head of its uniquely located rollout log.
  *
  * Only session ids already recorded by allow-listed task invocations are ever
- * looked up; nothing else is scanned or exposed, full paths never leave the
- * server, and conversation content is never read past the session_meta line.
+ * looked up; other thread rows and full paths never leave the server, and
+ * rollout content is never read past the session_meta line.
  */
 
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import type { CallerIdentity } from "@agent-lord/core/contracts";
 import { locateRolloutFile } from "./caller-lifecycle.js";
 import { readCompleteLines } from "./scan.js";
@@ -28,6 +29,11 @@ interface IndexCache {
   checkedAt: number;
   names: Map<string, string>;
 }
+interface StateTitleCache {
+  checkedAt: number;
+  name: string | null;
+  fallback: string | null;
+}
 interface ProjectCache {
   lookupAt: number;
   value: string | null;
@@ -37,6 +43,7 @@ interface ProjectCache {
 
 export class CallerSessionReader {
   private readonly index = new Map<string, IndexCache>();
+  private readonly stateTitles = new Map<string, StateTitleCache>();
   private readonly projects = new Map<string, ProjectCache>();
 
   /** Best-effort {name, projectName}; every unverifiable input yields nulls. */
@@ -44,13 +51,45 @@ export class CallerSessionReader {
     if (caller?.kind !== "codex" || !caller.session_id || !caller.data_root
       || !path.isAbsolute(caller.data_root) || !SESSION_ID_PATTERN.test(caller.session_id))
       return { name: null, projectName: null };
+    const state = this.stateTitle(caller.data_root, caller.session_id);
     return {
-      name: this.threadName(caller.data_root, caller.session_id),
+      name: state.name ?? this.indexName(caller.data_root, caller.session_id) ?? state.fallback,
       projectName: this.projectName(caller.data_root, caller.session_id),
     };
   }
 
-  private threadName(root: string, session: string): string | null {
+  private stateTitle(root: string, session: string): StateTitleCache {
+    const key = `${root}\0${session}`;
+    const now = Date.now();
+    const cached = this.stateTitles.get(key);
+    if (cached && now - cached.checkedAt < RETRY_MS) return cached;
+    const entry: StateTitleCache = { checkedAt: now, name: null, fallback: null };
+    this.stateTitles.set(key, entry);
+    let db: DatabaseSync | undefined;
+    try {
+      const file = readdirSync(root, { withFileTypes: true })
+        .filter((file) => file.isFile() && /^state_\d+\.sqlite$/.test(file.name))
+        .sort((a, b) => Number(b.name.split("_")[1].split(".")[0]) - Number(a.name.split("_")[1].split(".")[0]))[0];
+      if (!file) return entry;
+      // Never create or migrate Codex state. Reopen on each retry so renames
+      // committed only to the WAL are visible without a main-file mtime change.
+      db = new DatabaseSync(path.join(root, file.name), { readOnly: true });
+      const columns = new Set(db.prepare("PRAGMA table_info(threads)").all().map((column) => column.name));
+      const fields = ["name", "preview", "title"].filter((field) => columns.has(field));
+      if (!columns.has("id") || !fields.length) return entry;
+      const row = db.prepare(`SELECT ${fields.join(", ")} FROM threads WHERE id = ? LIMIT 1`).get(session);
+      const title = (value: unknown): string | null => typeof value === "string" ? clipTitle(value) || null : null;
+      entry.name = title(row?.name);
+      entry.fallback = title(row?.preview) ?? title(row?.title);
+    } catch {
+      // Missing, busy, corrupt or incompatible state keeps the index fallback.
+    } finally {
+      db?.close();
+    }
+    return entry;
+  }
+
+  private indexName(root: string, session: string): string | null {
     let cache = this.index.get(root);
     const now = Date.now();
     if (!cache || now - cache.checkedAt > RETRY_MS) {

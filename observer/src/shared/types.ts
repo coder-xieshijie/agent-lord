@@ -15,11 +15,11 @@ export interface CallerLifecycle {
   note: string;
 }
 /** Read-only display metadata of the scheduling (caller) session. Only the
- * session id, its recorded thread name and the basename of its own project
+ * session id, its display title and the basename of its own project
  * directory are exposed; full paths never leave the server. */
 export interface CallerSessionMeta {
   sessionId: string;
-  /** Caller thread name from its data root's session index; null when absent. */
+  /** Caller name or request preview from its own data root; null when absent. */
   name: string | null;
   /** Basename of the caller session's own cwd (its project); null when the
    * rollout metadata is unavailable or the session identity does not match. */
