@@ -96,6 +96,8 @@ flowchart LR
 
 主会话负责任务拆解、执行端选择和流程推进，每个执行端接收具体的工作。运行时负责持久化记录、契约校验、执行端调用和恢复；Observer 只读取并展示这些状态。
 
+执行 CLI 可以在已分配的任务范围内使用原生工具及子 agent（如 `task` / `Task` / `Agent`），但不得直接或通过子 agent 调用 Agent Lord。执行端约束与监督规则见 [Scheduling ownership](SKILL.md#scheduling-ownership)。
+
 任务状态默认保存在 `~/.codex/state/agent-lord`。通过 `AGENT_LORD_STATE_DIR` 可以指定其他目录，通过 `AGENT_LORD_PROVIDER_CONFIG` 可以选择其他执行端配置。
 
 ## 工作流与能力边界

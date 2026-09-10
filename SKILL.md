@@ -1,6 +1,6 @@
 ---
 name: agent-lord
-description: Dispatch and supervise durable Codex CLI, Codex App, Claude Code, or MCode CLI endpoints under deterministic execution contracts, source identity, recovery, and sanitized results. Use from one originating user-facing session for related or independent tasks, including tasks the user adds later, registering an addition that cannot be dispatched yet and supervising a just-dispatched task from its starting window. Dispatched CLIs execute concrete tasks and never delegate to other agents. Use bypass for new CLI dispatches and create task-required worktrees without confirmation; preserve explicit dependencies and run independent actions concurrently under workspace leases. Route explicit cross-review or 交叉 Review requests through the built-in cross-review policy, and explicit handoff / 交接 requests through the built-in handoff policy. Use when a Codex Desktop user asks to start or continue external Codex, Claude, or MCode work; not for in-process subagents, CI jobs, or general DAG workflows.
+description: Dispatch and supervise durable Codex CLI, Codex App, Claude Code, or MCode CLI endpoints under deterministic execution contracts, source identity, recovery, and sanitized results. Use from one originating user-facing session for related or independent tasks, including tasks the user adds later, registering an addition that cannot be dispatched yet and supervising a just-dispatched task from its starting window. Dispatched CLIs may use native tools and subagents but must not invoke Agent Lord. Use bypass for new CLI dispatches and create task-required worktrees without confirmation; preserve explicit dependencies and run independent actions concurrently under workspace leases. Route explicit cross-review or 交叉 Review requests through the built-in cross-review policy, and explicit handoff / 交接 requests through the built-in handoff policy. Use when a Codex Desktop user asks to start or continue external Codex, Claude, or MCode work; not for in-process subagents, CI jobs, or general DAG workflows.
 ---
 
 # Agent Lord
@@ -9,11 +9,13 @@ Manage multiple related or independent tasks from one scheduling session, with o
 
 ## Scheduling ownership
 
-The originating user-facing session is the sole scheduling caller. It directly dispatches every execution endpoint and owns task decomposition, provider/model selection, continuation, recovery, supervision, artifact exchange, and pipeline progression. Do not delegate those responsibilities to a coordinator CLI.
+The originating user-facing session is the sole Agent Lord scheduling caller. It directly dispatches every Agent Lord execution endpoint and owns their task decomposition, provider/model selection, continuation, recovery, supervision, artifact exchange, and pipeline progression. Do not delegate those Agent Lord responsibilities to a coordinator CLI.
 
 Each dispatched CLI receives one concrete execution task, which may include implementation, analysis, review, testing, and authorized delivery. Include the following executor constraint in the hard constraints of every caller-authored CLI prompt, including later turns and handoff packets; the executor need not load this Skill to receive it:
 
-> You are an execution endpoint. Complete only your assigned task. Do not invoke Agent Lord or another agent entry point to delegate work or create, continue, recover, or supervise other agent tasks. If the task needs splitting or help, return that need and relevant context to the scheduling caller. The caller owns scheduling and workflow progression.
+> You are an execution endpoint. Complete your assigned task using your CLI's native tools and subagents (including task, Task, or Agent) as needed. Do not invoke Agent Lord, directly or through a subagent. The scheduling caller owns Agent Lord task dispatch, continuation, recovery, supervision, and workflow progression. Return requests for additional Agent Lord endpoints or workflow changes to that caller.
+
+Native subagents are internal execution of the assigned task, not additional Agent Lord endpoints or caller-level workflow nodes. The assigned scope, source, and write constraints still apply. During supervision, native `task` / `Task` / `Agent` use alone is not a delegation violation and does not require the execution endpoint to repeat the work.
 
 ### Tasks added during execution
 
