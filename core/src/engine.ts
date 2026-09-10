@@ -422,6 +422,9 @@ export class AgentLord {
     opts: StartOptions = {},
   ): Promise<Envelope> {
     validateIdentifier("task_id", taskId);
+    const requestId = opts.request_id
+      ? validateIdentifier("request_id", opts.request_id)
+      : undefined;
     const invocation = resolveInvocation(opts.invocation);
     const provider = normalizeProvider(rawProvider);
     providerConfig(provider);
@@ -679,6 +682,7 @@ export class AgentLord {
               operation_id: id,
               parallel_plan: plan,
               invocation,
+              ...(requestId ? { request_id: requestId } : {}),
               ...(cli ? { controller_pid: process.pid } : {}),
               ...(provider === "claude-cli"
                 ? { endpoint_id: randomUUID() }
@@ -950,12 +954,15 @@ export class AgentLord {
     message: string,
     opts: Pick<
       StartOptions,
-      "required_files" | "require_commit" | "invocation"
+      "required_files" | "require_commit" | "invocation" | "request_id"
     > & {
       recovery_from?: string;
     } = {},
   ): Promise<Envelope> {
     validateIdentifier("task_id", taskId);
+    const requestId = opts.request_id
+      ? validateIdentifier("request_id", opts.request_id)
+      : undefined;
     const invocation = resolveInvocation(
       opts.invocation,
       Boolean(opts.recovery_from),
@@ -1096,6 +1103,7 @@ export class AgentLord {
             {
               operation_id: id,
               invocation,
+              ...(requestId ? { request_id: requestId } : {}),
               ...(cli
                 ? { controller_pid: process.pid, endpoint_id: task.endpoint_id }
                 : {}),
@@ -2730,14 +2738,34 @@ export class AgentLord {
   async checkpoint(
     taskIds: string[] | undefined,
     seconds: number,
+    startingIds?: string[],
   ): Promise<[Envelope, boolean]> {
     if (!Number.isFinite(seconds) || seconds <= 0)
       throw usageError("checkpoint seconds must be greater than zero");
     taskIds?.forEach((v) => validateIdentifier("task_id", v));
+    startingIds?.forEach((v) => validateIdentifier("starting_task_id", v));
+    const known = taskIds ? [...new Set(taskIds)] : undefined;
+    const starting = startingIds ? [...new Set(startingIds)] : [];
+    const both = starting.filter((id) => known?.includes(id));
+    if (both.length)
+      throw usageError(
+        "a task_id must be selected either as known or as starting, not both",
+        { task_ids: both },
+      );
+    const explicit =
+      known || starting.length ? [...(known ?? []), ...starting] : undefined;
     const scan = new CheckpointScan(this.store);
-    scan.tick(taskIds);
-    let active = scan.active(taskIds);
-    const selected = taskIds ?? active.map((v) => v.task_id);
+    scan.tick(explicit);
+    let active = scan.active(explicit, starting);
+    const selected = explicit ?? active.map((v) => v.task_id);
+    /** Starting ids are reported every return so pending is never silent. */
+    const report = (envelope: Envelope): Envelope =>
+      starting.length
+        ? {
+            ...envelope,
+            starting: starting.map((id) => scan.observedPhase(id)),
+          }
+        : envelope;
     const actionable = () => {
       const envelopes = scan
         .latest(selected)
@@ -2749,23 +2777,23 @@ export class AgentLord {
       return envelopes.length ? this.checkpointBatch(envelopes, active) : null;
     };
     let result = actionable();
-    if (result) return [result, false];
+    if (result) return [report(result), false];
     const quiet = (): [Envelope, boolean] => [
-      {
+      report({
         version: 1,
         status: "CHECKPOINT_QUIET",
         seconds,
         active: compactActive(active),
-      },
+      }),
       true,
     ];
     if (!selected.length) return quiet();
     const deadline = performance.now() + seconds * 1000;
     while (performance.now() < deadline) {
       scan.tick(selected);
-      active = scan.active(selected);
+      active = scan.active(selected, starting);
       result = actionable();
-      if (result) return [result, false];
+      if (result) return [report(result), false];
       const supervised: Envelope[] = [];
       for (const { operation: op } of active) {
         let envelope: Envelope | null = null;
@@ -2789,7 +2817,7 @@ export class AgentLord {
         if (envelope) supervised.push(envelope);
       }
       if (supervised.length)
-        return [this.checkpointBatch(supervised, active), false];
+        return [report(this.checkpointBatch(supervised, active)), false];
       await delay(
         Math.min(
           250,
@@ -2799,8 +2827,8 @@ export class AgentLord {
       );
     }
     scan.tick(selected);
-    active = scan.active(selected);
+    active = scan.active(selected, starting);
     result = actionable();
-    return result ? [result, false] : quiet();
+    return result ? [report(result), false] : quiet();
   }
 }

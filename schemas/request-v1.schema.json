@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-lord.local/schemas/request-v1.schema.json",
+  "title": "Agent Lord passive request v1",
+  "description": "One registered but not necessarily dispatched instruction. Registration is not authorization and not a dispatch: only an explicit request-dispatch turns a request into an operation.",
+  "type": "object",
+  "required": [
+    "version",
+    "request_id",
+    "status",
+    "intent",
+    "intent_sha256",
+    "message",
+    "message_sha256",
+    "user_request",
+    "source",
+    "operation_id",
+    "created_at",
+    "updated_at",
+    "dispatched_at",
+    "cancelled_at",
+    "cancel_reason"
+  ],
+  "properties": {
+    "version": {"const": 1},
+    "request_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$"},
+    "status": {
+      "enum": ["pending", "dispatched", "cancelled"],
+      "description": "Registration and operation binding only. Whether the provider received or completed the message is the operation's own status and delivery evidence."
+    },
+    "intent": {
+      "type": "object",
+      "required": ["kind", "task_id", "provider", "target", "repository", "options"],
+      "properties": {
+        "kind": {"enum": ["start", "turn"]},
+        "task_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$"},
+        "provider": {"type": ["string", "null"]},
+        "target": {"type": ["string", "null"]},
+        "repository": {"type": ["string", "null"]},
+        "options": {
+          "type": "object",
+          "description": "Dispatch options frozen at registration, using the same names start accepts. They are validated against the live execution contract at dispatch, never at registration.",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "intent_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Identity of what this request asks for. The same request_id with the same digest is re-entrant; a different digest is a REQUEST_CONFLICT and never overwrites the original."
+    },
+    "message": {"type": "string", "minLength": 1},
+    "message_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "user_request": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 1000000,
+      "description": "The user's original instruction, preserved so a restarted scheduler can still explain what was promised."
+    },
+    "source": {
+      "type": "object",
+      "required": ["kind", "session_id", "note"],
+      "description": "Descriptive provenance for filtering only. It is never an identity, an authorization, or an Observer allowlist input.",
+      "properties": {
+        "kind": {"type": ["string", "null"], "maxLength": 160},
+        "session_id": {"type": ["string", "null"], "maxLength": 160},
+        "note": {"type": ["string", "null"], "maxLength": 4000}
+      },
+      "additionalProperties": false
+    },
+    "operation_id": {
+      "type": ["string", "null"],
+      "description": "Projection of the association that the operation record itself commits atomically through its own request_id field."
+    },
+    "created_at": {"type": "string"},
+    "updated_at": {"type": "string"},
+    "dispatched_at": {"type": ["string", "null"]},
+    "cancelled_at": {"type": ["string", "null"]},
+    "cancel_reason": {"type": ["string", "null"], "maxLength": 4000}
+  },
+  "additionalProperties": false
+}

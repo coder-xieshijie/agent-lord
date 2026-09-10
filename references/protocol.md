@@ -15,6 +15,9 @@ Every command prints one JSON object. `schemas/result-v1.schema.json` is the mai
 | `NEEDS_DECISION` | Recovery changes identity, authority, source, or delivery semantics | Stop for an explicit decision |
 | `CHECKPOINT_ACTIONABLE` | One or more selected tasks have durable actionable state | Process every envelope in `actionable` |
 | `CHECKPOINT_QUIET` | No actionable state change occurred in the bounded interval | Exit `124`; resume the foreground checkpoint loop later |
+| `REQUEST_RECORD` | One registered inbox request, after `request-add`, `request-get`, or `request-cancel` | Report it as pending, dispatched, or cancelled; registration alone dispatched nothing |
+| `REQUEST_LIST` | Compact discovery of registered requests with per-status counts | Read the full instruction of a specific one with `request-get` |
+| `REQUEST_PENDING` | A consumed request could not be dispatched because its target is busy | Keep it pending and retry after the current operation is terminal |
 
 An `ACTION_REQUIRED` record is idempotent. Re-running the same `start`, `turn`, or checkpoint returns the already-pending action instead of creating a second provider operation.
 
@@ -67,6 +70,20 @@ So a `RUNNING` envelope from `check` never becomes terminal by itself: run `chec
 
 Repeat `--task-id` to supervise a caller-selected set in one checkpoint; omit it to freeze the set of active tasks observed when the call starts. Actionable wake returns `CHECKPOINT_ACTIONABLE` with every currently terminal or pending-action envelope for the selected tasks. This is a durable snapshot, not a destructive dequeue: repeated calls may return a previously seen envelope, and a later actionable task is returned alongside it instead of being lost or starved. Task selection is the seam for a caller-owned dependency or next-dispatch policy; checkpoint itself neither evaluates dependencies nor dispatches another operation.
 
+### Starting supervision window
+
+`--task-id` requires the id to be known already and still fails with `TASK_UNKNOWN` and exit `2` on a typo. Repeat `--starting-task-id` for a task the caller has just dispatched: that id alone may have no operation and no task record yet, and the same id must not appear in both lists. Once its operation appears inside the window it is scanned, fenced, recovered, and returned exactly like any other selected task, including an operation that is already terminal when first observed. Other selected tasks stay supervised throughout.
+
+Every return that used `--starting-task-id` carries `starting[]`, one entry per declared id, so a starting task is never silently pending:
+
+| `phase` | Meaning |
+|---|---|
+| `not_observed` | Neither an operation nor a task record exists. Worktree preparation runs before the operation record is created, so this window is real. |
+| `operation_recorded` | The operation record exists; the provider endpoint identity is not durable yet. |
+| `task_established` | A task record exists, so the endpoint identity was persisted (MCode at its first session event, Claude and Codex CLI at publication). |
+
+`not_observed` reports only what the state directory shows. It is not evidence that the dispatch process died, never started, or failed; a `task_id` cannot carry that information. The dispatch command's own exit status and error envelope remain the authority on dispatch failure, and checkpoint never fabricates one.
+
 Actionable means exactly:
 
 - an already-pending or newly-created `ACTION_REQUIRED` action;
@@ -97,6 +114,7 @@ The script is the only writer under `${AGENT_LORD_STATE_DIR:-$HOME/.codex/state/
 <task-id>.json                 durable endpoint and execution contract
 operations/<operation-id>.json
 actions/<action-id>.json       model-mediated Codex tool request
+requests/<request-id>.json     registered, not yet dispatched instruction
 events/<task-id>.jsonl         append-only transitions
 artifacts/<task-id>/<operation-id>.md
 artifacts/<task-id>/<operation-id>.handoff-v1.json   canonical sanitized handoff input packet
@@ -113,6 +131,34 @@ Current state comes from task, operation, and provider truth. `events/*.jsonl` i
 Task handles follow `schemas/task-v2.schema.json`. Version 1 records are normalized for inspection, but another turn is blocked until `node core/dist/task-store.js upgrade` attaches an explicit model, effort, retry, permission, and optional source contract. Operations and actions follow their corresponding schemas.
 
 A `handoff` operation is a third initial-operation kind beside `start` and `turn`-continued work: it consumes one validated `handoff-v1` packet (`schemas/handoff-v1.schema.json`), stores the canonical packet as an input artifact, freezes the workspace snapshot in its `handoff` manifest, and writes an immutable `lineage` record into the continuation task it creates. Lineage means `continues_user_task` on a brand-new endpoint; source-session identity stays `caller-declared` or `unavailable`, never `verified`. Policy, authorization, and the packet contract live in `references/pipelines/handoff.md`.
+
+## Passive request inbox
+
+`request-add`, `request-get`, `request-list`, `request-cancel`, and `request-dispatch` give the scheduling caller a durable place for an instruction it is not ready to dispatch. The inbox is passive by construction: it has no scheduler, no dependency evaluation, no background wakeup, and no daemon. Registration starts nothing, and only an explicit `request-dispatch` becomes a `start` or a `turn`.
+
+A request record follows `schemas/request-v1.schema.json` and lives in the same private state directory under the same atomic-write and per-record lease rules as every other record. `--intent start` freezes the provider, target or repository, and the same dispatch options `start` accepts; `--intent turn` continues a saved endpoint and accepts only delivery requirements. Those options are validated against the live execution contract, source identity, workspace policy, and recovery boundary at dispatch, exactly as a direct `start` or `turn` would be — registration performs no contract validation and grants no authorization.
+
+Identity and re-entrancy:
+
+- `intent_sha256` covers the intent, the message digest, and the original user request. The same `request_id` registered again with the same digest returns the original record unchanged; a different digest is `REQUEST_CONFLICT` with exit `2` and never overwrites what was registered.
+- Two different `request_id` values may carry identical text. They are two legitimate requests.
+- `source` is descriptive provenance for filtering only. It is never an identity claim, never an authorization, and never widens the Observer allowlist.
+
+Consumption is single-operation by construction:
+
+- The consumed `request_id` is written inside the operation record's own atomic creation. The operation log — not a second index file — is the authority for the association, so nothing depends on two JSON files committing together.
+- `request-dispatch` holds the request lease for the whole dispatch, so a concurrent second consumer gets a retryable `STATE_BUSY` instead of racing into a second operation.
+- Before dispatching, and after any dispatch failure, the operation log is searched for that `request_id`. A consumer that crashed after journaling its operation, or whose provider then failed, therefore adopts the existing operation on retry rather than opening a new turn. `request-get` and `request-list` rebuild the same association, so a request record left at `pending` by a crash is repaired from the operation log.
+- `request-cancel` on a request that already has an operation is `REQUEST_CONFLICT`; `request-dispatch` on a cancelled request is `REQUEST_CANCELLED`. Whichever holds the lease first wins, and the outcome is always one of those two.
+- When the target task is busy, `request-dispatch` returns `REQUEST_PENDING` with the underlying `pending_reason` and leaves the request pending. Nothing is injected into the running operation, no endpoint is substituted, and no retry is scheduled.
+
+Three claims stay separate and must not be collapsed in a report:
+
+1. `status: "pending"` — the instruction is registered and durable.
+2. `status: "dispatched"` with `operation_id` — a logical operation exists for it.
+3. The operation envelope's own status, artifact, and `delivery` — whether the provider actually received or completed the message.
+
+An operation record does not prove provider receipt. `DELIVERY_UNKNOWN` keeps its existing recovery and decision boundary; the inbox neither bypasses it nor re-sends the message, and it makes no exactly-once claim about provider-side effects.
 
 ## Execution contract
 
@@ -222,6 +268,9 @@ Missing, inconsistent, premature, or target-branch parallel metadata returns `PA
 | `PROCESS_EXITED_WITHOUT_RESULT` | Local provider process disappeared before terminal publication | Inspect private logs, then retry the same endpoint if safe |
 | `PROVIDER_STALLED` | Claude stayed alive but produced no stream progress before the saved control deadline | Fence the old process group, then resume the same session with a continuation query |
 | `IDENTITY_CONFLICT` / `STATE_CONFLICT` | Durable records disagree about endpoint or terminal identity | Stop and repair explicitly |
+| `REQUEST_UNKNOWN` | No request is registered under that `request_id` | Correct the identity; do not guess |
+| `REQUEST_CONFLICT` | The same `request_id` was registered with a different intent, or a dispatched request cannot be cancelled | Use a new `request_id`, or accept the existing operation |
+| `REQUEST_CANCELLED` | The request was cancelled before it was dispatched | Register a new request if the work is still wanted |
 | `STATE_BUSY` / `STATE_CORRUPT` | Concurrent writer or invalid durable state | Retry the same command or repair state explicitly |
 
 ## Safe recovery line

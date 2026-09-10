@@ -13,10 +13,15 @@ node core/dist/cli.js --help
 node core/dist/cli.js start --task-id example --provider codex \
   --target /absolute/workspace --message-file /absolute/prompt.txt
 node core/dist/cli.js turn --task-id example --message-file /absolute/next.txt
-node core/dist/cli.js checkpoint --task-id example --seconds 120
+node core/dist/cli.js checkpoint --task-id example --starting-task-id just-dispatched --seconds 120
+node core/dist/cli.js request-add --request-id followup-1 --intent turn \
+  --task-id example --message-file /absolute/followup.txt
+node core/dist/cli.js request-dispatch --request-id followup-1
 ```
 
-`codex` and `mcode` remain aliases for `codex-cli` and `mcode-cli`. Defaults are Codex CLI `gpt-6-astra` / `xhigh`, Claude CLI `claude-fable-5` / `xhigh`, and MCode `custom_provider:mafia-claude/claude-fable-5#xhigh`. Explicit arguments override defaults; MCode accepts a qualified `--model provider/model[#variant]` and has no separate effort flag. `check` reads state; `checkpoint` also supervises orphaned CLI processes. A quiet checkpoint prints one compact JSON envelope and exits **124**. Provider execution success and declared delivery evidence remain separate fields.
+`codex` and `mcode` remain aliases for `codex-cli` and `mcode-cli`. Defaults are Codex CLI `gpt-6-astra` / `xhigh`, Claude CLI `claude-fable-5` / `xhigh`, and MCode `custom_provider:mafia-claude/claude-fable-5#xhigh`. Explicit arguments override defaults; MCode accepts a qualified `--model provider/model[#variant]` and has no separate effort flag. `check` reads state; `checkpoint` also supervises orphaned CLI processes. `--task-id` still fails on an unknown id, while `--starting-task-id` tolerates a task that was just dispatched and reports what was observed for it. A quiet checkpoint prints one compact JSON envelope and exits **124**. Provider execution success and declared delivery evidence remain separate fields.
+
+`request-add`, `request-get`, `request-list`, `request-cancel`, and `request-dispatch` are a passive inbox for an instruction that cannot be dispatched yet. Registering starts nothing and reaches no running CLI; only `request-dispatch` becomes a `start` or `turn`, and it returns `REQUEST_PENDING` while the target task is busy. The consumed `request_id` is written into the operation record itself, so repeating a dispatch adopts the existing operation instead of creating a second one.
 
 The default state directory is `~/.codex/state/agent-lord`; set `AGENT_LORD_STATE_DIR` to use another directory. Provider profiles remain in `config/providers.json`, overridable with `AGENT_LORD_PROVIDER_CONFIG`. The compiled runtime resolves its default profile relative to the package, independently of the caller's working directory.
 
@@ -52,6 +57,7 @@ flowchart LR
 | `core/src/cli.ts`, `task-store.ts` | Public commands and compatibility interface |
 | `core/src/engine.ts` | Durable dispatch, action receipts, finalization, checkpoint, and recovery |
 | `core/src/state.ts`, `json.ts` | Atomic records, kernel-held leases, private permissions, lossless integer JSON |
+| `core/src/requests.ts` | Passive request inbox: registration, discovery, cancellation, and single-operation consumption |
 | `core/src/workspace.ts` | Fixed source checks, worktree preparation, workspace/branch ownership, declared integration order |
 | `core/src/providers/` | Provider-specific command construction and authoritative result validation |
 | `core/src/process.ts`, `recovery-worker.ts` | Direct-file child I/O, process fencing, detached recovery controllers |

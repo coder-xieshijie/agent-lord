@@ -7,7 +7,7 @@
   "properties": {
     "version": {"const": 1},
     "status": {
-      "enum": ["RUNNING", "ACTION_REQUIRED", "SUCCEEDED", "ERROR", "NEEDS_DECISION", "CHECKPOINT_ACTIONABLE", "CHECKPOINT_QUIET", "IDLE"]
+      "enum": ["RUNNING", "ACTION_REQUIRED", "SUCCEEDED", "ERROR", "NEEDS_DECISION", "CHECKPOINT_ACTIONABLE", "CHECKPOINT_QUIET", "IDLE", "REQUEST_RECORD", "REQUEST_LIST", "REQUEST_PENDING"]
     },
     "task_id": {"type": "string"},
     "operation_id": {"type": "string"},
@@ -164,7 +164,28 @@
         "required": ["task_id", "operation_id", "provider", "operation_status"],
         "additionalProperties": true
       }
-    }
+    },
+    "starting": {
+      "type": "array",
+      "description": "One entry per --starting-task-id. `not_observed` reports only that no record was seen; it is never evidence about the dispatch process itself.",
+      "items": {
+        "type": "object",
+        "required": ["task_id", "phase", "operation_id", "operation_status"],
+        "properties": {
+          "task_id": {"type": "string"},
+          "phase": {"enum": ["not_observed", "operation_recorded", "task_established"]},
+          "operation_id": {"type": ["string", "null"]},
+          "operation_status": {"type": ["string", "null"]},
+          "reason": {"const": "no_record_observed"},
+          "detail": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "request": {"type": "object"},
+    "requests": {"type": "array", "items": {"type": "object"}},
+    "counts": {"type": "object"},
+    "pending_reason": {"$ref": "#/properties/error"}
   },
   "allOf": [
     {
@@ -174,6 +195,18 @@
     {
       "if": {"properties": {"status": {"const": "CHECKPOINT_QUIET"}}},
       "then": {"required": ["active"]}
+    },
+    {
+      "if": {"properties": {"status": {"const": "REQUEST_PENDING"}}},
+      "then": {"required": ["request", "pending_reason"]}
+    },
+    {
+      "if": {"properties": {"status": {"const": "REQUEST_RECORD"}}},
+      "then": {"required": ["request"]}
+    },
+    {
+      "if": {"properties": {"status": {"const": "REQUEST_LIST"}}},
+      "then": {"required": ["requests", "counts"]}
     }
   ],
   "additionalProperties": true
