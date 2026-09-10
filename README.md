@@ -96,6 +96,8 @@ flowchart LR
 
 The main session owns task decomposition, provider selection, and workflow progression. Each execution endpoint receives a concrete assignment. The runtime owns persistent records, contract validation, provider calls, and recovery; the Observer only reads and displays that state.
 
+Execution CLIs may use native tools and subagents such as `task` / `Task` / `Agent` within their assigned scope, but must not invoke Agent Lord themselves or through a subagent. See [scheduling ownership](SKILL.md#scheduling-ownership) for the executor constraint and supervision rule.
+
 Task state lives in `~/.codex/state/agent-lord`. Set `AGENT_LORD_STATE_DIR` to use another location, or `AGENT_LORD_PROVIDER_CONFIG` to select another provider configuration.
 
 ## Workflows and boundaries
