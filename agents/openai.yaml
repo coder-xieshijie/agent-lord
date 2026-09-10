@@ -1,4 +1,4 @@
 interface:
   display_name: "Agent Lord"
   short_description: "Deterministic Codex, Claude, and MCode task orchestration"
-  default_prompt: "Use $agent-lord to dispatch and supervise a durable Codex, Claude, or MCode task."
+  default_prompt: "Use $agent-lord from this scheduling session to dispatch and supervise related or independent Codex, Claude, or MCode tasks, including tasks I add during execution while preserving existing work."

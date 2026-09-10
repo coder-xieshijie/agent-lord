@@ -6,7 +6,9 @@ Every step below belongs to the originating [scheduling caller](../../SKILL.md#s
 
 ## Resolve the contract before dispatch
 
-Write one compact run manifest outside the target repository:
+Write one compact run manifest per user-defined workflow outside the target repository. One scheduling session can manage multiple independent runs; apply [tasks added during execution](../../SKILL.md#tasks-added-during-execution) when the user adds work later.
+
+Each manifest contains:
 
 - `run_id`, goal, final deliverable, repository, source branch, fixed head/base, process permission mode, and task-level write boundaries;
 - every authorized node with stable `task_id`, role, provider, model, effort, inputs, outputs, and workspace policy;
