@@ -160,6 +160,43 @@ export interface Operation extends Data {
   handoff?: Data;
   resume?: boolean;
   invocation?: Invocation;
+  /**
+   * Inbox request consumed by this dispatch. Written in the same atomic
+   * operation record, so the request-to-operation association survives a
+   * consumer crash without a second file having to commit with it.
+   */
+  request_id?: string;
+}
+/** A registered but not yet dispatched instruction. Never an authorization. */
+export interface RequestIntent {
+  kind: "start" | "turn";
+  task_id: string;
+  provider: string | null;
+  target: string | null;
+  repository: string | null;
+  options: Data;
+}
+export interface RequestSource {
+  kind: string | null;
+  session_id: string | null;
+  note: string | null;
+}
+export interface RequestRecord extends Data {
+  version: 1;
+  request_id: string;
+  status: "pending" | "dispatched" | "cancelled";
+  intent: RequestIntent;
+  intent_sha256: string;
+  message: string;
+  message_sha256: string;
+  user_request: string | null;
+  source: RequestSource;
+  operation_id: string | null;
+  created_at: string;
+  updated_at: string;
+  dispatched_at: string | null;
+  cancelled_at: string | null;
+  cancel_reason: string | null;
 }
 export interface Action extends Data {
   version: 1;
@@ -184,7 +221,10 @@ export interface Envelope extends Data {
     | "ERROR"
     | "NEEDS_DECISION"
     | "CHECKPOINT_ACTIONABLE"
-    | "CHECKPOINT_QUIET";
+    | "CHECKPOINT_QUIET"
+    | "REQUEST_RECORD"
+    | "REQUEST_LIST"
+    | "REQUEST_PENDING";
   task_id?: string;
   operation_id?: string;
   error?: ErrorRecord;
@@ -196,6 +236,12 @@ export interface Envelope extends Data {
   action?: Data;
   actionable?: Envelope[];
   active?: Data[];
+  /** Per-id observation of every `--starting-task-id` in this checkpoint. */
+  starting?: Data[];
+  request?: Data;
+  requests?: Data[];
+  /** Why a consumed request stayed pending instead of becoming an operation. */
+  pending_reason?: ErrorRecord;
 }
 export interface ProviderResult extends Data {
   endpoint_id: string;
@@ -228,6 +274,8 @@ export interface StartOptions {
   starting_branch?: string;
   required_files?: string[];
   require_commit?: boolean;
+  /** Set only by the request inbox, so the operation carries its origin. */
+  request_id?: string;
 }
 export function object(value: unknown): Data {
   return value !== null && typeof value === "object" && !Array.isArray(value)

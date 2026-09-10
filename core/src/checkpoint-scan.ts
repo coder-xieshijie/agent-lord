@@ -134,8 +134,16 @@ export class CheckpointScan {
   action(id: string): Action | undefined {
     return this.pending.get(id);
   }
-  active(selected?: string[]): ActiveOperation[] {
-    const unknown = selected?.filter((id) => !this.known.has(id));
+  /**
+   * `lenient` holds explicitly declared starting ids. They may legitimately
+   * have no record yet, so they are excluded from the strict unknown check
+   * that still protects ordinary `--task-id` typos.
+   */
+  active(selected?: string[], lenient?: Iterable<string>): ActiveOperation[] {
+    const allowed = new Set(lenient ?? []);
+    const unknown = selected?.filter(
+      (id) => !this.known.has(id) && !allowed.has(id),
+    );
     if (unknown?.length)
       throw new AgentLordError(
         "TASK_UNKNOWN",
@@ -156,6 +164,35 @@ export class CheckpointScan {
         provider: operation.provider,
         operation,
       }));
+  }
+  /**
+   * The startup stage this id has reached in the current tick. The three
+   * stages are distinct on purpose: worktree preparation runs before the
+   * operation record exists, the operation record exists well before the
+   * provider endpoint is durable, and only a task record proves the endpoint
+   * identity was persisted.
+   */
+  observedPhase(taskId: string): Data {
+    const task = this.tasks.find((v) => v.task_id === taskId);
+    const owned = this.operations.filter((v) => v.task_id === taskId);
+    const last = owned[owned.length - 1];
+    const phase = task
+      ? "task_established"
+      : last
+        ? "operation_recorded"
+        : "not_observed";
+    const result: Data = {
+      task_id: taskId,
+      phase,
+      operation_id: task?.last_operation_id ?? last?.operation_id ?? null,
+      operation_status: last?.status ?? null,
+    };
+    if (phase === "not_observed") {
+      result.reason = "no_record_observed";
+      result.detail =
+        "no operation or task record was observed for this starting task_id during the window; this states only what the state directory shows, not whether the dispatch process started, is still preparing its workspace, or exited — read the dispatch command's own exit status and error envelope for that";
+    }
+    return result;
   }
   latest(selected: string[]): Operation[] {
     const latest = new Map<string, Operation>();

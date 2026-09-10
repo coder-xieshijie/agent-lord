@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { pathToFileURL } from "node:url";
 import { AgentLord } from "./engine.js";
+import { RequestInbox } from "./requests.js";
 import { retryResultInvalid } from "./invalid-retry.js";
 import { AgentLordError, usageError } from "./errors.js";
 import { controlConfig } from "./config.js";
@@ -108,9 +109,82 @@ export const COMMANDS: Record<string, CommandSpec> = {
   },
   checkpoint: {
     description: "Bounded foreground supervision; quiet output exits 124",
-    multiple: ["task-id"],
+    multiple: ["task-id", "starting-task-id"],
     integers: ["seconds"],
     booleans: ["include-response"],
+  },
+  "request-add": {
+    description:
+      "Register one not-yet-dispatched instruction in the passive inbox",
+    strings: [
+      "request-id",
+      "intent",
+      "task-id",
+      "message-file",
+      "user-request-file",
+      "source-kind",
+      "source-session-id",
+      "source-note",
+      "provider",
+      "target",
+      "repo",
+      "model",
+      "effort",
+      "head-sha",
+      "base-sha",
+      "source-branch",
+      "workspace-policy",
+      "workspace-branch",
+      "worktree-root",
+      "parallel-group",
+      "integration-role",
+      "integration-target-branch",
+      "integrator-task-id",
+      "codex-environment",
+      "starting-branch",
+    ],
+    booleans: ["require-commit", "read-only"],
+    integers: ["retry-attempts", "integration-order"],
+    multiple: ["require-file", "integration-worker"],
+    required: ["request-id", "intent", "task-id", "message-file"],
+    choices: {
+      intent: ["start", "turn"],
+      provider: providers,
+      "workspace-policy": ["reuse-or-create", "shared-readonly", "isolated"],
+      "integration-role": ["worker", "integrator"],
+      "codex-environment": ["worktree", "local"],
+    },
+  },
+  "request-get": {
+    description: "Read one registered request, including its full message",
+    strings: ["request-id"],
+    required: ["request-id"],
+  },
+  "request-list": {
+    description: "Discover registered requests; filters are descriptive only",
+    strings: [
+      "status",
+      "intent",
+      "task-id",
+      "source-kind",
+      "source-session-id",
+    ],
+    choices: {
+      status: ["pending", "dispatched", "cancelled"],
+      intent: ["start", "turn"],
+    },
+  },
+  "request-cancel": {
+    description: "Cancel a request that has not been dispatched",
+    strings: ["request-id", "reason"],
+    required: ["request-id"],
+  },
+  "request-dispatch": {
+    description:
+      "Consume one request into a start or turn; stays pending when the target is busy",
+    strings: ["request-id", "invocation-file"],
+    booleans: ["include-response"],
+    required: ["request-id"],
   },
   "export-artifact": {
     description:
@@ -175,10 +249,18 @@ export async function main(
     else if (command === "recover")
       result = await lord.recover(get("task-id"), get("operation-id"), opts);
     else if (command === "retry-invalid")
-      result = await retryResultInvalid(lord, get("task-id"), get("operation-id"), {
-        replacement_task_id: valueString(v, "replacement-task-id") ?? undefined,
-        ...(opts.invocation !== undefined ? { invocation: opts.invocation } : {}),
-      });
+      result = await retryResultInvalid(
+        lord,
+        get("task-id"),
+        get("operation-id"),
+        {
+          replacement_task_id:
+            valueString(v, "replacement-task-id") ?? undefined,
+          ...(opts.invocation !== undefined
+            ? { invocation: opts.invocation }
+            : {}),
+        },
+      );
     else if (command === "handoff")
       result = await lord.handoff(get("task-id"), get("packet-file"), {
         ...opts,
@@ -200,7 +282,62 @@ export async function main(
       [result, quiet] = await lord.checkpoint(
         v["task-id"] as string[] | undefined,
         (v.seconds as number | undefined) ?? controlConfig().checkpoint_seconds,
+        v["starting-task-id"] as string[] | undefined,
       );
+    else if (command === "request-add") {
+      const {
+        request_id: _id,
+        intent: _intent,
+        task_id: _task,
+        message_file: _message,
+        user_request_file: _user,
+        source_kind: _kind,
+        source_session_id: _session,
+        source_note: _note,
+        provider: _provider,
+        target: _target,
+        repository: _repository,
+        ...options
+      } = opts as unknown as Record<string, unknown>;
+      result = new RequestInbox(lord).register({
+        request_id: get("request-id"),
+        intent: get("intent"),
+        task_id: get("task-id"),
+        message: inputText(get("message-file")),
+        user_request: v["user-request-file"]
+          ? inputText(get("user-request-file"))
+          : null,
+        source: {
+          kind: valueString(v, "source-kind") ?? null,
+          session_id: valueString(v, "source-session-id") ?? null,
+          note: valueString(v, "source-note") ?? null,
+        },
+        provider: valueString(v, "provider") ?? null,
+        target: valueString(v, "target") ?? null,
+        repository: valueString(v, "repo") ?? null,
+        options,
+      });
+    } else if (command === "request-get")
+      result = new RequestInbox(lord).get(get("request-id"));
+    else if (command === "request-list")
+      result = new RequestInbox(lord).list({
+        status: valueString(v, "status"),
+        intent: valueString(v, "intent"),
+        task_id: valueString(v, "task-id"),
+        source_kind: valueString(v, "source-kind"),
+        source_session_id: valueString(v, "source-session-id"),
+      });
+    else if (command === "request-cancel")
+      result = new RequestInbox(lord).cancel(
+        get("request-id"),
+        valueString(v, "reason"),
+      );
+    else if (command === "request-dispatch")
+      result = await new RequestInbox(lord).dispatch(get("request-id"), {
+        ...(opts.invocation !== undefined
+          ? { invocation: opts.invocation }
+          : {}),
+      });
     else
       result = lord.exportArtifact(
         get("task-id"),

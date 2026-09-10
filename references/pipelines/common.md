@@ -6,7 +6,7 @@ Every step below belongs to the originating [scheduling caller](../../SKILL.md#s
 
 ## Resolve the contract before dispatch
 
-Write one compact run manifest per user-defined workflow outside the target repository. One scheduling session can manage multiple independent runs; apply [tasks added during execution](../../SKILL.md#tasks-added-during-execution) when the user adds work later.
+Write one compact run manifest per user-defined workflow outside the target repository. One scheduling session can manage multiple independent runs; apply [tasks added during execution](../../SKILL.md#tasks-added-during-execution) when the user adds work later, and register an addition you cannot dispatch yet in the [request inbox](../../SKILL.md#deferred-instruction-inbox) so it is not lost with the conversation context.
 
 Each manifest contains:
 
@@ -29,7 +29,7 @@ New CLI nodes use `dangerously_bypass` without `--read-only`; put task-level wri
 
 ## Supervise and recover
 
-- For a pipeline, `checkpoint` is the liveness and recovery loop. Select all active and newly starting `task_id` values in one call immediately after dispatch, including starts that may have journaled an operation before their task record exists.
+- For a pipeline, `checkpoint` is the liveness and recovery loop. Immediately after dispatch, select every active `task_id` with `--task-id` and every just-dispatched one with `--starting-task-id`, which tolerates a start that has not journaled its operation or task record yet and reports each such id in `starting[]`.
 - `check` is a full-detail inspection for one established task; it is not the pipeline liveness primitive and can correctly return `TASK_UNKNOWN` during the pre-task start window.
 - A brief `workspace-prepare` or parallel-group `STATE_BUSY` is retried inside the runtime. After the bounded budget is exhausted, follow only the returned `safe_recovery`.
 - Treat `CHECKPOINT_QUIET` as healthy. Notify the user on meaningful transitions: dispatch, barrier completion, recovery, decision, terminal failure, or final convergence—not on every quiet poll.

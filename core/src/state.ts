@@ -70,6 +70,7 @@ export function ensureLayout(root = stateDir()): string {
     "artifacts",
     "logs",
     "locks",
+    "requests",
     "tmp",
   ])
     mkdirSync(path.join(root, child), { recursive: true, mode: 0o700 });
@@ -90,6 +91,13 @@ export function actionPath(id: string, root = stateDir()): string {
     root,
     "actions",
     `${validateIdentifier("action_id", id)}.json`,
+  );
+}
+export function requestPath(id: string, root = stateDir()): string {
+  return path.join(
+    root,
+    "requests",
+    `${validateIdentifier("request_id", id)}.json`,
   );
 }
 export function eventPath(id: string, root = stateDir()): string {
@@ -643,7 +651,7 @@ export class StateStore {
       return value;
     });
   }
-  paths(kind: "operations" | "actions"): string[] {
+  paths(kind: "operations" | "actions" | "requests"): string[] {
     return readdirSync(path.join(this.root, kind))
       .filter((f) => f.endsWith(".json"))
       .sort()
@@ -697,6 +705,39 @@ export class StateStore {
   }
   hasTask(id: string): boolean {
     return existsSync(taskPath(id, this.root));
+  }
+  /**
+   * The operation log is the single atomic home of the request association:
+   * a consumer that crashed before updating its request record is still
+   * discoverable here, and a second consume adopts the same operation instead
+   * of dispatching another one.
+   */
+  operationForRequest(requestId: string): Operation | undefined {
+    return this.operations()
+      .reverse()
+      .find((op) => op.request_id === requestId);
+  }
+  requestRecord(id: string): Data {
+    return readJson(
+      requestPath(id, this.root),
+      "REQUEST_UNKNOWN",
+      "unknown request_id",
+    );
+  }
+  hasRequest(id: string): boolean {
+    return existsSync(requestPath(id, this.root));
+  }
+  writeRequest(value: Data, exclusive = false): void {
+    writeJson(
+      requestPath(value.request_id as string, this.root),
+      value,
+      exclusive,
+    );
+  }
+  requestRecords(): Data[] {
+    return this.paths("requests").map((file) =>
+      readJson(file, "REQUEST_UNKNOWN", "request disappeared"),
+    );
   }
   event(
     taskId: string,

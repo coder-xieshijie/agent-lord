@@ -55,6 +55,11 @@
       "additionalProperties": false
     },
     "message_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "request_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$",
+      "description": "The inbox request consumed by this dispatch. Written in this record's own atomic creation, so the association survives a consumer crash and a second consume adopts this operation instead of creating another."
+    },
     "expected": {"type": "object"},
     "observed": {
       "type": "object",
