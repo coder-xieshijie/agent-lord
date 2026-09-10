@@ -1,99 +1,122 @@
 # Agent Lord
 
-Deterministic orchestration for durable Claude CLI, Codex CLI, MCode CLI, and Codex App endpoints. The runtime and the read-only Observer are TypeScript packages in one pnpm workspace.
+**English** | [简体中文](README.zh-CN.md)
 
-## Install and run
+Dispatch, follow, and continue coding agent tasks from one conversation.
 
-Requires Node.js **24+**, pnpm **9.12.0**, Git, and the selected provider CLI. Codex App uses its existing host-tool action/receipt protocol.
+Agent Lord lets your main Codex Desktop session delegate work to **Claude Code, Codex CLI, MCode CLI, or another Codex App task**. It saves each task's session, execution settings, and results so you can follow the work and continue the same task in a later turn.
+
+It combines an **Agent Skill** for the caller, a **CLI runtime** for task execution and supervision, and a **read-only Observer** for viewing progress.
+
+## See it in use
+
+Ask for two independent reviews:
+
+> Use Agent Lord to have Claude Code and Codex CLI independently review the current branch against main. Keep the source unchanged and summarize both reviews with file and line references.
+
+The main session dispatches the reviews into separate worktrees, follows both tasks, and collects their results. You can then ask it to continue one of the saved review sessions with a follow-up question.
+
+![Agent Lord Observer showing example review tasks and an execution timeline](assets/observer-example.jpg)
+
+_Observer with synthetic example data. The current interface uses Chinese labels._
+
+## What it handles
+
+- **Continue saved sessions.** Follow-up turns use the task's existing endpoint and saved execution contract.
+- **Supervise running work.** Checkpoints watch selected tasks for completion, actionable errors, and provider-specific recovery opportunities.
+- **Coordinate independent tasks.** The main session controls dependencies and dispatch order; concurrent CLI tasks use separate worktrees with workspace and branch leases.
+- **Keep pending instructions.** A passive request inbox records work that cannot run yet. The caller explicitly dispatches it when ready.
+- **Inspect execution evidence.** The Observer shows requests, tool activity, results, and available model evidence. Missing evidence stays unknown.
+- **Check declared deliverables.** Verify that requested files exist and are non-empty, or that a new commit exists with a clean worktree. Content correctness and test results still need actual acceptance.
+
+## Quick start
+
+### 1. Install and build
+
+Requires **Node.js 24+**, **pnpm 9.12.0**, **Git**, and an installed, authenticated CLI for each provider you want to use. Codex App tasks require the host tools available in Codex Desktop.
 
 ```sh
+git clone https://github.com/coder-xieshijie/agent-lord.git
+cd agent-lord
 pnpm install --frozen-lockfile
-pnpm --filter @agent-lord/core build
-node core/dist/cli.js --help
-node core/dist/cli.js start --task-id example --provider codex \
-  --target /absolute/workspace --message-file /absolute/prompt.txt
-node core/dist/cli.js turn --task-id example --message-file /absolute/next.txt
-node core/dist/cli.js checkpoint --task-id example --starting-task-id just-dispatched --seconds 120
-node core/dist/cli.js request-add --request-id followup-1 --intent turn \
-  --task-id example --message-file /absolute/followup.txt
-node core/dist/cli.js request-dispatch --request-id followup-1
+pnpm build
 ```
 
-`codex` and `mcode` remain aliases for `codex-cli` and `mcode-cli`. Defaults are Codex CLI `gpt-6-astra` / `xhigh`, Claude CLI `claude-fable-5` / `xhigh`, and MCode `custom_provider:mafia-claude/claude-fable-5#xhigh`. Explicit arguments override defaults; MCode accepts a qualified `--model provider/model[#variant]` and has no separate effort flag. `check` reads state; `checkpoint` also supervises orphaned CLI processes. `--task-id` still fails on an unknown id, while `--starting-task-id` tolerates a task that was just dispatched and reports what was observed for it. A quiet checkpoint prints one compact JSON envelope and exits **124**. Provider execution success and declared delivery evidence remain separate fields.
+This builds both the runtime and the Observer. When upgrading a Python installation, follow the [migration guide](references/python-to-typescript.md) before switching its live state directory.
 
-`request-add`, `request-get`, `request-list`, `request-cancel`, and `request-dispatch` are a passive inbox for an instruction that cannot be dispatched yet. Registering starts nothing and reaches no running CLI; only `request-dispatch` becomes a `start` or `turn`, and it returns `REQUEST_PENDING` while the target task is busy. The consumed `request_id` is written into the operation record itself, so repeating a dispatch adopts the existing operation instead of creating a second one.
+### 2. Add the Skill to Codex
 
-The default state directory is `~/.codex/state/agent-lord`; set `AGENT_LORD_STATE_DIR` to use another directory. Provider profiles remain in `config/providers.json`, overridable with `AGENT_LORD_PROVIDER_CONFIG`. The compiled runtime resolves its default profile relative to the package, independently of the caller's working directory.
+For a new installation, run this from the cloned repository root:
 
-The task-record compatibility CLI is `node core/dist/task-store.js` with `put`, `get`, `upgrade`, and `remove`. Version 1 handles remain readable. Continuing one requires an explicit `upgrade` with model and effort; version 2 execution contracts stay frozen across later turns.
+```sh
+mkdir -p "$HOME/.agents/skills"
+ln -s "$PWD" "$HOME/.agents/skills/agent-lord"
+```
 
-See [SKILL.md](SKILL.md) for orchestration policy, [the protocol](references/protocol.md) for envelopes and recovery, and [Observer](observer/README.md) for the read-only UI.
+If that skill path already exists, use and rebuild its checkout instead of running the linking command again. Codex supports symlinked skill folders and detects changes automatically; restart it if the skill does not appear. See [Codex skill discovery](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills).
 
-The Skill uses `dangerously_bypass` for every new CLI dispatch, including reviews and handoffs, without `--read-only`. Task prompts retain review, code-change, and external-write boundaries. Task-required worktrees and isolated local branches need no additional confirmation; concurrent CLI tasks, including reviews, still use separate worktrees under exclusive workspace/branch leases. Runtime read-only compatibility remains available as documented in the protocol. Isolation grants no additional workflow nodes, endpoint replacements, external writes, or exceptions to source verification.
+**Execution permissions:** the Skill starts new CLI tasks with permission bypass enabled. Review-only and external-write limits remain task instructions; they do not make the provider process read-only. Read the [execution contract](references/protocol.md#execution-contract) before your first dispatch.
 
-## Runtime structure
+### 3. Run a task
 
-CLI 负责派发、监督和结果核验；观察器只读取执行记录并展示；宿主接口只负责打开链接。
-Agent Lord 不使用或依赖 Computer Use / CUA，也不以浏览器自动化作为核验兜底。
+Open the repository you want to work on in Codex Desktop and ask:
+
+> Use Agent Lord to ask Codex CLI to explain how this repository is organized. Keep the repository unchanged and return a short summary.
+
+The main session uses [SKILL.md](SKILL.md) to dispatch and supervise the task. Expect a task ID, an Observer link, and a final response with execution evidence. If the host cannot open the page, you can use the local link while supervision continues.
+
+For a follow-up, ask the main session to continue that same task. It reuses the saved endpoint after the previous operation finishes.
+
+Prefer shell commands? The [CLI walkthrough](references/cli-quickstart.md) takes you through creating a file, checking delivery, continuing the task, and opening the Observer.
+
+## Supported execution endpoints
+
+| Endpoint    | Provider ID  | Continuation      | Observer                       |
+| ----------- | ------------ | ----------------- | ------------------------------ |
+| Claude Code | `claude-cli` | Saved CLI session | Conversation and tool activity |
+| Codex CLI   | `codex-cli`  | Saved CLI thread  | Conversation and tool activity |
+| MCode CLI   | `mcode-cli`  | Saved CLI session | Conversation and tool activity |
+| Codex App   | `codex-app`  | Saved host task   | Task state only                |
+
+`codex` and `mcode` are aliases for `codex-cli` and `mcode-cli`. Defaults live in [config/providers.json](config/providers.json); explicit arguments override them when a task starts. Later turns keep the saved contract.
+
+MCode uses `--model provider/model[#variant]` and has no separate effort flag. Model evidence also differs by provider: for example, Codex CLI can enforce a requested model through arguments without reporting an actual model. See the [protocol](references/protocol.md#execution-contract) for verification and recovery rules.
+
+## How it works
 
 ```mermaid
 flowchart LR
-    A[主 Codex 会话] -->|派发、续聊、监督| B[Agent Lord CLI]
-    B --> C[MCode / Claude / Codex 执行端]
-    C -->|结果与执行元信息| B
-    B --> D[task / operation / artifact]
-    D -->|只读| E[Observer HTTP / SSE]
-    E --> F[观察页]
-    A -->|宿主打开链接接口| F
+    A["Main session + Skill"] -->|Dispatch, continue, supervise| B["Agent Lord CLI"]
+    B --> C["Claude / Codex / MCode"]
+    C -->|Results and execution evidence| B
+    B --> D["Saved task records and artifacts"]
+    D -->|Read-only HTTP| E["Observer"]
+    A -->|Open focused link| E
 ```
 
-`preview:attach` 经 HTTP 核验任务绑定，返回带 `task` 参数的页面链接；续聊沿用已有页面。
-每轮请求保存独立的调用来源，详情展示请求模型、实际模型及核验来源；MCode 推理档位以 variant 显示。
-时间线区分用户原话、实际派发请求与调度方补充请求。主调度状态只来自匹配 Session/Turn 的宿主事件，
-缺失时显示未知。`checkpoint --include-response` 可将完整最终正文与执行证据一次返回，减少收尾往返。
+The main session owns task decomposition, provider selection, and workflow progression. Each execution endpoint receives a concrete assignment. The runtime owns persistent records, contract validation, provider calls, and recovery; the Observer only reads and displays that state.
 
-| Component | Responsibility |
-| --- | --- |
-| `core/src/cli.ts`, `task-store.ts` | Public commands and compatibility interface |
-| `core/src/engine.ts` | Durable dispatch, action receipts, finalization, checkpoint, and recovery |
-| `core/src/state.ts`, `json.ts` | Atomic records, kernel-held leases, private permissions, lossless integer JSON |
-| `core/src/requests.ts` | Passive request inbox: registration, discovery, cancellation, and single-operation consumption |
-| `core/src/workspace.ts` | Fixed source checks, worktree preparation, workspace/branch ownership, declared integration order |
-| `core/src/providers/` | Provider-specific command construction and authoritative result validation |
-| `core/src/process.ts`, `recovery-worker.ts` | Direct-file child I/O, process fencing, detached recovery controllers |
-| `core/src/handoff.ts`, `artifacts.ts`, `delivery.ts` | Canonical handoff packets, sanitized final output, declared file/commit evidence |
-| `core/src/contracts.ts` | Shared protocol types and identifier rules; safe for read-only consumers |
-| `observer/` | Read-only state reader, provider stream projections, loopback HTTP/SSE, React UI |
+Task state lives in `~/.codex/state/agent-lord`. Set `AGENT_LORD_STATE_DIR` to use another location, or `AGENT_LORD_PROVIDER_CONFIG` to select another provider configuration.
 
-Children write stdout/stderr directly to durable files. A controller's death does not close a pipe the provider depends on. Claude recovery uses a separate Node process and a controller lease; MCode requires a verified operation-bound stream, a durable exit receipt, and a fresh final file before success. Only verified transient MCode failures with stopped process groups can expose a bounded same-session continuation.
+## Workflows and boundaries
 
-Kernel leases use the maintained native package [`fs-native-extensions`](https://github.com/holepunchto/fs-native-extensions), pinned in the lockfile. There is no timer-based stale-lock eviction, Python subprocess, or lock-file-existence fallback. Failure to load native locking prevents the controller from starting. Production launches use compiled JavaScript; `tsx` is only for development and tests.
+The Skill includes a [cross-review workflow](references/pipelines/cross-review.md) and a [handoff workflow](references/pipelines/handoff.md). A handoff transfers a sanitized context packet into a new CLI session and records its lineage; it does not migrate a native session.
 
-## Python to TypeScript cutover
+A task has one saved endpoint and at most one in-flight operation. Pending requests do not steer a running CLI, and registering a request does not start it. Recovery follows the provider's documented rules and bounded budgets.
 
-The migration preserves task-v2, operation-v1, action/event/artifact paths, provider identifiers, CLI flags, and handoff-v1 bytes/digests. Old JSON integer tokens such as `result_reset_at_ns` remain numeric on disk and are read/written losslessly with `bigint`. No state rewrite or new endpoint is required for compatible records.
+The Observer is read-only. An execution marked `SUCCEEDED` and verified file or commit delivery are separate results. Neither establishes that the code works or that a review is complete.
 
-1. Build the TypeScript checkout and validate it against an isolated `AGENT_LORD_STATE_DIR` using the fixtures. Keep the existing Python checkout available for rollback.
-2. Stop new dispatches from the Python installation. Let its active operations finish, or use its existing recovery/decision flow to resolve them. Confirm both controllers and their provider process groups have exited; a terminal JSON status alone does not prove a process has stopped.
-3. Back up the drained state directory. Switch callers/Skill links to this checkout and replace `python3 scripts/agent_lord.py` with `node /absolute/agent-lord/core/dist/cli.js` (and `scripts/task_store.py` with `node /absolute/agent-lord/core/dist/task-store.js`). Inspect existing tasks with `check`/`get`, then continue their saved endpoints with `turn`.
-4. For rollback, stop new TypeScript dispatches and drain its controllers/providers first, then switch callers back to the saved Python checkout. Compatible current records can be inspected there; restoring a snapshot is appropriate only when it does not discard provider work performed since the snapshot.
+macOS is the local validation platform. The CI configuration covers macOS and Linux with Node 24; Windows is not claimed as end-to-end validated.
 
-Do **not** run Python and TypeScript writers against the same live state directory. On Linux the native library may use a different kernel lock namespace from Python's `flock`; same filenames do not provide cross-runtime exclusion. Tests exercise each runtime against isolated fixtures. After any ambiguous launch, resolve the existing operation; changing runtime is not authority to replay its prompt.
+## Documentation
 
-macOS is the local validation platform. CI runs the build and test suite on macOS and Linux with Node 24. Windows retains the existing conservative shared-lock behavior and process-tree code paths, but is not claimed as end-to-end validated by this migration.
+| Guide                                                               | Contents                                                           |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| [Agent Skill](SKILL.md)                                             | Caller responsibilities, dispatch, supervision, and continuation   |
+| [CLI walkthrough](references/cli-quickstart.md)                     | A complete task lifecycle from the terminal                        |
+| [Runtime protocol](references/protocol.md)                          | Commands, state, execution contracts, request inbox, and recovery  |
+| [Observer guide](observer/README.md)                                | Setup, task binding, UI behavior, and privacy boundaries (Chinese) |
+| [Development guide](references/development.md)                      | Runtime structure, build, tests, and compatibility                 |
+| [Python → TypeScript migration](references/python-to-typescript.md) | Cutover, rollback, and shared-state precautions                    |
 
-## Development and validation
-
-```sh
-# Focused iteration:
-pnpm --filter @agent-lord/core exec vitest run tests/engine.test.ts
-
-# Final validation from the repository root:
-pnpm build
-pnpm typecheck
-pnpm test
-```
-
-The suite uses standalone TypeScript fake providers, isolated state directories, real child processes, kernel locks, and temporary Git repositories. Reference fixtures in `core/tests/fixtures/*-reference.json` freeze 48 result-validation cases from Python main commit `1e71141af8c836c5f9594536bf63cd6502d819bf`, including exact structured errors and nanosecond comparisons. They run without Python. Integration cases cover frozen settings, retries, process death, duplicate recovery, workspace ownership, handoff replay, artifact binding, CLI envelopes, and legacy handle upgrades. They do not invoke paid providers or assert semantic completion from fake output.
-
-Run `pnpm exec prettier --write 'core/**/*.ts'` to format core changes. Keep provider transcript parsing separate from the Observer's permissive display projections: visible output alone is not authoritative delivery evidence.
+When changing either README, update the other language in the same change.
