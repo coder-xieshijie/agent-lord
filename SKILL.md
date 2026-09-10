@@ -43,7 +43,7 @@ node core/dist/cli.js request-dispatch --request-id followup-1 --include-respons
 
 Use Node.js 24 or newer. From this Skill's repository root, run `pnpm install --frozen-lockfile` and `pnpm --filter @agent-lord/core build` after installation or source updates. Invoke the compiled CLI from this root; when calling it elsewhere, use its absolute path. Provider binaries still come from the terminal environment or the configured `AGENT_LORD_*_BIN` variables.
 
-For an existing Python installation, drain its running controllers and provider processes before switching the shared state directory to TypeScript. The JSON formats and endpoint identities stay compatible; process-lock implementations must not be mixed. See [README.md](README.md) for cutover and rollback steps.
+For an existing Python installation, drain its running controllers and provider processes before switching the shared state directory to TypeScript. The JSON formats and endpoint identities stay compatible; process-lock implementations must not be mixed. See the [migration guide](references/python-to-typescript.md) for cutover and rollback steps.
 
 ## Invariants
 
