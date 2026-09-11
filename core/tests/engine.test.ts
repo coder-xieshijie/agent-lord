@@ -115,7 +115,7 @@ describe("local CLI lifecycle", () => {
     const result = await h.lord.start("task", "mcode", h.target, "work");
     expect(result.status).toBe("SUCCEEDED");
     expect(object(result.observed)).toMatchObject({
-      model: "custom_provider:mafia-claude/claude-fable-5",
+      model: "custom_provider:mafia-claude/claude-opus-5",
       variant: "xhigh",
       variant_verification: "provider-metadata",
     });
@@ -125,7 +125,7 @@ describe("local CLI lifecycle", () => {
     writeFileSync(file, JSON.stringify(config));
     await h.lord.turn("task", "next");
     expect(h.calls()[1].args).toContain(
-      "custom_provider:mafia-claude/claude-fable-5#xhigh",
+      "custom_provider:mafia-claude/claude-opus-5#xhigh",
     );
   });
   it("Claude retry uses a continuation query after ambiguous delivery", async () => {

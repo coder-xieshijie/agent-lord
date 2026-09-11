@@ -97,7 +97,7 @@ describe("frozen configuration", () => {
   });
   it("resolves a qualified MCode default and preserves explicit models and variants", () => {
     expect(resolveExecutionDefaults("mcode-cli")).toEqual([
-      "custom_provider:mafia-claude/claude-fable-5#xhigh",
+      "custom_provider:mafia-claude/claude-opus-5#xhigh",
       null,
     ]);
     expect(resolveExecutionDefaults("mcode-cli", "test/model#deep")).toEqual([
