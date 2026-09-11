@@ -7,6 +7,8 @@ description: Dispatch and supervise durable Codex CLI, Codex App, Claude Code, o
 
 Manage multiple related or independent tasks from one scheduling session, with one logical task per durable endpoint. Treat `node core/dist/cli.js` as the control plane: the model supplies intent and performs Codex App host-tool actions when requested, while the script owns provider defaults, validation, retries, state, recovery, and artifact extraction.
 
+For explanations and reports addressed to the user, read and apply the shared [explain-as-fool rules](references/explain-as-fool.md). Include the rules or an accessible reference in the prompt of any endpoint writing that material, including later turns and handoffs. All pipelines reuse this bundled reference.
+
 ## Scheduling ownership
 
 The originating user-facing session is the sole Agent Lord scheduling caller. It directly dispatches every Agent Lord execution endpoint and owns their task decomposition, provider/model selection, continuation, recovery, supervision, artifact exchange, and pipeline progression. Do not delegate those Agent Lord responsibilities to a coordinator CLI.
@@ -71,7 +73,7 @@ For an existing Python installation, drain its running controllers and provider 
 
 - For every multi-endpoint or named pipeline, read [references/pipelines/common.md](references/pipelines/common.md) and freeze its run manifest, barriers, role checks, convergence bound, and final deliverable before dispatch.
 - When the request says “交叉 Review”, “交叉审查”, or `cross-review`, also read [references/pipelines/cross-review.md](references/pipelines/cross-review.md) and execute its MCode Opus 5 `xhigh` + Codex `gpt-6-astra` / `max` mutual-review → independent new-session MCode Opus 5 `xhigh` check policy. The phrase authorizes only the nodes documented there; explicit user overrides still win.
-- For an explicit `clarification` / “澄清 pipeline” request, or external-agent questioning and answering followed by document production, read [references/pipelines/clarification.md](references/pipelines/clarification.md). The caller schedules A (Codex questioner), B (MCode respondent), then distinct C (MCode author); plan at most seven primary questions by default and continue until all required in-scope questions are clarified. An ordinary “grill me” request does not select this graph.
+- For an explicit `clarification` / “澄清 pipeline” request, or external-agent questioning and answering followed by document production, read [references/pipelines/clarification.md](references/pipelines/clarification.md). The caller schedules A (Codex questioner), B (MCode respondent), then distinct C (MCode author). A first derives core questions from the supplied context, using seven as a soft limit, then adds questions as gaps emerge. Deliver the target artifact and a user report led by questions, answers and decisions. An ordinary “grill me” request does not select this graph.
 - When the request says “handoff” or “交接”, or asks to hand the current session's work to a new local CLI that continues a user-named task, read [references/pipelines/handoff.md](references/pipelines/handoff.md) as the complete handoff authoring and execution contract, then use the `handoff` command with a sanitized `handoff-v1` packet. The phrase authorizes exactly one new local CLI continuation endpoint — a sanitized context transfer with new-endpoint lineage, never a session migration; explicit user overrides still win.
 
 ## Deterministic loop

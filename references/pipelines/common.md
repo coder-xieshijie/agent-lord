@@ -4,6 +4,8 @@ Load this reference when one request selects multiple Agent Lord endpoints or na
 
 Every step below belongs to the originating [scheduling caller](../../SKILL.md#scheduling-ownership). Assign concrete execution roles to CLI endpoints, and include the executor constraint in each assignment. Keep the manifest, dispatch, barriers, artifact exchange, supervision, recovery, and convergence in this caller; a pipeline is not a task to hand to another coordinator CLI.
 
+User-facing explanations and reports follow the shared [explain-as-fool rules](../explain-as-fool.md). Pass this bundled reference or its wording to the authoring endpoint; each named pipeline defines its report content and delivery requirements.
+
 ## Resolve the contract before dispatch
 
 Write one compact run manifest per user-defined workflow outside the target repository. One scheduling session can manage multiple independent runs; apply [tasks added during execution](../../SKILL.md#tasks-added-during-execution) when the user adds work later, and register an addition you cannot dispatch yet in the [request inbox](../../SKILL.md#deferred-instruction-inbox) so it is not lost with the conversation context.
