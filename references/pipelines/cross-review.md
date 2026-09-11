@@ -10,9 +10,9 @@ Unless the user overrides them, freeze these three roles at one repository and f
 
 | Role | Provider | Model | Effort | Workspace |
 | --- | --- | --- | --- | --- |
-| MCode reviewer | `mcode-cli` | `custom_provider:mafia-claude/claude-fable-5#xhigh` | Omit `--effort` | `isolated` |
+| MCode reviewer | `mcode-cli` | `custom_provider:mafia-claude/claude-opus-5#xhigh` | Omit `--effort` | `isolated` |
 | Codex reviewer | `codex-cli` | `gpt-6-astra` | `max` | `isolated` |
-| Independent MCode checker | `mcode-cli` | `custom_provider:mafia-claude/claude-fable-5#xhigh` | Omit `--effort` | `isolated` |
+| Independent MCode checker | `mcode-cli` | `custom_provider:mafia-claude/claude-opus-5#xhigh` | Omit `--effort` | `isolated` |
 
 Pass these pipeline-specific model choices explicitly, including `--effort max` for Codex. MCode's `xhigh` is the variant in its full model literal, not an independent effort argument. These choices do not change ordinary provider defaults.
 
@@ -64,7 +64,7 @@ The optional convergence turn receives only the unresolved ledger rows and the m
 
 ## Independent MCode check
 
-Start the MCode checker only after the ledger contains no unresolved rows. Use a new `task_id` and provider Session that participated in neither initial review nor mutual cross-exam/convergence; never continue a reviewer session as the checker. Independence comes from that fresh session and the de-anchored input below, not from a different model family. The checker deliberately uses the same Fable model/variant as the MCode reviewer.
+Start the MCode checker only after the ledger contains no unresolved rows. Use a new `task_id` and provider Session that participated in neither initial review nor mutual cross-exam/convergence; never continue a reviewer session as the checker. Independence comes from that fresh session and the de-anchored input below, not from a different model family. The checker deliberately uses the same Opus model/variant as the MCode reviewer.
 
 Build a de-anchored checker packet containing:
 
@@ -79,7 +79,7 @@ Complete this step only with a verified successful MCode result: the observed mo
 
 For either MCode role, consume an applicable `safe_recovery=CONTINUE_SAME_SESSION` with `recover` under the frozen [MCode recovery contract](../protocol.md#safe-recovery-line). When continuation is impractical, the caller may replace that role under [endpoint replacement](../../SKILL.md#endpoint-replacement), within the run's recovery bound and without additional user confirmation. Transfer the role's current assignment, evidence, progress, and failures; a replacement checker receives only checker-permitted, de-anchored inputs and must remain distinct from every reviewer session, including replaced reviewers. Replacement does not extend the convergence bound or satisfy the failed barrier by itself. When the recovery bound is exhausted, report the structured error. A checker without a verified successful result stays `UNVERIFIED`.
 
-This pipeline has no provider fallback. MCode failures do not qualify for Claude `retry-invalid` or an Opus fallback; necessary session replacements preserve the role's frozen provider/model/variant. The general Claude retry/fallback protocol remains unchanged for Claude tasks outside this default graph.
+This pipeline has no provider fallback. MCode failures do not qualify for Claude `retry-invalid` or a different-model fallback; necessary session replacements preserve the role's frozen provider/model/variant. The general Claude retry/fallback protocol remains unchanged for Claude tasks outside this default graph.
 
 ## Final deliverable
 
@@ -88,4 +88,4 @@ Report two independent statuses:
 - `Pipeline Check`: `PASS` only when the role/source/barrier contract held and a verified independent MCode checker accepted the audit. Report the actual model/variant, Codex effort, and the distinct reviewer/checker task/session identities. Otherwise report `FAIL`, `PARTIAL`, or `UNVERIFIED` with the exact reason; a failed or unverified checker never satisfies the final barrier.
 - `Review Result`: `FAIL` when at least one confirmed issue remains, otherwise `PASS` after completed verification. If verification could not finish, report `UNVERIFIED` with the blockers. A successful pipeline can therefore produce `Pipeline Check: PASS` and `Review Result: FAIL`.
 
-Show confirmed issues in one table with columns: ID, severity, location, issue and failure scenario, evidence, minimal fix and dependencies, MCode reviewer verdict, Codex verdict, and independent MCode checker verdict. Label the MCode columns `Fable 5 xhigh` and the Codex column `GPT-6 max`, using the verified execution details above to distinguish the same-model MCode roles. Follow it with compact `DROPPED`, `UNRESOLVED`, and `OUT_OF_SCOPE` appendices when non-empty. Never merge an unresolved or checker-only candidate into the confirmed table.
+Show confirmed issues in one table with columns: ID, severity, location, issue and failure scenario, evidence, minimal fix and dependencies, MCode reviewer verdict, Codex verdict, and independent MCode checker verdict. Label the MCode columns `Opus 5 xhigh` and the Codex column `GPT-6 max`, using the verified execution details above to distinguish the same-model MCode roles. Follow it with compact `DROPPED`, `UNRESOLVED`, and `OUT_OF_SCOPE` appendices when non-empty. Never merge an unresolved or checker-only candidate into the confirmed table.
