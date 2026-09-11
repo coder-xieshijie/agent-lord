@@ -4,7 +4,7 @@ Load this reference when the user asks to hand the current session's work off to
 
 ## Selection and authorization
 
-The handoff shorthand authorizes exactly one node: one new local CLI continuation endpoint (`claude-cli`, `codex-cli`, or `mcode-cli`) that continues the user-specified task. It never authorizes a planner, reviewer, tester, integrator, replacement endpoint, or any other user-visible node, and never selects `codex-app`. The user decides the provider, model, applicable effort, and task-level write boundaries; the packet's `contract_request` carries provider/model/effort choices when the command line omits them, and an explicit argument that contradicts the packet fails closed. Every new handoff uses `dangerously_bypass` without `--read-only` under [the Skill invariants](../../SKILL.md#invariants). MCode handoffs resolve the qualified model from explicit input or provider defaults and omit effort.
+The handoff shorthand authorizes exactly one node: one new local CLI continuation endpoint (`claude-cli`, `codex-cli`, or `mcode-cli`) that continues the user-specified task. It never authorizes a planner, reviewer, tester, integrator, or any other additional user-visible node, and never selects `codex-app`. A necessary replacement of this continuation role follows [endpoint replacement](../../SKILL.md#endpoint-replacement) without additional user confirmation. The user decides the provider, model, applicable effort, and task-level write boundaries; the packet's `contract_request` carries provider/model/effort choices when the command line omits them, and an explicit argument that contradicts the packet fails closed. Every new handoff uses `dangerously_bypass` without `--read-only` under [the Skill invariants](../../SKILL.md#invariants). MCode handoffs resolve the qualified model from explicit input or provider defaults and omit effort.
 
 The originating [scheduling caller](../../SKILL.md#scheduling-ownership) retains orchestration and performs the deterministic loop below. The continuation CLI executes the named task and returns its result; handoff does not transfer scheduling authority.
 
@@ -51,7 +51,7 @@ Everything below must pass before an endpoint may launch; any failure leaves no 
 
 - Replaying the identical handoff (same packet digest, task, target, and frozen contract) returns the existing operation's envelope — in flight or succeeded — and never starts a second endpoint or process.
 - The same `task_id` with a different packet or contract fails closed with `HANDOFF_CONFLICT`; nothing is overwritten.
-- A handoff that failed before its provider launched may be retried with the same command; the retry is a new initial operation for the same continuation task, and no endpoint existed to duplicate. Once an endpoint exists, only that endpoint is continued or recovered.
+- A handoff that failed before its provider launched may be retried with the same command; the retry is a new initial operation for the same continuation task, and no endpoint existed to duplicate. Once an endpoint exists, the same task continues or recovers that endpoint; a necessary replacement uses a fresh task and context packet under the replacement policy.
 
 ## Completion
 

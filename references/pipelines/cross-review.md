@@ -77,9 +77,9 @@ Ask the MCode checker to independently reclassify every candidate, verify source
 
 Complete this step only with a verified successful MCode result: the observed model and `xhigh` variant match the frozen contract, Session/Turn/Run and artifact identity verify, and the checker session is distinct from the reviewers. All source and barrier checks still apply.
 
-For either MCode role, follow only the frozen [MCode recovery contract](../protocol.md#safe-recovery-line): consume `safe_recovery=CONTINUE_SAME_SESSION` with `recover` on the saved task/session when offered, within its frozen continuation budget. It does not extend the convergence bound. If no safe recovery is available or the budget is exhausted, stop at the failed barrier and report the structured error. A checker that cannot produce a verified successful result stays `UNVERIFIED`; do not present checker-confirmed findings.
+For either MCode role, consume an applicable `safe_recovery=CONTINUE_SAME_SESSION` with `recover` under the frozen [MCode recovery contract](../protocol.md#safe-recovery-line). When continuation is impractical, the caller may replace that role under [endpoint replacement](../../SKILL.md#endpoint-replacement), within the run's recovery bound and without additional user confirmation. Transfer the role's current assignment, evidence, progress, and failures; a replacement checker receives only checker-permitted, de-anchored inputs and must remain distinct from every reviewer session, including replaced reviewers. Replacement does not extend the convergence bound or satisfy the failed barrier by itself. When the recovery bound is exhausted, report the structured error. A checker without a verified successful result stays `UNVERIFIED`.
 
-This pipeline has no provider fallback. MCode failures do not qualify for Claude `retry-invalid` or an Opus fallback, and authorize no replacement reviewer or checker. The general Claude retry/fallback protocol remains unchanged for Claude tasks outside this default graph.
+This pipeline has no provider fallback. MCode failures do not qualify for Claude `retry-invalid` or an Opus fallback; necessary session replacements preserve the role's frozen provider/model/variant. The general Claude retry/fallback protocol remains unchanged for Claude tasks outside this default graph.
 
 ## Final deliverable
 
