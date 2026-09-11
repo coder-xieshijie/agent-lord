@@ -101,7 +101,7 @@
       "same_session_continuations": 2,
       "binary_env": "AGENT_LORD_MCODE_BIN",
       "default_binary": "mcode",
-      "default_model": "custom_provider:mafia-claude/claude-fable-5#xhigh",
+      "default_model": "custom_provider:mafia-claude/claude-opus-5#xhigh",
       "default_effort": null,
       "default_retry_attempts": 1,
       "efforts": [],
