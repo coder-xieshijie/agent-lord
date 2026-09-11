@@ -102,7 +102,9 @@ flowchart LR
 
 ## 工作流与能力边界
 
-Skill 内置[交叉审查流程](references/pipelines/cross-review.md)和[交接流程](references/pipelines/handoff.md)。交接会把经过脱敏的上下文包传给一个新的 CLI 会话，并记录来源关系，不会迁移原生会话。
+Skill 内置[交叉审查流程](references/pipelines/cross-review.md)、[交接流程](references/pipelines/handoff.md)和[澄清流程](references/pipelines/clarification.md)。交接会把经过脱敏的上下文包传给一个新的 CLI 会话，并记录来源关系，不会迁移原生会话。
+
+澄清流程由主会话调度：A 默认 Codex，先根据资料列出核心问题，再逐题提问；B 默认 MCode 回答；C 使用独立的 MCode 会话完成目标产物，并整理面向用户报告中的问题、答案与决策。主会话在执行结束后补齐报告的实际流程和异常情况。7 个主要问题是软限制，初始材料需要更多问题时可以直接列出，澄清中新发现的问题也会继续补充。`clarification-record` 和 `clarification-render` 从成功操作的原始结果汇编问答，作为报告的依据，不需要额外调用模型。所有 pipeline 共用内置的 [explain-as-fool 规则](references/explain-as-fool.md)撰写面向用户的解释和报告。
 
 每个任务绑定一个保存的执行端，同一时间最多运行一个操作。待处理请求不会向运行中的 CLI 插入指令，登记请求也不会自动启动它。恢复遵循各执行端的明确规则和次数上限。
 

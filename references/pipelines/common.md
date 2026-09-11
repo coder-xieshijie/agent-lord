@@ -4,6 +4,8 @@ Load this reference when one request selects multiple Agent Lord endpoints or na
 
 Every step below belongs to the originating [scheduling caller](../../SKILL.md#scheduling-ownership). Assign concrete execution roles to CLI endpoints, and include the executor constraint in each assignment. Keep the manifest, dispatch, barriers, artifact exchange, supervision, recovery, and convergence in this caller; a pipeline is not a task to hand to another coordinator CLI.
 
+User-facing explanations and reports follow the shared [explain-as-fool rules](../explain-as-fool.md). Pass this bundled reference or its wording to the authoring endpoint; each named pipeline defines its report content and delivery requirements.
+
 ## Resolve the contract before dispatch
 
 Write one compact run manifest per user-defined workflow outside the target repository. One scheduling session can manage multiple independent runs; apply [tasks added during execution](../../SKILL.md#tasks-added-during-execution) when the user adds work later, and register an addition you cannot dispatch yet in the [request inbox](../../SKILL.md#deferred-instruction-inbox) so it is not lost with the conversation context.
@@ -49,4 +51,4 @@ Every replacement is a new `task_id` and endpoint under [the Skill replacement p
 
 ## Converge and stop
 
-Every iterative pipeline must define its convergence predicate, maximum rounds or operations, and unresolved output before it starts. Stop when the predicate is met, the bound is exhausted, or new authority is required. Do not keep polling terminal tasks, repeat unchanged full reviews, or invent a third-party tie-breaker. Preserve rejected and unresolved items with their evidence so the final result is auditable. The Claude `RESULT_INVALID` retry budget (`SKILL.md`) is separate and never counts against this bound.
+Every iterative pipeline must define its convergence predicate, finite stop bounds, and unresolved output before it starts. Use maximum rounds or operations unless the named policy explicitly uses a no-progress bound with bounded recovery, as in [clarification.md](clarification.md). Stop when the predicate is met, the applicable bound is exhausted, or new authority is required; a bound-exhausted run is incomplete, never converged. Do not keep polling terminal tasks, repeat unchanged full reviews, or invent a third-party tie-breaker. Preserve rejected and unresolved items with their evidence so the final result is auditable. The Claude `RESULT_INVALID` retry budget (`SKILL.md`) is separate and never counts against this bound.

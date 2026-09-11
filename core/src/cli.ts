@@ -2,6 +2,7 @@
 import { pathToFileURL } from "node:url";
 import { AgentLord } from "./engine.js";
 import { RequestInbox } from "./requests.js";
+import { ClarificationLedger } from "./clarification.js";
 import { retryResultInvalid } from "./invalid-retry.js";
 import { AgentLordError, usageError } from "./errors.js";
 import { controlConfig } from "./config.js";
@@ -16,6 +17,28 @@ import {
 } from "./arguments.js";
 const providers = [...PROVIDERS, "codex", "mcode"];
 export const COMMANDS: Record<string, CommandSpec> = {
+  "clarification-record": {
+    description:
+      "Record one canonical question, answer and assessment exchange (no provider calls)",
+    strings: [
+      "run-id",
+      "question-operation-id",
+      "answer-operation-id",
+      "assessment-operation-id",
+    ],
+    required: [
+      "run-id",
+      "question-operation-id",
+      "answer-operation-id",
+      "assessment-operation-id",
+    ],
+  },
+  "clarification-render": {
+    description:
+      "Compile recorded clarification exchanges into Markdown (no provider calls)",
+    strings: ["run-id"],
+    required: ["run-id"],
+  },
   start: {
     description: "Create one durable endpoint",
     strings: [
@@ -338,6 +361,14 @@ export async function main(
           ? { invocation: opts.invocation }
           : {}),
       });
+    else if (command === "clarification-record")
+      result = new ClarificationLedger(lord).record(get("run-id"), {
+        question_operation_id: get("question-operation-id"),
+        answer_operation_id: get("answer-operation-id"),
+        assessment_operation_id: get("assessment-operation-id"),
+      });
+    else if (command === "clarification-render")
+      result = new ClarificationLedger(lord).render(get("run-id"));
     else
       result = lord.exportArtifact(
         get("task-id"),
