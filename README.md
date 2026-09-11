@@ -102,7 +102,9 @@ Task state lives in `~/.codex/state/agent-lord`. Set `AGENT_LORD_STATE_DIR` to u
 
 ## Workflows and boundaries
 
-The Skill includes a [cross-review workflow](references/pipelines/cross-review.md) and a [handoff workflow](references/pipelines/handoff.md). A handoff transfers a sanitized context packet into a new CLI session and records its lineage; it does not migrate a native session.
+The Skill includes a [cross-review workflow](references/pipelines/cross-review.md), a [handoff workflow](references/pipelines/handoff.md), and a [clarification workflow](references/pipelines/clarification.md). A handoff transfers a sanitized context packet into a new CLI session and records its lineage; it does not migrate a native session.
+
+Clarification uses Codex to ask, MCode to answer, and a distinct MCode session to produce the requested document. The main session schedules each step. It plans at most seven primary questions by default, continuing when needed to clarify the full scope. `clarification-record` and `clarification-render` assemble successful operation artifacts into Q&A without model calls.
 
 A task has one saved endpoint and at most one in-flight operation. Pending requests do not steer a running CLI, and registering a request does not start it. Recovery follows the provider's documented rules and bounded budgets.
 
