@@ -224,9 +224,7 @@ export interface Envelope extends Data {
     | "CHECKPOINT_QUIET"
     | "REQUEST_RECORD"
     | "REQUEST_LIST"
-    | "REQUEST_PENDING"
-    | "CLARIFICATION_RECORDED"
-    | "CLARIFICATION_RENDERED";
+    | "REQUEST_PENDING";
   task_id?: string;
   operation_id?: string;
   error?: ErrorRecord;
