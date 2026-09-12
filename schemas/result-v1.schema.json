@@ -7,12 +7,8 @@
   "properties": {
     "version": {"const": 1},
     "status": {
-      "enum": ["RUNNING", "ACTION_REQUIRED", "SUCCEEDED", "ERROR", "NEEDS_DECISION", "CHECKPOINT_ACTIONABLE", "CHECKPOINT_QUIET", "IDLE", "REQUEST_RECORD", "REQUEST_LIST", "REQUEST_PENDING", "CLARIFICATION_RECORDED", "CLARIFICATION_RENDERED"]
+      "enum": ["RUNNING", "ACTION_REQUIRED", "SUCCEEDED", "ERROR", "NEEDS_DECISION", "CHECKPOINT_ACTIONABLE", "CHECKPOINT_QUIET", "IDLE", "REQUEST_RECORD", "REQUEST_LIST", "REQUEST_PENDING"]
     },
-    "run_id": {"type": "string"},
-    "rounds": {"type": "integer", "minimum": 1},
-    "duplicate": {"type": "boolean"},
-    "ledger": {"type": "string"},
     "task_id": {"type": "string"},
     "operation_id": {"type": "string"},
     "provider": {"type": "string"},
@@ -192,14 +188,6 @@
     "pending_reason": {"$ref": "#/properties/error"}
   },
   "allOf": [
-    {
-      "if": {"properties": {"status": {"const": "CLARIFICATION_RECORDED"}}},
-      "then": {"required": ["run_id", "rounds", "duplicate", "ledger"]}
-    },
-    {
-      "if": {"properties": {"status": {"const": "CLARIFICATION_RENDERED"}}},
-      "then": {"required": ["run_id", "rounds", "artifact"]}
-    },
     {
       "if": {"properties": {"status": {"const": "CHECKPOINT_ACTIONABLE"}}},
       "then": {"required": ["actionable", "active"]}

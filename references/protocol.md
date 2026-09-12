@@ -15,8 +15,6 @@ Every command prints one JSON object. `schemas/result-v1.schema.json` is the mai
 | `NEEDS_DECISION` | Recovery changes identity, authority, source, or delivery semantics | Resolve from existing authorization and Skill policy; ask only for missing authority |
 | `CHECKPOINT_ACTIONABLE` | One or more selected tasks have durable actionable state | Process every envelope in `actionable` |
 | `CHECKPOINT_QUIET` | No actionable state change occurred in the bounded interval | Exit `124`; resume the foreground checkpoint loop later |
-| `CLARIFICATION_RECORDED` | One canonical Q&A exchange recorded, or an identical triplet already present | Update caller coverage; this does not declare clarification complete |
-| `CLARIFICATION_RENDERED` | Recorded exchanges compiled to Markdown, with path/bytes/hash | Pass the Q&A to the author only after the caller validates coverage |
 | `REQUEST_RECORD` | One registered inbox request, after `request-add`, `request-get`, or `request-cancel` | Report it as pending, dispatched, or cancelled; registration alone dispatched nothing |
 | `REQUEST_LIST` | Compact discovery of registered requests with per-status counts | Read the full instruction of a specific one with `request-get` |
 | `REQUEST_PENDING` | A consumed request could not be dispatched because its target is busy | Keep it pending and retry after the current operation is terminal |
