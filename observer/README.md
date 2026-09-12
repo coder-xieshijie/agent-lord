@@ -1,10 +1,12 @@
-# Agent Lord 只读实时观察器（TypeScript）
+# Agent Lord 实时观察器（TypeScript）
 
-对 Agent Lord 原生 exec 任务的**只读**实时网页观察：loopback + 访问令牌 +
+对 Agent Lord 原生 exec 任务的实时网页观察：loopback + 访问令牌 +
 显式 task allowlist，snapshot + `generation:seq` cursor + 增量轮询（超窗/
 跨重启显式 reset），三个 CLI provider（mcode / codex / claude）的流投影与
 Codex App 的状态观察。前端为 React + vendored Vercel AI Elements 组件
-（来源与许可见 `src/web/components/PROVENANCE.md`）。
+（来源与许可见 `src/web/components/PROVENANCE.md`）。状态与日志读取保持只读；
+唯一的执行侧动作是用户显式点击后，通过受约束的控制面接口在 Orca 或 iTerm
+打开 allowlist 内任务保存的原生 CLI Session。
 
 ## 默认同步方式：增量轮询
 
@@ -47,8 +49,9 @@ pnpm preview:stop --port 8791
 # 开发：pnpm dev:server --tasks task-a,task-b + pnpm dev:web（vite 代理 /api）
 ```
 
-Observer 仅从 `@agent-lord/core/contracts` 共享 provider 类型和标识符规则。
-状态读取仍由自己的只读 reader 完成，不加载调度器或状态写入 API。
+Observer 从 `@agent-lord/core` 共享 provider 类型、标识符规则和受约束的
+`terminal-open` 控制面实现。状态读取仍由自己的只读 reader 完成；浏览器不能
+提交 shell 命令，只能为 allowlist 内任务选择 `orca` 或 `iterm`。
 
 `preview:start` 返回经过 HTTP 核验的 `running` JSON 和浏览器地址，可交给
 Codex 的 `open_in_codex` browser target，或在普通浏览器打开。同配置重复启动
@@ -90,7 +93,22 @@ Codex Desktop 的调用方按 [Skill 主流程](../SKILL.md#deterministic-loop) 
 每个 allowlist 任务独立显示执行状态、时间线与原生续聊命令；切换任务读取它
 自己的 snapshot 并增量轮询。MCode 的活动工具依据生命周期维护，完成的工具不再
 显示为等待中；失败时未完成的流明确标记缺少终态。恢复次数显示同会话续做的
-已用次数与上限，网页本身不发起恢复。
+已用次数与上限。详情中的“在 Orca/iTerm 中继续”通过 `POST
+/api/tasks/<task-id>/terminal-open?terminal=<orca|iterm>` 调用控制面启动器；执行中
+按钮显示为“查看”，但仍会打开同一个 Session。原执行进程继续运行，在新终端发送
+消息可能被 provider 的 busy guard 拒绝或排队。
+
+也可以直接使用控制面命令：
+
+```bash
+node core/dist/cli.js terminal-open --task-id <task-id> --terminal orca
+node core/dist/cli.js terminal-open --task-id <task-id> --terminal iterm
+```
+
+Orca 启动器使用准确的 worktree path；若 Orca 尚不认识该 worktree，会用任务契约
+中记录的 repository 注册一次并重试。iTerm 启动器仅支持 macOS，使用 iTerm 自带的
+`it2` CLI 创建独立窗口、定位其 Session，再发送续聊命令。路径与 Session ID 均做
+shell 转义。
 
 “本轮执行完成”、主调度状态与“声明的交付项已核验”分别展示。调度时可以传 `--require-file`
 和 `--require-commit`，核验范围仅为非空文件和新的干净提交；未声明、缺文件、
@@ -194,7 +212,9 @@ Windows 使用 PowerShell 的 InstalledFontCollection。固定命令异步执行
 
 ## 边界
 
-- 纯只读：不调用 start/turn/check/checkpoint，不回写任何 task/operation/事件。
+- 不调用 start/turn/check/checkpoint/recover，不发送 prompt。唯一例外是用户显式触发
+  `terminal-open`；它不接受浏览器提供的 shell 文本，并写入一条 `terminal-opened`
+  审计事件。
 - 只绑定 127.0.0.1；每个请求都要求 token；只暴露 allowlist 内的任务。
 - 不提供任意文件读取；stdout 路径必须位于 `<state>/logs/` 且属于对应操作。
 - reasoning/thinking 内容永不输出；未知事件只以聚合"已省略"标记出现。

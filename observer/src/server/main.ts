@@ -4,9 +4,9 @@
  *   node dist/server/main.js --tasks <id[,id…]> [--port 8791] [--token …]
  *     [--state-dir <root>] [--web-root <dir>]
  *
- * Read-only by design: the process never writes into the Agent Lord state
- * root except its own runtime metadata under `<root>/observer/` (an
- * out-of-repo namespace reserved for observer bookkeeping).
+ * State and log reads remain read-only. The only execution-side action is the
+ * authenticated, allow-listed terminal launcher, which records one audit
+ * event. Runtime metadata stays under `<root>/observer/`.
  */
 
 import { statSync } from "node:fs";

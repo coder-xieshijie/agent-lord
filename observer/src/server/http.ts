@@ -3,7 +3,8 @@
  * Security boundary:
  * - binds 127.0.0.1 only, requires a bearer/query token on every request;
  * - the task allowlist is fixed at startup — no other task is readable;
- * - no write endpoints exist at all (read-only observer);
+ * - one authenticated, allow-listed POST may invoke the constrained native
+ *   terminal launcher; it cannot accept a shell command from the browser;
  * - static files are served only from the built web root, resolved paths
  *   must stay inside it.
  */
@@ -15,6 +16,14 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { Hub, HubListener } from "./hub.js";
 import { IDENTIFIER_PATTERN } from "./scan.js";
 import { createFontCatalog } from "./fonts.js";
+import {
+  AgentLordError,
+  NATIVE_TERMINALS,
+  openTaskTerminal,
+  StateStore,
+  type NativeTerminal,
+  type TerminalOpenResult,
+} from "@agent-lord/core";
 
 const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -34,6 +43,7 @@ export interface ObserverServerOptions {
   webRoot: string | null;
   port: number;
   instanceId?: string;
+  launchTerminal?: (taskId: string, terminal: NativeTerminal) => TerminalOpenResult;
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -78,6 +88,8 @@ function tokenOk(req: IncomingMessage, url: URL, expected: string): boolean {
 
 export function createObserverServer(options: ObserverServerOptions): Server {
   const { hub, token, webRoot } = options;
+  const launchTerminal = options.launchTerminal ?? ((taskId: string, terminal: NativeTerminal) =>
+    openTaskTerminal(taskId, terminal, { store: new StateStore(hub.stateDir) }));
   const instanceId = options.instanceId ?? randomUUID();
   const fonts = createFontCatalog();
 
@@ -89,12 +101,47 @@ export function createObserverServer(options: ObserverServerOptions): Server {
       sendJson(res, 400, { error: "bad request" });
       return;
     }
-    if (req.method !== "GET" && req.method !== "HEAD") {
-      sendJson(res, 405, { error: "read-only observer：只支持 GET" });
+    const terminalMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)\/terminal-open$/);
+    const terminalPost = req.method === "POST" && terminalMatch !== null;
+    if (req.method !== "GET" && req.method !== "HEAD" && !terminalPost) {
+      sendJson(res, 405, { error: "observer 仅支持读取和受约束的终端打开操作" });
       return;
     }
     if (!tokenOk(req, url, token)) {
       sendJson(res, 401, { error: "missing or invalid token" });
+      return;
+    }
+
+    if (terminalMatch) {
+      let taskId: string;
+      try {
+        taskId = decodeURIComponent(terminalMatch[1]);
+      } catch {
+        sendJson(res, 400, { error: "bad task id" });
+        return;
+      }
+      if (req.method !== "POST") {
+        sendJson(res, 405, { error: "terminal-open requires POST" });
+        return;
+      }
+      if (!IDENTIFIER_PATTERN.test(taskId) || !hub.has(taskId)) {
+        sendJson(res, 404, { error: "task 不在 allowlist 中" });
+        return;
+      }
+      const terminal = url.searchParams.get("terminal");
+      if (!NATIVE_TERMINALS.includes(terminal as NativeTerminal)) {
+        sendJson(res, 400, { error: `terminal must be one of: ${NATIVE_TERMINALS.join(", ")}` });
+        return;
+      }
+      try {
+        sendJson(res, 200, launchTerminal(taskId, terminal as NativeTerminal));
+      } catch (error) {
+        if (error instanceof AgentLordError) {
+          sendJson(res, error.exit_code === 2 ? 400 : 409, { error: error.message, code: error.code });
+        } else {
+          sendJson(res, 500, { error: "无法打开终端" });
+        }
+      }
       return;
     }
 

@@ -41,6 +41,23 @@ describe("CLI protocol", () => {
     expect(values["integration-order"]).toBe(1);
     expect(values["codex-environment"]).toBeUndefined();
   });
+  it("parses the constrained native terminal launcher", () => {
+    expect(
+      argumentsFor(
+        ["terminal-open", "--task-id", "task", "--terminal", "orca"],
+        COMMANDS,
+      ),
+    ).toEqual({
+      command: "terminal-open",
+      values: { "task-id": "task", terminal: "orca" },
+    });
+    expect(() =>
+      argumentsFor(
+        ["terminal-open", "--task-id", "task", "--terminal", "unknown"],
+        COMMANDS,
+      ),
+    ).toThrowError(/terminal must be one of/u);
+  });
   it.each(
     [
       ["check"],

@@ -68,6 +68,8 @@ describe("Hub first-turn gap (no task record yet)", () => {
     expect(snapshot.task.provisional).toBe(true);
     expect(snapshot.task.provider).toBe("claude-cli");
     expect(snapshot.task.resume.sessionId).toBe("sess-first-turn");
+    expect(snapshot.task.resume.resumable).toBe(true);
+    expect(snapshot.task.resume.note).toContain("原执行会继续");
     const message = snapshot.items.find((item) => item.kind === "message");
     expect(message).toBeDefined();
     expect((message as { text: string }).text).toBe("首轮输出");

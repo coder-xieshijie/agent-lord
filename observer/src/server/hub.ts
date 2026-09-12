@@ -76,6 +76,7 @@ const JOURNAL_LABELS: Record<string, string> = {
   "operation-needs-decision": "操作待决策",
   "artifact-exported": "产物已导出",
   "checkpoint-recorded": "已记录 checkpoint",
+  "terminal-opened": "已在原生终端打开 Session",
 };
 
 interface JournalEvent {
