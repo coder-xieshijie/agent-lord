@@ -214,6 +214,16 @@ export function openTaskTerminal(
       terminal,
     );
     const sessionId = itermSessionId(listed, windowId);
+    // `it2 window new` creates the window without activating iTerm. Keep the
+    // new window selected inside iTerm, then activate the application so the
+    // profile is not rendered with iTerm's background-window dimming.
+    checkedRun(run, iterm, ["window", "focus", windowId], terminal);
+    checkedRun(
+      run,
+      "/usr/bin/open",
+      ["-b", "com.googlecode.iterm2"],
+      terminal,
+    );
     checkedRun(
       run,
       iterm,
