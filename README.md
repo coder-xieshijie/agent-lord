@@ -6,7 +6,7 @@ Dispatch, follow, and continue coding agent tasks from one conversation.
 
 Agent Lord lets your main Codex Desktop session delegate work to **Claude Code, Codex CLI, MCode CLI, or another Codex App task**. It saves each task's session, execution settings, and results so you can follow the work and continue the same task in a later turn.
 
-It combines an **Agent Skill** for the caller, a **CLI runtime** for task execution and supervision, and a **read-only Observer** for viewing progress.
+It combines an **Agent Skill** for the caller, a **CLI runtime** for task execution and supervision, and an **Observer** for viewing progress and explicitly opening a saved native CLI Session in Orca or iTerm.
 
 ## See it in use
 
@@ -90,11 +90,11 @@ flowchart LR
     B --> C["Claude / Codex / MCode"]
     C -->|Results and execution evidence| B
     B --> D["Saved task records and artifacts"]
-    D -->|Read-only HTTP| E["Observer"]
+    D -->|Read APIs + constrained terminal open| E["Observer"]
     A -->|Open focused link| E
 ```
 
-The main session owns task decomposition, provider selection, and workflow progression. Each execution endpoint receives a concrete assignment. The runtime owns persistent records, contract validation, provider calls, and recovery; the Observer only reads and displays that state.
+The main session owns task decomposition, provider selection, and workflow progression. Each execution endpoint receives a concrete assignment. The runtime owns persistent records, contract validation, provider calls, recovery, and the constrained native-terminal launcher. The Observer reads and displays task state; its only execution-side action is an explicit user request to open an allow-listed saved CLI Session in Orca or iTerm.
 
 Execution CLIs may use native tools and subagents such as `task` / `Task` / `Agent` within their assigned scope, but must not invoke Agent Lord themselves or through a subagent. See [scheduling ownership](SKILL.md#scheduling-ownership) for the executor constraint and supervision rule.
 
@@ -106,7 +106,7 @@ The Skill includes a [cross-review workflow](references/pipelines/cross-review.m
 
 A task has one saved endpoint and at most one in-flight operation. Pending requests do not steer a running CLI, and registering a request does not start it. Recovery follows the provider's documented rules and bounded budgets.
 
-The Observer is read-only. An execution marked `SUCCEEDED` and verified file or commit delivery are separate results. Neither establishes that the code works or that a review is complete.
+The Observer does not dispatch prompts, checks, checkpoints, or recovery. It can explicitly open an allow-listed saved CLI Session in Orca or iTerm, including while the current operation is running; the original process continues and the provider may reject or queue a new prompt as busy. An execution marked `SUCCEEDED` and verified file or commit delivery are separate results. Neither establishes that the code works or that a review is complete.
 
 macOS is the local validation platform. The CI configuration covers macOS and Linux with Node 24; Windows is not claimed as end-to-end validated.
 

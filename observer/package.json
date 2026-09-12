@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Read-only live observer for Agent Lord native exec tasks (loopback TS backend + AI Elements UI)",
+  "description": "Live observer and constrained native-terminal launcher for Agent Lord tasks",
   "license": "Apache-2.0",
   "scripts": {
     "dev:web": "vite",

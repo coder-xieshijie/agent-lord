@@ -6,7 +6,7 @@
 
 Agent Lord 让你的 Codex Desktop 主会话把工作交给 **Claude Code、Codex CLI、MCode CLI 或另一个 Codex App 任务**。它保存每个任务的会话、执行配置和结果，方便你查看进展，并在后续轮次继续同一个任务。
 
-它由三部分组成：指导主会话的 **Agent Skill**、负责执行与监督的 **CLI 运行时**，以及展示进展的**只读 Observer**。
+它由三部分组成：指导主会话的 **Agent Skill**、负责执行与监督的 **CLI 运行时**，以及展示进展并可显式在 Orca 或 iTerm 打开原生 CLI Session 的 **Observer**。
 
 ## 使用示例
 
@@ -90,11 +90,11 @@ flowchart LR
     B --> C["Claude / Codex / MCode"]
     C -->|结果与执行证据| B
     B --> D["持久化任务记录与产物"]
-    D -->|只读 HTTP| E["Observer"]
+    D -->|读取 API + 受约束终端打开| E["Observer"]
     A -->|打开任务链接| E
 ```
 
-主会话负责任务拆解、执行端选择和流程推进，每个执行端接收具体的工作。运行时负责持久化记录、契约校验、执行端调用和恢复；Observer 只读取并展示这些状态。
+主会话负责任务拆解、执行端选择和流程推进，每个执行端接收具体的工作。运行时负责持久化记录、契约校验、执行端调用、恢复和受约束的原生终端启动；Observer 读取并展示任务状态，唯一的执行侧动作是由用户显式要求在 Orca 或 iTerm 打开 allowlist 内任务保存的 CLI Session。
 
 执行 CLI 可以在已分配的任务范围内使用原生工具及子 agent（如 `task` / `Task` / `Agent`），但不得直接或通过子 agent 调用 Agent Lord。执行端约束与监督规则见 [Scheduling ownership](SKILL.md#scheduling-ownership)。
 
@@ -106,7 +106,7 @@ Skill 内置[交叉审查流程](references/pipelines/cross-review.md)和[交接
 
 每个任务绑定一个保存的执行端，同一时间最多运行一个操作。待处理请求不会向运行中的 CLI 插入指令，登记请求也不会自动启动它。恢复遵循各执行端的明确规则和次数上限。
 
-Observer 是只读的。执行状态 `SUCCEEDED` 与文件或提交的交付核验分别记录；两者都不能证明代码已经正确运行或审查已经充分完成。
+Observer 不会派发 prompt，也不调用 check、checkpoint 或恢复。它可以显式在 Orca 或 iTerm 打开 allowlist 内任务保存的 CLI Session，包括任务仍在执行时；原进程会继续运行，执行端可能把新消息判为 busy、拒绝或排队。执行状态 `SUCCEEDED` 与文件或提交的交付核验分别记录；两者都不能证明代码已经正确运行或审查已经充分完成。
 
 本地验证平台为 macOS。CI 配置覆盖 Node 24 下的 macOS 和 Linux；Windows 尚未获得端到端验证。
 

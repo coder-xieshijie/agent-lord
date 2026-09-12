@@ -91,7 +91,8 @@ export function buildResume(
     return {
       ...base,
       command,
-      note: "任务仍在运行：resume 会开启新一轮对话，不是附着到运行中的进程；请等待终态后在终端执行",
+      resumable: true,
+      note: "任务仍在运行：可在终端打开同一 Session 查看；原执行会继续，发送新消息可能被 Session busy guard 拒绝或排队",
     };
   }
   return {

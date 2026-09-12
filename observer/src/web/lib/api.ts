@@ -8,6 +8,15 @@
 
 import type { FontCatalog, ScheduleResponse, TimelineItem } from "../../shared/types";
 
+export type NativeTerminal = "orca" | "iterm";
+
+export interface TerminalOpenResponse {
+  status: "TERMINAL_OPENED";
+  task_id: string;
+  terminal: NativeTerminal;
+  operation_running: boolean;
+}
+
 export const token = new URLSearchParams(window.location.search).get("token") ?? "";
 
 async function getJson<T>(path: string): Promise<T> {
@@ -23,6 +32,14 @@ export function fetchSchedule(): Promise<ScheduleResponse> {
 
 export function fetchFonts(): Promise<FontCatalog> {
   return getJson<FontCatalog>("/api/fonts");
+}
+
+export async function openNativeTerminal(taskId: string, terminal: NativeTerminal): Promise<TerminalOpenResponse> {
+  const path = `/api/tasks/${encodeURIComponent(taskId)}/terminal-open?terminal=${encodeURIComponent(terminal)}&token=${encodeURIComponent(token)}`;
+  const response = await fetch(path, { method: "POST" });
+  const body = await response.json() as TerminalOpenResponse & { error?: string };
+  if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
+  return body;
 }
 
 /** Insert or replace one item, keeping the list sorted by ord. */

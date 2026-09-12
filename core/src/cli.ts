@@ -3,9 +3,10 @@ import { pathToFileURL } from "node:url";
 import { AgentLord } from "./engine.js";
 import { RequestInbox } from "./requests.js";
 import { retryResultInvalid } from "./invalid-retry.js";
+import { NATIVE_TERMINALS, openTaskTerminal } from "./terminal.js";
 import { AgentLordError, usageError } from "./errors.js";
 import { controlConfig } from "./config.js";
-import { type StartOptions, PROVIDERS } from "./contracts.js";
+import { type Envelope, type StartOptions, PROVIDERS } from "./contracts.js";
 import { parseJson, stringifyJson } from "./json.js";
 import {
   type CommandSpec,
@@ -195,6 +196,12 @@ export const COMMANDS: Record<string, CommandSpec> = {
       "source-format": ["claude-jsonl", "codex-jsonl", "mcode-stream-json"],
     },
   },
+  "terminal-open": {
+    description: "Open a task's saved native CLI Session in Orca or iTerm",
+    strings: ["task-id", "terminal"],
+    required: ["task-id", "terminal"],
+    choices: { terminal: NATIVE_TERMINALS },
+  },
 };
 export async function main(
   argv = process.argv.slice(2),
@@ -338,6 +345,12 @@ export async function main(
           ? { invocation: opts.invocation }
           : {}),
       });
+    else if (command === "terminal-open")
+      result = openTaskTerminal(
+        get("task-id"),
+        get("terminal") as (typeof NATIVE_TERMINALS)[number],
+        { store: lord.store },
+      );
     else
       result = lord.exportArtifact(
         get("task-id"),
@@ -345,7 +358,7 @@ export async function main(
         get("source-file"),
         get("source-format"),
       );
-    if (v["include-response"]) result = lord.withResponse(result);
+    if (v["include-response"]) result = lord.withResponse(result as Envelope);
     write(`${stringifyJson(result, 2)}\n`);
     return quiet ? 124 : 0;
   } catch (error) {

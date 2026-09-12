@@ -7,6 +7,7 @@ import type { Server } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Hub } from "../src/server/hub.js";
 import { createObserverServer } from "../src/server/http.js";
+import type { NativeTerminal, TerminalOpenResult } from "@agent-lord/core";
 
 vi.mock("../src/server/fonts.js", () => ({
   createFontCatalog: () => async () => ({ available: true, families: ["Fixture Mono"] }),
@@ -45,8 +46,14 @@ function makeFixture(): { root: string; taskId: string; stdout: string; hub: Hub
   return { root, taskId, stdout, hub };
 }
 
-async function startServer(hub: Hub): Promise<{ base: string; server: Server }> {
-  const server = createObserverServer({ hub, token: TOKEN, webRoot: null, port: 0 });
+async function startServer(
+  hub: Hub,
+  launchTerminal?: (taskId: string, terminal: NativeTerminal) => TerminalOpenResult,
+): Promise<{ base: string; server: Server }> {
+  const server = createObserverServer({
+    hub, token: TOKEN, webRoot: null, port: 0,
+    ...(launchTerminal ? { launchTerminal } : {}),
+  });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   cleanups.push(() => server.close());
   const { port } = server.address() as AddressInfo;
@@ -107,6 +114,29 @@ describe("HTTP surface", () => {
     expect(health.instanceId).toBeTruthy();
     expect((await fetch(`${base}/api/overview`, { headers: { cookie: "observer_token=%E0%A4%A" } })).status).toBe(401);
     expect((await fetch(`${base}/api/tasks/%E0%A4%A/snapshot?token=${TOKEN}`)).status).toBe(400);
+  });
+
+  it("opens only an allow-listed task in a constrained native terminal, including while running", async () => {
+    const { hub, taskId } = makeFixture();
+    const calls: Array<{ taskId: string; terminal: NativeTerminal }> = [];
+    const { base } = await startServer(hub, (selectedTask, terminal) => {
+      calls.push({ taskId: selectedTask, terminal });
+      return {
+        version: 1, status: "TERMINAL_OPENED", task_id: selectedTask, terminal,
+        provider: "codex-cli", session_id: "fixture-session", target: "/fixture/worktree",
+        operation_running: true, resume_command: "codex resume fixture-session",
+        repository_registered: false, journaled: true,
+      };
+    });
+    const route = `/api/tasks/${taskId}/terminal-open?terminal=orca`;
+    expect((await fetch(base + route, { method: "POST" })).status).toBe(401);
+    expect((await fetch(`${base}${route}&token=wrong`, { method: "POST" })).status).toBe(401);
+    expect((await fetch(`${base}/api/tasks/other/terminal-open?terminal=orca&token=${TOKEN}`, { method: "POST" })).status).toBe(404);
+    expect((await fetch(`${base}/api/tasks/${taskId}/terminal-open?terminal=shell&token=${TOKEN}`, { method: "POST" })).status).toBe(400);
+    const response = await fetch(`${base}${route}&token=${TOKEN}`, { method: "POST" });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ status: "TERMINAL_OPENED", operation_running: true });
+    expect(calls).toEqual([{ taskId, terminal: "orca" }]);
   });
 
   it("scopes task endpoints to the allowlist", async () => {

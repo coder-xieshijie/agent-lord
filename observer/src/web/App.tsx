@@ -8,6 +8,7 @@ import {
   Loader2,
   Pause,
   RadioTower,
+  SquareTerminal,
   XCircle,
 } from "lucide-react";
 import type {
@@ -20,7 +21,7 @@ import type {
   TaskMeta,
   TimelineItem,
 } from "../shared/types";
-import { applyItem, token } from "@/lib/api";
+import { applyItem, openNativeTerminal, token, type NativeTerminal } from "@/lib/api";
 import {
   createHttpTransport,
   SerialPoller,
@@ -54,6 +55,7 @@ import {
 } from "@/components/ai-elements/conversation";
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Collapsible,
   CollapsibleContent,
@@ -120,6 +122,40 @@ function DetailRow({ name, value, mono = true }: { name: string; value: string |
     <div className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2">
       <span className="shrink-0 text-muted-foreground text-xs sm:w-24">{name}</span>
       <span className={cn("min-w-0 break-all text-xs", mono && "font-mono")}>{value}</span>
+    </div>
+  );
+}
+
+function OpenTerminalButton({
+  taskId,
+  terminal,
+  running,
+}: {
+  taskId: string;
+  terminal: NativeTerminal;
+  running: boolean;
+}) {
+  const [state, setState] = useState<"idle" | "opening" | "opened" | "error">("idle");
+  const [error, setError] = useState<string | null>(null);
+  const label = terminal === "orca" ? "Orca" : "iTerm";
+  const open = async () => {
+    setState("opening");
+    setError(null);
+    try {
+      await openNativeTerminal(taskId, terminal);
+      setState("opened");
+    } catch (value) {
+      setState("error");
+      setError(value instanceof Error ? value.message : String(value));
+    }
+  };
+  return (
+    <div className="flex flex-col gap-1">
+      <Button className="h-7 gap-1.5 px-2 text-xs" disabled={state === "opening"} onClick={() => void open()} size="sm" variant="outline">
+        {state === "opening" ? <Loader2 className="size-3 animate-spin" /> : <SquareTerminal className="size-3" />}
+        {state === "opened" ? `已打开 ${label}` : `${running ? "在" : "用"} ${label} ${running ? "中查看" : "继续"}`}
+      </Button>
+      {state === "error" ? <span className="max-w-64 text-destructive text-xs">{error}</span> : null}
     </div>
   );
 }
@@ -597,9 +633,15 @@ export default function App() {
                 ) : null}
                 {activeMeta.resume.command ? (
                   <div className="flex flex-col gap-1.5 pt-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="text-muted-foreground text-xs">原生续聊命令</span>
                       <CopyButton label="复制命令" text={activeMeta.resume.command} />
+                      {activeMeta.resume.resumable && !activeMeta.provisional ? (
+                        <>
+                          <OpenTerminalButton taskId={activeMeta.taskId} terminal="orca" running={activeMeta.running} />
+                          <OpenTerminalButton taskId={activeMeta.taskId} terminal="iterm" running={activeMeta.running} />
+                        </>
+                      ) : null}
                     </div>
                     <code className="observer-code break-all rounded bg-background px-2 py-1.5 font-mono text-xs">
                       {activeMeta.resume.command}
