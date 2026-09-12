@@ -16,6 +16,7 @@ beforeEach(() => {
   vi.stubEnv("AGENT_LORD_MCODE_BIN", "mcode");
   vi.stubEnv("AGENT_LORD_CLAUDE_BIN", "claude");
   vi.stubEnv("AGENT_LORD_CODEX_BIN", "codex");
+  vi.stubEnv("AGENT_LORD_ITERM_BIN", "it2");
 });
 
 afterEach(() => h.cleanup());
@@ -143,7 +144,7 @@ describe("native terminal launcher", () => {
     expect(calls[2]).toEqual(calls[0]);
   });
 
-  it("opens iTerm with a shell-quoted worktree and native Session command", () => {
+  it("opens an iTerm window and runs the shell-quoted command in its Session", () => {
     h.lord.store.createTask(
       task("claude-cli", { endpoint_id: "session with ' quote" }),
     );
@@ -153,6 +154,20 @@ describe("native terminal launcher", () => {
       platform: "darwin",
       run(command, args) {
         calls.push({ command, args });
+        if (calls.length === 1)
+          return {
+            status: 0,
+            stdout: "Created new window: pty-window-e2e\n",
+            stderr: "",
+          };
+        if (calls.length === 2)
+          return {
+            status: 0,
+            stdout: JSON.stringify([
+              { id: "iterm-session-e2e", window_id: "pty-window-e2e" },
+            ]),
+            stderr: "",
+          };
         return ok();
       },
     });
@@ -161,11 +176,22 @@ describe("native terminal launcher", () => {
     expect(result.resume_command).toBe(
       "claude --resume 'session with '\\'' quote'",
     );
-    expect(calls).toHaveLength(1);
-    expect(calls[0].command).toBe("osascript");
-    expect(calls[0].args.at(-1)).toBe(
-      `cd -- ${h.target} && exec claude --resume 'session with '\\'' quote'`,
-    );
+    const command =
+      `cd -- ${h.target} && exec claude --resume 'session with '\\'' quote'`;
+    expect(calls).toEqual([
+      { command: "it2", args: ["window", "new"] },
+      { command: "it2", args: ["session", "list", "--json"] },
+      {
+        command: "it2",
+        args: [
+          "session",
+          "run",
+          command,
+          "--session",
+          "iterm-session-e2e",
+        ],
+      },
+    ]);
   });
 
   it("rejects Codex App because it has no native local CLI Session", () => {

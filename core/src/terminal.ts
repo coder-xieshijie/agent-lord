@@ -38,21 +38,8 @@ export interface TerminalOpenResult {
   journaled: boolean;
 }
 
-const ITERM_SCRIPT = String.raw`
-on run argv
-  set shellCommand to item 1 of argv
-  tell application "iTerm"
-    activate
-    if (count of windows) is 0 then
-      create window with default profile command shellCommand
-    else
-      tell current window
-        create tab with default profile command shellCommand
-      end tell
-    end if
-  end tell
-end run
-`;
+const DEFAULT_ITERM_BIN =
+  "/Applications/iTerm.app/Contents/Resources/utilities/it2";
 
 function defaultRunner(command: string, args: string[]): ProcessResult {
   const result = spawnSync(command, args, {
@@ -113,6 +100,36 @@ function checkedRun(
 function missingOrcaWorktree(result: ProcessResult): boolean {
   return /selector_not_found|No Orca workspace matched/u.test(
     `${result.stdout}\n${result.stderr}`,
+  );
+}
+
+function itermWindowId(result: ProcessResult): string {
+  const match = result.stdout.match(/Created new window:\s*(\S+)/u);
+  if (match) return match[1];
+  throw new AgentLordError(
+    "TERMINAL_OPEN_FAILED",
+    "iTerm did not return the new window id",
+    { details: { stdout: result.stdout.slice(-1000) } },
+  );
+}
+
+function itermSessionId(result: ProcessResult, windowId: string): string {
+  try {
+    const sessions = JSON.parse(result.stdout) as Array<{
+      id?: unknown;
+      window_id?: unknown;
+    }>;
+    const session = sessions.find(
+      (candidate) => candidate.window_id === windowId,
+    );
+    if (typeof session?.id === "string") return session.id;
+  } catch {
+    // Fall through to a structured control-plane error below.
+  }
+  throw new AgentLordError(
+    "TERMINAL_OPEN_FAILED",
+    "iTerm did not expose the new terminal Session",
+    { details: { window_id: windowId } },
   );
 }
 
@@ -187,10 +204,20 @@ export function openTaskTerminal(
         { details: { platform }, exit_code: 2 },
       );
     const command = `cd -- ${shellQuote(task.target)} && exec ${resume}`;
+    const iterm = process.env.AGENT_LORD_ITERM_BIN || DEFAULT_ITERM_BIN;
+    const created = checkedRun(run, iterm, ["window", "new"], terminal);
+    const windowId = itermWindowId(created);
+    const listed = checkedRun(
+      run,
+      iterm,
+      ["session", "list", "--json"],
+      terminal,
+    );
+    const sessionId = itermSessionId(listed, windowId);
     checkedRun(
       run,
-      process.env.AGENT_LORD_OSASCRIPT_BIN || "osascript",
-      ["-e", ITERM_SCRIPT, command],
+      iterm,
+      ["session", "run", command, "--session", sessionId],
       terminal,
     );
   }

@@ -106,8 +106,9 @@ node core/dist/cli.js terminal-open --task-id <task-id> --terminal iterm
 ```
 
 Orca 启动器使用准确的 worktree path；若 Orca 尚不认识该 worktree，会用任务契约
-中记录的 repository 注册一次并重试。iTerm 启动器仅支持 macOS，并通过参数化的
-AppleScript 创建标签页，路径与 Session ID 均做 shell 转义。
+中记录的 repository 注册一次并重试。iTerm 启动器仅支持 macOS，使用 iTerm 自带的
+`it2` CLI 创建独立窗口、定位其 Session，再发送续聊命令。路径与 Session ID 均做
+shell 转义。
 
 “本轮执行完成”、主调度状态与“声明的交付项已核验”分别展示。调度时可以传 `--require-file`
 和 `--require-commit`，核验范围仅为非空文件和新的干净提交；未声明、缺文件、
