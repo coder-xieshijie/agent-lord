@@ -96,6 +96,9 @@ Codex Desktop 的调用方按 [Skill 主流程](../SKILL.md#deterministic-loop) 
 和 `--require-commit`，核验范围仅为非空文件和新的干净提交；未声明、缺文件、
 历史记录分别如实显示。测试、UI 行为和内容正确性仍需实际验收。
 
+任务头部常驻显示调度模型的末段名称与请求推理档位（如 `claude-opus-5` 与 `xhigh`），
+完整 provider 路由只保留在悬浮提示与详情里，避免长路由挤占头部；未记录时不显示，也不推测运行端值。
+
 详情完整展示请求模型、实际模型、推理档位和核验来源。MCode 的 xhigh 是 variant，
 不是独立 effort；Codex 只有参数约束证据时，实际模型仍显示未回报。Claude fallback 显示实际模型。
 最初调度者与本轮调用者分别来自首次和当前 operation.invocation，缺失时标为未记录。

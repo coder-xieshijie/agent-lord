@@ -44,6 +44,7 @@ import { RequestRow } from "@/components/request-row";
 import { ScheduleTimelinePanel } from "@/components/schedule-timeline";
 import { ExecutionDetails, callerStatus } from "@/components/execution-details";
 import { AppearanceControls } from "@/components/appearance-controls";
+import { ScheduledModel } from "@/components/scheduled-model";
 import { ToolRow, CompletedToolGroup, type Expansion, type SetExpanded } from "@/components/tool-row";
 import {
   Conversation,
@@ -416,9 +417,6 @@ export default function App() {
   }, [selectedId]);
 
   const activeMeta = (meta?.taskId === selectedId ? meta : null) ?? tasks.find((task) => task.taskId === selectedId) ?? null;
-  const displayModel = activeMeta?.execution?.actualModel
-    ? `${activeMeta.execution.actualModel}${activeMeta.execution.actualVariant ? `#${activeMeta.execution.actualVariant}` : ""}`
-    : activeMeta?.model;
   const { rows: visibleItems, details: executionDetails } = useMemo(() => presentTimeline(items), [items]);
   const timelineGroup = timelineKey ? callerGroups.find((group) => group.key === timelineKey) ?? null : null;
   const [locateTick, setLocateTick] = useState(0);
@@ -534,9 +532,7 @@ export default function App() {
               <Badge className="rounded-full font-normal text-xs" variant="secondary">
                 {activeMeta.providerLabel}
               </Badge>
-              {displayModel ? (
-                <span className="max-w-56 truncate font-mono text-muted-foreground text-xs" title={displayModel}>{displayModel}</span>
-              ) : null}
+              <ScheduledModel meta={activeMeta} />
               <span className="text-muted-foreground text-xs">{activeMeta.status}</span>
               <span className="text-muted-foreground text-xs">{callerStatus(activeMeta.caller?.lifecycle)}</span>
               {activeMeta.artifact && <a className="text-xs underline" href={`/api/tasks/${encodeURIComponent(activeMeta.taskId)}/artifact?operation_id=${encodeURIComponent(activeMeta.artifact.operationId)}&token=${encodeURIComponent(new URLSearchParams(window.location.search).get("token") ?? "")}`}>下载最终产物</a>}
