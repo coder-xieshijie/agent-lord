@@ -144,7 +144,7 @@ describe("native terminal launcher", () => {
     expect(calls[2]).toEqual(calls[0]);
   });
 
-  it("opens an iTerm window and runs the shell-quoted command in its Session", () => {
+  it("focuses and activates the iTerm window before running the resume command", () => {
     h.lord.store.createTask(
       task("claude-cli", { endpoint_id: "session with ' quote" }),
     );
@@ -181,6 +181,14 @@ describe("native terminal launcher", () => {
     expect(calls).toEqual([
       { command: "it2", args: ["window", "new"] },
       { command: "it2", args: ["session", "list", "--json"] },
+      {
+        command: "it2",
+        args: ["window", "focus", "pty-window-e2e"],
+      },
+      {
+        command: "/usr/bin/open",
+        args: ["-b", "com.googlecode.iterm2"],
+      },
       {
         command: "it2",
         args: [
