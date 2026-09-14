@@ -26,7 +26,13 @@ import {
   sharedLocksSupported,
   validateIdentifier,
 } from "./state.js";
-import { claimConflictError, conflictingClaim } from "./workspace-claims.js";
+import {
+  claimConflictError,
+  claimForBranch,
+  claimForTarget,
+  leaseId,
+} from "./workspace-claims.js";
+export { leaseId };
 export function git(
   repository: string,
   args: string[],
@@ -169,9 +175,6 @@ export function verifyManagedAdvance(
       { details },
     );
   return observed;
-}
-export function leaseId(prefix: string, value: string): string {
-  return `${prefix}-${sha256(value).slice(0, 32)}`;
 }
 export function targetIdentity(target: string): string {
   const result = git(target, ["rev-parse", "--show-toplevel"], false);
@@ -386,19 +389,6 @@ export class WorkspaceManager {
       });
     try {
       if (readOnly && !sharedLocksSupported()) return { release };
-      if (!readOnly) {
-        const branch = workspace.workspace_branch ?? workspace.source_branch;
-        const claim = conflictingClaim(
-          this.store.root,
-          owner,
-          identity,
-          workspace.repository
-            ? repositoryIdentity(workspace.repository)
-            : null,
-          branch ?? null,
-        );
-        if (claim) throw claimConflictError(claim);
-      }
       try {
         leases.push(
           recordLock(
@@ -420,6 +410,10 @@ export class WorkspaceManager {
         );
       }
       if (readOnly) return { release };
+      // Checked while this worktree's write lease is held, so a claim cannot
+      // be created in the window between observing none and owning the lock.
+      const targetClaim = claimForTarget(this.store.root, owner, identity);
+      if (targetClaim) throw claimConflictError(targetClaim);
       const identities = new Map<string, string>();
       const unfenced = this.store.operations().find((op) => {
         if (
@@ -468,6 +462,15 @@ export class WorkspaceManager {
             { repository: workspace.repository, branch },
           );
         }
+        // Same ordering as a claim acquisition, so the branch dimension is
+        // decided by whoever holds this lock rather than by check ordering.
+        const branchClaim = claimForBranch(
+          this.store.root,
+          owner,
+          repositoryIdentity(workspace.repository),
+          branch,
+        );
+        if (branchClaim) throw claimConflictError(branchClaim);
       }
       return { release };
     } catch (error) {

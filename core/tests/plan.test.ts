@@ -7,7 +7,17 @@ import { harness, operation } from "./helpers.js";
 import { deliveryRequirements, verifyDelivery } from "../src/delivery.js";
 import type { Data, Operation } from "../src/contracts.js";
 import { permissionPolicy, resolveRetryPlan } from "../src/config.js";
-import { utcNow } from "../src/state.js";
+import { recordLock, utcNow } from "../src/state.js";
+import { repositoryIdentity, targetIdentity } from "../src/workspace.js";
+import {
+  BRANCH_LOCK_KIND,
+  WORKSPACE_LOCK_KIND,
+  branchLockId,
+  claimsForRun,
+  readClaims,
+  workspaceLockId,
+  writeClaim,
+} from "../src/workspace-claims.js";
 let h: ReturnType<typeof harness>;
 beforeEach(() => {
   h = harness();
@@ -1176,3 +1186,335 @@ function messageFile(text: string): string {
   writeFileSync(file, text);
   return file;
 }
+
+/**
+ * Claim acquisition, checking and release must be atomic against another plan
+ * run and against an ordinary writable start. Each test holds the exact
+ * per-resource lock the protocol requires, so it fails if any step reverts to
+ * checking before it owns that lock.
+ */
+describe("workspace claims are race-safe", () => {
+  async function readyTwoRepositoryRun(runId: string): Promise<{
+    a: { repo: string; head: string };
+    b: { repo: string; head: string };
+  }> {
+    const a = repository(`${runId}-a`);
+    const b = repository(`${runId}-b`);
+    const plan = {
+      version: 1,
+      plan_id: "demo",
+      goal: "ship across two repositories",
+      repositories: [
+        {
+          repository: a.repo,
+          source_branch: "main",
+          head_sha: a.head,
+          delivery_branch: "feature/delivery",
+        },
+        {
+          repository: b.repo,
+          source_branch: "main",
+          head_sha: b.head,
+          delivery_branch: "feature/delivery-sdk",
+        },
+      ],
+      modules: [
+        moduleNode("alpha", a.repo),
+        moduleNode("beta", b.repo, { owned_paths: ["src/client"] }),
+      ],
+    };
+    const file = planner(`${runId}-planner`, plan, `${runId}.json`);
+    await cli([
+      "plan-create",
+      "--run-id",
+      runId,
+      "--plan-file",
+      file,
+      "--planner-task-id",
+      `${runId}-planner`,
+    ]);
+    for (const [id, repo, head, branch] of [
+      ["alpha", a.repo, a.head, "module/alpha"],
+      ["beta", b.repo, b.head, "module/beta"],
+    ] as const) {
+      worker(`${runId}-${id}`, repo, head, branch);
+      await cli([
+        "plan-dispatch",
+        "--run-id",
+        runId,
+        "--module-id",
+        id,
+        "--task-id",
+        `${runId}-${id}`,
+      ]);
+      await cli([
+        "plan-deliver",
+        "--run-id",
+        runId,
+        "--module-id",
+        id,
+        "--state",
+        "delivered",
+      ]);
+    }
+    return { a, b };
+  }
+  /** A single-repository run that two different plan runs can contend for. */
+  async function readySharedRun(
+    runId: string,
+    repo: string,
+    head: string,
+  ): Promise<void> {
+    const plan = planDocument(repo, head, {
+      modules: [moduleNode("alpha", repo)],
+    });
+    const file = planner(`${runId}-planner`, plan, `${runId}.json`);
+    await cli([
+      "plan-create",
+      "--run-id",
+      runId,
+      "--plan-file",
+      file,
+      "--planner-task-id",
+      `${runId}-planner`,
+    ]);
+    worker(`${runId}-alpha`, repo, head, `module/${runId}-alpha`);
+    await cli([
+      "plan-dispatch",
+      "--run-id",
+      runId,
+      "--module-id",
+      "alpha",
+      "--task-id",
+      `${runId}-alpha`,
+    ]);
+    await cli([
+      "plan-deliver",
+      "--run-id",
+      runId,
+      "--module-id",
+      "alpha",
+      "--state",
+      "delivered",
+    ]);
+  }
+  it("cannot create a claim while another writer holds the branch lock", async () => {
+    const { a } = await readyTwoRepositoryRun("race-1");
+    // Stand in for a concurrent run already inside its critical section.
+    const held = recordLock(
+      BRANCH_LOCK_KIND,
+      branchLockId(repositoryIdentity(a.repo), "feature/delivery"),
+      h.root,
+    );
+    const blocked = await cli([
+      "plan-integrate",
+      "--run-id",
+      "race-1",
+      "--task-id",
+      "race-1-int",
+    ]);
+    expect(blocked.code).not.toBe(0);
+    expect((blocked.body.error as Data).code).toBe("STATE_BUSY");
+    expect(readClaims(h.root)).toEqual([]);
+    held.release();
+    const allowed = await cli([
+      "plan-integrate",
+      "--run-id",
+      "race-1",
+      "--task-id",
+      "race-1-int",
+    ]);
+    expect(allowed.code).toBe(0);
+    expect(readClaims(h.root)).toHaveLength(2);
+  });
+  it("cannot create a claim while another writer holds the worktree lock", async () => {
+    const { a, b } = await readyTwoRepositoryRun("race-2");
+    const first = await cli([
+      "plan-integrate",
+      "--run-id",
+      "race-2",
+      "--task-id",
+      "race-2-int",
+    ]);
+    expect(first.code).toBe(0);
+    const workspaces = integration(first.body).workspaces as Data[];
+    const target = workspaces.find((w) => w.repository === a.repo)!
+      .target as string;
+    await cli([
+      "plan-integration-reset",
+      "--run-id",
+      "race-2",
+      "--reason",
+      "release for the race",
+    ]);
+    const held = recordLock(
+      WORKSPACE_LOCK_KIND,
+      workspaceLockId(targetIdentity(target)),
+      h.root,
+    );
+    const blocked = await cli([
+      "plan-integrate",
+      "--run-id",
+      "race-2",
+      "--task-id",
+      "race-2-int-2",
+    ]);
+    expect((blocked.body.error as Data).code).toBe("STATE_BUSY");
+    expect(readClaims(h.root)).toEqual([]);
+    held.release();
+    expect(b.repo).toBeTruthy();
+  });
+  it("lets exactly one of two plan runs own the same repository branch", async () => {
+    const { repo, head } = repository("shared");
+    await readySharedRun("race-3a", repo, head);
+    await readySharedRun("race-3b", repo, head);
+    const winner = await cli([
+      "plan-integrate",
+      "--run-id",
+      "race-3a",
+      "--task-id",
+      "race-3a-int",
+    ]);
+    expect(winner.code).toBe(0);
+    const claim = readClaims(h.root)[0]!;
+    expect(claim.run_id).toBe("race-3a");
+    const loser = await cli([
+      "plan-integrate",
+      "--run-id",
+      "race-3b",
+      "--task-id",
+      "race-3b-int",
+    ]);
+    expect(loser.code).not.toBe(0);
+    expect((loser.body.error as Data).code).toBe("WORKSPACE_CLAIM_CONFLICT");
+    expect(((loser.body.error as Data).details as Data).run_id).toBe("race-3a");
+    // The winner's claim is intact, not silently replaced by the loser.
+    expect(readClaims(h.root)).toEqual([claim]);
+    expect(claimsForRun(h.root, "race-3b")).toEqual([]);
+  });
+  it("decides the worktree claim only after owning the write lease", async () => {
+    const { a } = await readyTwoRepositoryRun("race-4");
+    const integrated = await cli([
+      "plan-integrate",
+      "--run-id",
+      "race-4",
+      "--task-id",
+      "race-4-int",
+    ]);
+    const target = (integration(integrated.body).workspaces as Data[]).find(
+      (w) => w.repository === a.repo,
+    )!.target as string;
+    // A claim exists and the worktree lease is held: a writer must report the
+    // lease conflict it actually hit, which only happens when the claim is
+    // checked after that lease is acquired.
+    const held = recordLock(
+      WORKSPACE_LOCK_KIND,
+      workspaceLockId(targetIdentity(target)),
+      h.root,
+    );
+    const blocked = await cli([
+      "start",
+      "--task-id",
+      "race-4-intruder",
+      "--provider",
+      "mcode-cli",
+      "--target",
+      target,
+      "--message-file",
+      messageFile("write into a claimed worktree"),
+    ]);
+    expect(blocked.code).not.toBe(0);
+    expect((blocked.body.error as Data).code).toBe("WORKSPACE_WRITE_CONFLICT");
+    held.release();
+    const afterRelease = await cli([
+      "start",
+      "--task-id",
+      "race-4-intruder-2",
+      "--provider",
+      "mcode-cli",
+      "--target",
+      target,
+      "--message-file",
+      messageFile("write into a claimed worktree"),
+    ]);
+    expect((afterRelease.body.error as Data).code).toBe(
+      "WORKSPACE_CLAIM_CONFLICT",
+    );
+  });
+  it("refuses to release claims while the branch lock is contended", async () => {
+    const { a } = await readyTwoRepositoryRun("race-5");
+    await cli([
+      "plan-integrate",
+      "--run-id",
+      "race-5",
+      "--task-id",
+      "race-5-int",
+    ]);
+    const held = recordLock(
+      BRANCH_LOCK_KIND,
+      branchLockId(repositoryIdentity(a.repo), "feature/delivery"),
+      h.root,
+    );
+    const blocked = await cli([
+      "plan-integration-reset",
+      "--run-id",
+      "race-5",
+      "--reason",
+      "contended release",
+    ]);
+    expect(blocked.code).not.toBe(0);
+    expect((blocked.body.error as Data).code).toBe("STATE_BUSY");
+    // The claim is still owned, not deleted without the lock.
+    expect(
+      readClaims(h.root).some(
+        (claim) => claim.repository === a.repo && claim.run_id === "race-5",
+      ),
+    ).toBe(true);
+    held.release();
+    const released = await cli([
+      "plan-integration-reset",
+      "--run-id",
+      "race-5",
+      "--reason",
+      "contended release",
+    ]);
+    expect(released.code).toBe(0);
+    expect(claimsForRun(h.root, "race-5")).toEqual([]);
+  });
+  it("never deletes a replacement owner's claim on the same path", async () => {
+    const { a, b } = await readyTwoRepositoryRun("race-6");
+    await cli([
+      "plan-integrate",
+      "--run-id",
+      "race-6",
+      "--task-id",
+      "race-6-int",
+    ]);
+    const original = readClaims(h.root).find(
+      (claim) => claim.repository === a.repo,
+    )!;
+    // A newer run takes over the same deterministic claim path.
+    writeClaim(h.root, {
+      ...original,
+      run_id: "race-6-successor",
+      task_id: "race-6-successor-int",
+    });
+    const reset = await cli([
+      "plan-integration-reset",
+      "--run-id",
+      "race-6",
+      "--reason",
+      "old run cleaning up late",
+    ]);
+    expect(reset.code).toBe(0);
+    const survivor = readClaims(h.root).find(
+      (claim) => claim.repository === a.repo,
+    );
+    expect(survivor).toBeDefined();
+    expect(survivor!.run_id).toBe("race-6-successor");
+    // The old run's own other claim is still released.
+    expect(
+      readClaims(h.root).some((claim) => claim.repository === b.repo),
+    ).toBe(false);
+  });
+});

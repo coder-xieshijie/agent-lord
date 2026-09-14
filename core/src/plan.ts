@@ -29,11 +29,17 @@ import {
   targetIdentity,
 } from "./workspace.js";
 import {
+  BRANCH_LOCK_KIND,
+  WORKSPACE_LOCK_KIND,
+  branchLockId,
+  claimForBranch,
+  claimForTarget,
   claimsForRun,
-  conflictingClaim,
   claimConflictError,
+  leaseId,
   newClaim,
   releaseClaims,
+  workspaceLockId,
   writeClaim,
 } from "./workspace-claims.js";
 import { TaskSets } from "./task-sets.js";
@@ -800,50 +806,17 @@ export class PlanRuns {
           meta.worktree_root ??
           path.join(this.lord.store.root, "plan-worktrees", id);
         try {
-          for (const repo of record.plan.repositories) {
-            const identity = repositoryIdentity(repo.repository);
-            const existingClaim = conflictingClaim(
-              this.lord.root,
-              taskId,
-              identity,
-              identity,
-              repo.delivery_branch,
+          // Deterministic repository order, then the same lock order every
+          // ordinary writer uses: prepare, workspace-write, branch-write.
+          const ordered = [...record.plan.repositories].sort((a, b) =>
+            repositoryIdentity(a.repository).localeCompare(
+              repositoryIdentity(b.repository),
+            ),
+          );
+          for (const repo of ordered)
+            claimed.push(
+              this.claimRepository(id, taskId, repo, workspaces, worktreeRoot),
             );
-            if (existingClaim) throw claimConflictError(existingClaim);
-            const [target, exists] = workspaces.resolveTarget(
-              taskId,
-              repo.repository,
-              repo.delivery_branch,
-              // One worktree path per repository, so a single integrator task
-              // can hold a distinct checkout in each of them.
-              path.join(worktreeRoot, sha256(identity).slice(0, 16)),
-            );
-            const prepared = workspaces.prepare(
-              repo.repository,
-              repo.source_branch,
-              repo.head_sha,
-              target,
-              "isolated",
-              repo.delivery_branch,
-              exists,
-            );
-            const claim = newClaim({
-              run_id: id,
-              task_id: taskId,
-              repository: repo.repository,
-              repository_identity: identity,
-              target: prepared,
-              target_identity: targetIdentity(prepared),
-              branch: repo.delivery_branch,
-            });
-            writeClaim(this.lord.root, claim);
-            claimed.push({
-              repository: repo.repository,
-              branch: repo.delivery_branch,
-              target: prepared,
-              claim_id: claim.claim_id,
-            });
-          }
         } catch (error) {
           releaseClaims(this.lord.root, id);
           throw error;
@@ -865,6 +838,87 @@ export class PlanRuns {
     );
     this.bind(id, taskId);
     return this.status(id);
+  }
+  /**
+   * Prepare and claim one repository's delivery worktree inside the same
+   * per-resource critical sections an ordinary writable start uses, so the
+   * check and the write cannot be split by another run or another writer.
+   */
+  private claimRepository(
+    runId: string,
+    taskId: string,
+    repo: PlanRepository,
+    workspaces: WorkspaceManager,
+    worktreeRoot: string,
+  ): IntegrationWorkspace {
+    const identity = repositoryIdentity(repo.repository);
+    // One worktree path per repository, so a single integrator task can hold a
+    // distinct checkout in each of them.
+    const [target, exists] = workspaces.resolveTarget(
+      taskId,
+      repo.repository,
+      repo.delivery_branch,
+      path.join(worktreeRoot, sha256(identity).slice(0, 16)),
+    );
+    const planned = targetIdentity(target);
+    return withLock(
+      "workspace-prepare",
+      leaseId("prepare", `${identity}\0${repo.delivery_branch}`),
+      this.lord.root,
+      () =>
+        withLock(
+          WORKSPACE_LOCK_KIND,
+          workspaceLockId(planned),
+          this.lord.root,
+          () =>
+            withLock(
+              BRANCH_LOCK_KIND,
+              branchLockId(identity, repo.delivery_branch),
+              this.lord.root,
+              () => {
+                const held =
+                  claimForBranch(
+                    this.lord.root,
+                    taskId,
+                    identity,
+                    repo.delivery_branch,
+                  ) ?? claimForTarget(this.lord.root, taskId, planned);
+                if (held) throw claimConflictError(held);
+                const prepared = workspaces.prepare(
+                  repo.repository,
+                  repo.source_branch,
+                  repo.head_sha,
+                  target,
+                  "isolated",
+                  repo.delivery_branch,
+                  exists,
+                );
+                const settled = targetIdentity(prepared);
+                if (settled !== planned)
+                  throw barrierError(
+                    "prepared integration worktree moved outside its claimed identity",
+                    { repository: repo.repository, planned, observed: settled },
+                  );
+                const claim = newClaim({
+                  run_id: runId,
+                  task_id: taskId,
+                  repository: repo.repository,
+                  repository_identity: identity,
+                  target: prepared,
+                  target_identity: settled,
+                  branch: repo.delivery_branch,
+                });
+                writeClaim(this.lord.root, claim);
+                return {
+                  repository: repo.repository,
+                  branch: repo.delivery_branch,
+                  target: prepared,
+                  claim_id: claim.claim_id,
+                };
+              },
+            ),
+        ),
+    );
   }
   /** Release every claim and return integration to pending for a replacement. */
   integrationReset(id: string, reason: string | null): Envelope {
