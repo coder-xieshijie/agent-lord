@@ -235,6 +235,10 @@ export async function runChild(spec: ChildSpec): Promise<number> {
       // A provider owns its own caller identity; inherited parent ids are misleading in nested dispatches.
       const childEnv = { ...(spec.env ?? process.env) };
       for (const key of [
+        "AGENT_LORD_CALLER_KIND",
+        "AGENT_LORD_CALLER_SESSION_ID",
+        "AGENT_LORD_CALLER_TURN_ID",
+        "AGENT_LORD_CALLER_DATA_ROOT",
         "CODEX_THREAD_ID",
         "CODEX_SESSION_ID",
         "CODEX_TURN_ID",

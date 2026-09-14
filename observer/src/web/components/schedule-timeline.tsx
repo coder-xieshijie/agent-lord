@@ -88,11 +88,13 @@ function OperationDetail({ group, op, taskId }: { group: ScheduleGroup; op: Sche
 
 export function ScheduleTimelinePanel({
   sessionId,
+  callerKind,
   groupLabel,
   onLocateOperation,
   onClose,
 }: {
   sessionId: string | null;
+  callerKind?: string;
   groupLabel: string;
   onLocateOperation: (taskId: string, operationId: string) => void;
   onClose: () => void;
@@ -111,7 +113,7 @@ export function ScheduleTimelinePanel({
       try {
         const schedule = await fetchSchedule();
         if (cancelled) return;
-        setGroup(schedule.groups.find((item) => item.sessionId === sessionId) ?? null);
+        setGroup(schedule.groups.find((item) => item.sessionId === sessionId && (item.kind ?? "codex") === (callerKind ?? "codex")) ?? null);
         setNow(schedule.now);
         setError(null);
       } catch (cause) {
@@ -124,7 +126,7 @@ export function ScheduleTimelinePanel({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [sessionId]);
+  }, [sessionId, callerKind]);
 
   const options = useMemo(() => (group ? rangeOptions(group, now) : []), [group, now]);
   const activeKey = options.some((option) => option.key === rangeKey) ? rangeKey : defaultRangeKey(options);
@@ -173,7 +175,7 @@ export function ScheduleTimelinePanel({
       </div>
       {error ? <p className="mt-2 text-destructive text-xs">无法读取调度聚合：{error}</p> : null}
       {group && group.turnsNote ? (
-        <p className="mt-2 text-muted-foreground text-xs">Turn 证据不可用：{group.turnsNote}；仅按绝对时间展示子任务。</p>
+        <p className="mt-2 text-muted-foreground text-xs">调度记录说明：{group.turnsNote}</p>
       ) : null}
       {!group && !error ? <p className="mt-2 text-muted-foreground text-xs">正在加载调度聚合…</p> : null}
       {group && !layout ? <p className="mt-2 text-muted-foreground text-xs">该分组还没有任何带时间证据的操作。</p> : null}

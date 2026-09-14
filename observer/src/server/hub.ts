@@ -478,7 +478,7 @@ export class Hub {
     // 记录调用方时保持未归属，不从后来的操作推断最初拉起者。
     const attributedCaller = operations[0]?.invocation?.caller;
     const callerSession = attributedCaller?.session_id
-      ? { sessionId: attributedCaller.session_id, ...this.callerSession.read(attributedCaller) }
+      ? { kind: attributedCaller.kind, sessionId: attributedCaller.session_id, ...this.callerSession.read(attributedCaller) }
       : null;
     const activityCandidates = [
       fileMtimeMs(journalPath(this.root, state.taskId)),

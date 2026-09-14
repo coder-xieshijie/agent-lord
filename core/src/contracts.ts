@@ -124,7 +124,7 @@ export interface CallerIdentity {
   session_id: string | null;
   turn_id: string | null;
   identity_source: "runtime-env" | "caller-declared" | "unavailable";
-  /** Local Codex data root, used only for a session-bound lifecycle read. */
+  /** Local client data root, used only for session-bound metadata/lifecycle reads. */
   data_root?: string;
 }
 export interface Invocation {

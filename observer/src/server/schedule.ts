@@ -112,7 +112,7 @@ export function buildSchedule(args: {
   for (const input of args.tasks) {
     const first = input.operations[0]?.invocation?.caller;
     const sessionId = first?.session_id ?? null;
-    const key = sessionId ?? "\0unattributed";
+    const key = sessionId ? `${first?.kind ?? "unknown"}\0${sessionId}` : "\0unattributed";
     let group = groups.get(key);
     if (!group) {
       group = { sessionId, identity: undefined, inputs: [] };
@@ -150,6 +150,7 @@ export function buildSchedule(args: {
       return av !== bv ? av - bv : a.taskId.localeCompare(b.taskId);
     });
     built.push({
+      kind: group.identity?.kind,
       sessionId: group.sessionId,
       name: namemeta.name,
       projectName: namemeta.projectName,

@@ -557,6 +557,7 @@ export default function App() {
             onClose={() => setTimelineKey(null)}
             onLocateOperation={locateOperation}
             sessionId={timelineGroup.sessionId}
+            callerKind={timelineGroup.kind}
           />
         ) : null}
 

@@ -28,6 +28,7 @@ export interface CallerGroup {
   key: string;
   /** Scheduling session id; null for the group of tasks without one. */
   sessionId: string | null;
+  kind?: string;
   /** Name or request preview of the scheduling session; null when unknown. */
   name: string | null;
   /** Basename of the scheduling session's project directory; null when unknown. */
@@ -57,10 +58,10 @@ export function groupTasksByCaller(tasks: TaskMeta[]): CallerGroup[] {
   const groups = new Map<string, CallerGroup>();
   for (const task of sortTasksByActivity(tasks)) {
     const session = task.caller?.session ?? null;
-    const key = session ? `caller:${session.sessionId}` : UNATTRIBUTED_GROUP_KEY;
+    const key = session ? `caller:${session.kind && session.kind !== "codex" ? `${session.kind}:` : ""}${session.sessionId}` : UNATTRIBUTED_GROUP_KEY;
     let group = groups.get(key);
     if (!group) {
-      group = { key, sessionId: session?.sessionId ?? null, name: null, projectName: null, lastActivityMs: null, tasks: [] };
+      group = { key, kind: session?.kind, sessionId: session?.sessionId ?? null, name: null, projectName: null, lastActivityMs: null, tasks: [] };
       groups.set(key, group);
     }
     // Children are newest first, so the first task that knows a name/project

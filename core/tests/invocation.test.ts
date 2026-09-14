@@ -95,6 +95,9 @@ describe("caller context and one-read terminal delivery", () => {
   });
 
   it("never fills another declared caller with the current host identity and keeps missing identities honest", () => {
+    expect(
+      resolveInvocation({ caller: { kind: "toString" } }).caller.kind,
+    ).toBe("toString");
     expect(resolveInvocation({ caller: { kind: "human" } }).caller).toEqual({
       kind: "human",
       session_id: null,
@@ -110,15 +113,130 @@ describe("caller context and one-read terminal delivery", () => {
     ).toBe("recovery");
   });
 
+  it.each(["mcode", "claude", "codex"])(
+    "binds %s schedulers explicitly and through a scoped environment",
+    (kind) => {
+      const caller = {
+        kind,
+        session_id: "current-session",
+        turn_id: "current-turn",
+        data_root: h.base,
+      };
+      expect(resolveInvocation({ caller }).caller).toMatchObject({
+        ...caller,
+        identity_source: "caller-declared",
+      });
+      expect(
+        resolveInvocation(undefined, false, {
+          CODEX_THREAD_ID: "inherited-other-session",
+          AGENT_LORD_CALLER_KIND: kind,
+          AGENT_LORD_CALLER_SESSION_ID: caller.session_id,
+          AGENT_LORD_CALLER_TURN_ID: caller.turn_id,
+          AGENT_LORD_CALLER_DATA_ROOT: h.base,
+        }).caller,
+      ).toMatchObject({ ...caller, identity_source: "runtime-env" });
+      expect(
+        resolveInvocation({ caller }, false, {
+          AGENT_LORD_CALLER_KIND: "different",
+        }).caller.kind,
+      ).toBe(kind);
+    },
+  );
+
+  it.each(["mcode", "claude", "codex"])(
+    "persists a %s scheduling identity through actual CLI dispatch",
+    async (kind) => {
+      const message = path.join(h.base, "native-message.txt");
+      const invocation = path.join(h.base, "native-invocation.json");
+      writeFileSync(message, "fixture delegated task");
+      writeFileSync(
+        invocation,
+        JSON.stringify({
+          caller: { kind, session_id: "native-scheduler", data_root: h.base },
+          user_request: "Delegate this task",
+        }),
+      );
+      let output = "";
+      expect(
+        await main(
+          [
+            "start",
+            "--task-id",
+            "native-task",
+            "--provider",
+            "mcode",
+            "--model",
+            "test/model#deep",
+            "--target",
+            h.target,
+            "--message-file",
+            message,
+            "--invocation-file",
+            invocation,
+            "--include-response",
+          ],
+          (text) => {
+            output += text;
+          },
+        ),
+      ).toBe(0);
+      const result = JSON.parse(output);
+      expect(result.status).toBe("SUCCEEDED");
+      expect(
+        h.lord.store.operation(result.operation_id).invocation?.caller,
+      ).toMatchObject({
+        kind,
+        session_id: "native-scheduler",
+        data_root: h.base,
+      });
+    },
+  );
+
+  it.each([
+    ["mcode-cli", "mcode"],
+    ["claude-code", "claude"],
+    ["claude-cli", "claude"],
+    ["codex-cli", "codex"],
+  ])("normalizes the %s caller alias", (kind, canonical) => {
+    expect(
+      resolveInvocation({
+        caller: { kind, session_id: "session", data_root: h.base },
+      }).caller,
+    ).toMatchObject({ kind: canonical, data_root: h.base });
+  });
+
+  it("rejects partial invalid environment binding instead of silently inheriting Codex identity", () => {
+    expect(() =>
+      resolveInvocation(undefined, false, {
+        AGENT_LORD_CALLER_SESSION_ID: "session",
+        CODEX_THREAD_ID: "other",
+      }),
+    ).toThrow();
+    expect(() =>
+      resolveInvocation(undefined, false, {
+        AGENT_LORD_CALLER_KIND: "mcode",
+        AGENT_LORD_CALLER_SESSION_ID: "../other",
+      }),
+    ).toThrow();
+  });
+
   it("does not leak parent caller ids into a provider process or mutate its configured environment", async () => {
     const stdout = path.join(h.base, "child.stdout");
     const env = {
       ...process.env,
+      AGENT_LORD_CALLER_KIND: "mcode",
+      AGENT_LORD_CALLER_SESSION_ID: "parent-mcode",
+      AGENT_LORD_CALLER_TURN_ID: "parent-mcode-turn",
+      AGENT_LORD_CALLER_DATA_ROOT: h.base,
       CODEX_SESSION_ID: "parent-session",
       CODEX_TURN_ID: "parent-turn",
       AGENT_LORD_FIXTURE_ROUTE: "retained",
     };
     const keys = [
+      "AGENT_LORD_CALLER_KIND",
+      "AGENT_LORD_CALLER_SESSION_ID",
+      "AGENT_LORD_CALLER_TURN_ID",
+      "AGENT_LORD_CALLER_DATA_ROOT",
       "CODEX_THREAD_ID",
       "CODEX_SESSION_ID",
       "CODEX_TURN_ID",
@@ -144,6 +262,10 @@ describe("caller context and one-read terminal delivery", () => {
     });
     expect(code).toBe(0);
     expect(JSON.parse(readFileSync(stdout, "utf8"))).toEqual({
+      AGENT_LORD_CALLER_KIND: null,
+      AGENT_LORD_CALLER_SESSION_ID: null,
+      AGENT_LORD_CALLER_TURN_ID: null,
+      AGENT_LORD_CALLER_DATA_ROOT: null,
       CODEX_THREAD_ID: null,
       CODEX_SESSION_ID: null,
       CODEX_TURN_ID: null,

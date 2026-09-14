@@ -17,6 +17,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { CallerIdentity } from "@agent-lord/core/contracts";
 import { locateRolloutFile } from "./caller-lifecycle.js";
 import { readCompleteLines } from "./scan.js";
+import { NativeCallerReader } from "./caller-native.js";
 import { clipTitle } from "./sanitize.js";
 
 const SESSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
@@ -42,12 +43,17 @@ interface ProjectCache {
 }
 
 export class CallerSessionReader {
+  private readonly native = new NativeCallerReader();
   private readonly index = new Map<string, IndexCache>();
   private readonly stateTitles = new Map<string, StateTitleCache>();
   private readonly projects = new Map<string, ProjectCache>();
 
   /** Best-effort {name, projectName}; every unverifiable input yields nulls. */
   read(caller: CallerIdentity | undefined): { name: string | null; projectName: string | null } {
+    if (caller?.kind === "mcode" || caller?.kind === "claude") {
+      const { name, projectName } = this.native.read(caller);
+      return { name, projectName };
+    }
     if (caller?.kind !== "codex" || !caller.session_id || !caller.data_root
       || !path.isAbsolute(caller.data_root) || !SESSION_ID_PATTERN.test(caller.session_id))
       return { name: null, projectName: null };

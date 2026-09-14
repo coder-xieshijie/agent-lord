@@ -46,7 +46,14 @@ export function resolveInvocation(
       )
     )
       throw usageError("unknown invocation.caller field");
-    const kind = id(c.kind, "caller.kind");
+    const rawKind = id(c.kind, "caller.kind");
+    const aliases = new Map([
+      ["codex-cli", "codex"],
+      ["claude-cli", "claude"],
+      ["claude-code", "claude"],
+      ["mcode-cli", "mcode"],
+    ]);
+    const kind = aliases.get(rawKind ?? "") ?? rawKind;
     if (!kind) throw usageError("invocation.caller.kind is required");
     const session = id(c.session_id, "caller.session_id");
     const turn = id(c.turn_id, "caller.turn_id");
@@ -61,7 +68,27 @@ export function resolveInvocation(
       turn_id: turn,
       identity_source: session ? "caller-declared" : "unavailable",
     };
-    if (kind === "codex" && root) caller.data_root = path.resolve(root);
+    if (root) caller.data_root = path.resolve(root);
+  } else if (
+    env.AGENT_LORD_CALLER_KIND ||
+    env.AGENT_LORD_CALLER_SESSION_ID ||
+    env.AGENT_LORD_CALLER_TURN_ID ||
+    env.AGENT_LORD_CALLER_DATA_ROOT
+  ) {
+    // An explicit CLI binding takes precedence over inherited host context.
+    caller = resolveInvocation(
+      {
+        caller: {
+          kind: env.AGENT_LORD_CALLER_KIND,
+          session_id: env.AGENT_LORD_CALLER_SESSION_ID,
+          turn_id: env.AGENT_LORD_CALLER_TURN_ID,
+          data_root: env.AGENT_LORD_CALLER_DATA_ROOT,
+        },
+      },
+      false,
+      {},
+    ).caller;
+    if (caller.session_id) caller.identity_source = "runtime-env";
   } else {
     const session = env.CODEX_THREAD_ID || env.CODEX_SESSION_ID;
     caller =
