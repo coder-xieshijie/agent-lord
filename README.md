@@ -104,7 +104,7 @@ Task state lives in `~/.codex/state/agent-lord`. Set `AGENT_LORD_STATE_DIR` to u
 
 ## Workflows and boundaries
 
-The Skill includes a [cross-review workflow](references/pipelines/cross-review.md) and a [handoff workflow](references/pipelines/handoff.md). A handoff transfers a sanitized context packet into a new CLI session and records its lineage; it does not migrate a native session. Both workflows share the bundled [explain-as-fool rules](references/explain-as-fool.md) for user-facing explanations and reports.
+The Skill includes a [cross-review workflow](references/pipelines/cross-review.md), a [plan-to-implement workflow](references/pipelines/plan-to-implement.md), and a [handoff workflow](references/pipelines/handoff.md). Plan-to-implement turns one implementation plan into a validated module plan, dispatches every dependency-satisfied module concurrently with no worker cap, and closes with a single integration CLI that merges, verifies, and opens one MR per repository. A handoff transfers a sanitized context packet into a new CLI session and records its lineage; it does not migrate a native session. Both workflows share the bundled [explain-as-fool rules](references/explain-as-fool.md) for user-facing explanations and reports.
 
 A task has one saved endpoint and at most one in-flight operation. Pending requests do not steer a running CLI, and registering a request does not start it. Recovery follows the provider's documented rules and bounded budgets.
 

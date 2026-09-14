@@ -229,6 +229,8 @@ export interface Envelope extends Data {
     | "CHECKPOINT_ACTIONABLE"
     | "CHECKPOINT_QUIET"
     | "RUN_RECORD"
+    | "PLAN_VALID"
+    | "PLAN_RECORD"
     | "REQUEST_RECORD"
     | "REQUEST_LIST"
     | "REQUEST_PENDING";

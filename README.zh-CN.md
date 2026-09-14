@@ -102,7 +102,7 @@ flowchart LR
 
 ## 工作流与能力边界
 
-Skill 内置[交叉审查流程](references/pipelines/cross-review.md)和[交接流程](references/pipelines/handoff.md)。交接会把经过脱敏的上下文包传给一个新的 CLI 会话，并记录来源关系，不会迁移原生会话。两个流程共用内置的 [explain-as-fool 规则](references/explain-as-fool.md)撰写面向用户的解释和报告。
+Skill 内置[交叉审查流程](references/pipelines/cross-review.md)、[计划到实现流程](references/pipelines/plan-to-implement.md)和[交接流程](references/pipelines/handoff.md)。计划到实现流程把一份实现计划转成经过校验的模块计划，把所有依赖就绪的模块并发派发（不设 worker 数量上限），最后由单个集成 CLI 合并、验证并为每个仓库开一个 MR。交接会把经过脱敏的上下文包传给一个新的 CLI 会话，并记录来源关系，不会迁移原生会话。两个流程共用内置的 [explain-as-fool 规则](references/explain-as-fool.md)撰写面向用户的解释和报告。
 
 每个任务绑定一个保存的执行端，同一时间最多运行一个操作。待处理请求不会向运行中的 CLI 插入指令，登记请求也不会自动启动它。恢复遵循各执行端的明确规则和次数上限。
 

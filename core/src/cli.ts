@@ -2,6 +2,7 @@
 import { pathToFileURL } from "node:url";
 import { AgentLord } from "./engine.js";
 import { TaskSets } from "./task-sets.js";
+import { PlanRuns, planValidationEnvelope } from "./plan.js";
 import { RequestInbox } from "./requests.js";
 import { retryResultInvalid } from "./invalid-retry.js";
 import { NATIVE_TERMINALS, openTaskTerminal } from "./terminal.js";
@@ -131,6 +132,55 @@ export const COMMANDS: Record<string, CommandSpec> = {
     strings: ["run-id", "receipt"],
     required: ["run-id", "receipt"],
   },
+  "plan-validate": {
+    description:
+      "Validate an implementation-plan-v1 file without creating a run",
+    strings: ["plan-file"],
+    required: ["plan-file"],
+  },
+  "plan-create": {
+    description: "Freeze a validated module plan into a durable plan run",
+    strings: ["run-id", "plan-file"],
+    required: ["run-id", "plan-file"],
+  },
+  "plan-status": {
+    description:
+      "Read the frozen plan, the uncapped ready set, barriers, and the journal",
+    strings: ["run-id"],
+    required: ["run-id"],
+  },
+  "plan-dispatch": {
+    description: "Record one module endpoint against the dependency barrier",
+    strings: ["run-id", "module-id", "task-id", "provider", "model"],
+    required: ["run-id", "module-id", "task-id"],
+  },
+  "plan-deliver": {
+    description: "Record one module's verified local delivery or failure",
+    strings: ["run-id", "module-id", "state", "commit-sha", "note"],
+    required: ["run-id", "module-id", "state"],
+    choices: { state: ["delivered", "failed"] },
+  },
+  "plan-reset": {
+    description: "Return a failed module to pending for a replacement endpoint",
+    strings: ["run-id", "module-id", "reason"],
+    required: ["run-id", "module-id"],
+  },
+  "plan-integrate": {
+    description:
+      "Open the single final integration endpoint after every module delivered",
+    strings: ["run-id", "task-id", "provider", "model"],
+    required: ["run-id", "task-id"],
+  },
+  "plan-merge-request": {
+    description: "Record the one merge request for one plan repository",
+    strings: ["run-id", "repo", "mr-url", "head-sha"],
+    required: ["run-id", "repo", "mr-url"],
+  },
+  "plan-report": {
+    description: "Close the run with a non-empty process report",
+    strings: ["run-id", "report-file"],
+    required: ["run-id", "report-file"],
+  },
   checkpoint: {
     description: "Bounded foreground supervision; quiet output exits 124",
     strings: ["run-id"],
@@ -227,6 +277,14 @@ export const COMMANDS: Record<string, CommandSpec> = {
     choices: { terminal: NATIVE_TERMINALS },
   },
 };
+function parsePlanFile(file: string): unknown {
+  try {
+    return parseJson(inputText(file));
+  } catch (error) {
+    if (error instanceof AgentLordError) throw error;
+    throw usageError("plan-file must contain valid JSON");
+  }
+}
 export async function main(
   argv = process.argv.slice(2),
   write: (value: string) => void = (value) => process.stdout.write(value),
@@ -338,7 +396,60 @@ export async function main(
           seconds,
           v["starting-task-id"] as string[] | undefined,
         );
-    } else if (command === "request-add") {
+    } else if (command === "plan-validate")
+      result = planValidationEnvelope(parsePlanFile(get("plan-file")));
+    else if (command === "plan-create")
+      result = new PlanRuns(lord).create(
+        get("run-id"),
+        parsePlanFile(get("plan-file")),
+      );
+    else if (command === "plan-status")
+      result = new PlanRuns(lord).status(get("run-id"));
+    else if (command === "plan-dispatch")
+      result = new PlanRuns(lord).dispatch(
+        get("run-id"),
+        get("module-id"),
+        get("task-id"),
+        {
+          provider: valueString(v, "provider"),
+          model: valueString(v, "model"),
+        },
+      );
+    else if (command === "plan-deliver")
+      result = new PlanRuns(lord).deliver(
+        get("run-id"),
+        get("module-id"),
+        get("state") as "delivered" | "failed",
+        {
+          commit_sha: valueString(v, "commit-sha"),
+          note: valueString(v, "note"),
+        },
+      );
+    else if (command === "plan-reset")
+      result = new PlanRuns(lord).reset(
+        get("run-id"),
+        get("module-id"),
+        valueString(v, "reason") ?? null,
+      );
+    else if (command === "plan-integrate")
+      result = new PlanRuns(lord).integrate(get("run-id"), get("task-id"), {
+        provider: valueString(v, "provider"),
+        model: valueString(v, "model"),
+      });
+    else if (command === "plan-merge-request")
+      result = new PlanRuns(lord).mergeRequest(
+        get("run-id"),
+        get("repo"),
+        get("mr-url"),
+        valueString(v, "head-sha") ?? null,
+      );
+    else if (command === "plan-report")
+      result = new PlanRuns(lord).report(
+        get("run-id"),
+        get("report-file"),
+        inputText(get("report-file")),
+      );
+    else if (command === "request-add") {
       const {
         request_id: _id,
         intent: _intent,

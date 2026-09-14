@@ -115,6 +115,29 @@ A terminal actionable result includes a durable `receipt`. Returning it does **n
 
 `run-status` reads current operation/delivery states; it never consumes a result. `all_terminal` and `all_results_acknowledged` do not imply success or semantic acceptance: failed results can also be acknowledged. A fully acknowledged terminal set returns quiet immediately instead of waiting out the window. Existing task-ID checkpoints retain their snapshot behavior. Keep provider controller handles until collected; task sets do not replace host process handles or recovery decisions.
 
+## Durable plan runs
+
+A plan run holds the frozen module plan and barrier state for the [plan-to-implement pipeline](pipelines/plan-to-implement.md) under the private state directory's `plan-runs/`. Like task sets it never dispatches: it validates the plan, computes the ready set, refuses a dispatch that would break a barrier, and journals what happened.
+
+```sh
+node core/dist/cli.js plan-validate --plan-file /tmp/run/plan.json
+node core/dist/cli.js plan-create --run-id feature-x --plan-file /tmp/run/plan.json
+node core/dist/cli.js plan-status --run-id feature-x
+node core/dist/cli.js plan-dispatch --run-id feature-x --module-id auth-core --task-id feature-x-auth-core
+node core/dist/cli.js plan-deliver --run-id feature-x --module-id auth-core --state delivered --commit-sha <sha>
+node core/dist/cli.js plan-integrate --run-id feature-x --task-id feature-x-integrator
+node core/dist/cli.js plan-merge-request --run-id feature-x --repo /path/repo --mr-url <url>
+node core/dist/cli.js plan-report --run-id feature-x --report-file /tmp/run/report.md
+```
+
+`plan-validate` checks an [implementation-plan-v1](../schemas/implementation-plan-v1.schema.json) document and returns `PLAN_INVALID` with the offending detail. `plan-create` freezes it; replaying the identical plan is idempotent and keeps recorded progress, while a changed plan under the same `run_id` returns `RUN_EXISTS`.
+
+`plan-status` returns every module's state, the complete `ready` set, remaining blockers, integration state, and the journal. The ready set has no concurrency cap — it lists every pending module whose dependencies are all delivered, and workspace leases remain the only limit.
+
+Barriers are enforced, not advisory. `plan-dispatch` rejects unmet dependencies, a non-pending module, and a `task_id` already bound to another module; it also binds the endpoint to the same `run_id` task set, so `checkpoint --run-id` and the observer cover the whole pipeline. `plan-deliver --state delivered` requires the local commit SHA that unlocks downstream modules. `plan-reset` returns a failed module to pending for a replacement endpoint and keeps both attempts in the journal. `plan-integrate` opens the single final integrator only after every module is delivered, and a second distinct integrator task is refused. `plan-merge-request` keeps one MR URL per repository and returns `MR_CONFLICT` for a second. `plan-report` closes the run only with a non-empty report and an MR recorded for every declared repository.
+
+The journal records shareable decisions, actions, and results — plan digest, module dispatch and provider identity, dependency waits, delivery commits, failures and resets, integration, MRs, and the closing report digest. It stores no hidden reasoning or raw provider logs.
+
 ## `check` versus `checkpoint`
 
 The two commands are not interchangeable:
