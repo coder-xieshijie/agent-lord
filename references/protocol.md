@@ -117,26 +117,40 @@ A terminal actionable result includes a durable `receipt`. Returning it does **n
 
 ## Durable plan runs
 
-A plan run holds the frozen module plan and barrier state for the [plan-to-implement pipeline](pipelines/plan-to-implement.md) under the private state directory's `plan-runs/`. Like task sets it never dispatches: it validates the plan, computes the ready set, refuses a dispatch that would break a barrier, and journals what happened.
+A plan run holds the frozen module plan and barrier state for the [plan-to-implement pipeline](pipelines/plan-to-implement.md) under the private state directory's `plan-runs/`. Like task sets it never dispatches: it accepts a plan, computes the ready set, refuses a transition that would break a barrier, and journals what happened.
 
 ```sh
 node core/dist/cli.js plan-validate --plan-file /tmp/run/plan.json
-node core/dist/cli.js plan-create --run-id feature-x --plan-file /tmp/run/plan.json
+node core/dist/cli.js plan-create --run-id feature-x --plan-file /tmp/run/plan.json --planner-task-id feature-x-planner
 node core/dist/cli.js plan-status --run-id feature-x
 node core/dist/cli.js plan-dispatch --run-id feature-x --module-id auth-core --task-id feature-x-auth-core
-node core/dist/cli.js plan-deliver --run-id feature-x --module-id auth-core --state delivered --commit-sha <sha>
+node core/dist/cli.js plan-deliver --run-id feature-x --module-id auth-core --state delivered
 node core/dist/cli.js plan-integrate --run-id feature-x --task-id feature-x-integrator
-node core/dist/cli.js plan-merge-request --run-id feature-x --repo /path/repo --mr-url <url>
+node core/dist/cli.js plan-merge-request --run-id feature-x --repo /path/repo --mr-url <url> --head-sha <sha>
 node core/dist/cli.js plan-report --run-id feature-x --report-file /tmp/run/report.md
 ```
 
-`plan-validate` checks an [implementation-plan-v1](../schemas/implementation-plan-v1.schema.json) document and returns `PLAN_INVALID` with the offending detail. `plan-create` freezes it; replaying the identical plan is idempotent and keeps recorded progress, while a changed plan under the same `run_id` returns `RUN_EXISTS`.
+`plan-validate` checks an [implementation-plan-v1](../schemas/implementation-plan-v1.schema.json) document and returns `PLAN_INVALID` with the offending detail. It is a pre-check and creates nothing.
 
-`plan-status` returns every module's state, the complete `ready` set, remaining blockers, integration state, and the journal. The ready set has no concurrency cap — it lists every pending module whose dependencies are all delivered, and workspace leases remain the only limit.
+**Completion is verified against endpoint records.** `plan-create` requires a successful planner task whose verified delivery files include the plan file, so a run cannot start from an arbitrary JSON document. `plan-deliver --state delivered` requires the module's task to exist, its current operation to have succeeded, and its declared delivery to be verified with a commit; that verified commit is adopted, and a disagreeing `--commit-sha` is rejected. Because the task's *current* operation is used, an older success never covers a failed retry. `plan-merge-request` and `plan-report` require the integrator's current operation to have succeeded. Failures return `ENDPOINT_UNVERIFIED` with the task, operation, and observed status.
 
-Barriers are enforced, not advisory. `plan-dispatch` rejects unmet dependencies, a non-pending module, and a `task_id` already bound to another module; it also binds the endpoint to the same `run_id` task set, so `checkpoint --run-id` and the observer cover the whole pipeline. `plan-deliver --state delivered` requires the local commit SHA that unlocks downstream modules. `plan-reset` returns a failed module to pending for a replacement endpoint and keeps both attempts in the journal. `plan-integrate` opens the single final integrator only after every module is delivered, and a second distinct integrator task is refused. `plan-merge-request` keeps one MR URL per repository and returns `MR_CONFLICT` for a second. `plan-report` closes the run only with a non-empty report and an MR recorded for every declared repository.
+`plan-status` returns every module's state, the complete `ready` set, remaining blockers, integration state with its claimed workspaces, the stored report, live claims, and the journal. The ready set has no concurrency cap — it lists every pending module whose dependencies are all delivered, and workspace leases remain the only limit.
 
-The journal records shareable decisions, actions, and results — plan digest, module dispatch and provider identity, dependency waits, delivery commits, failures and resets, integration, MRs, and the closing report digest. It stores no hidden reasoning or raw provider logs.
+Barriers are enforced, not advisory. `plan-dispatch` rejects unmet dependencies, a non-pending module, and a `task_id` already bound to another module; it binds the endpoint to the same `run_id` task set, so `checkpoint --run-id` and the observer cover the whole pipeline. A `task_id` may be bound before its endpoint exists, which is why delivery is where the endpoint is verified. `plan-reset` returns a failed module to pending for a replacement endpoint and keeps both attempts in the journal. `plan-integrate` opens the single final integrator only after every module is delivered, and a second distinct integrator task is refused. `plan-merge-request` verifies `--head-sha` against the repository's real local delivery-branch head, and keeps one MR URL per repository, returning `MR_CONFLICT` for a second. `plan-integration-reset` releases the run's claims and allows a replacement integrator.
+
+Replaying `plan-create` with the same plan and planner is idempotent and keeps recorded progress; a changed plan or a different planner under the same `run_id` returns `RUN_EXISTS`.
+
+`plan-report` closes the run only with a non-empty report and an MR recorded for every declared repository. It copies the report into `plan-reports/<run_id>.md` inside the state directory and records `canonical_path`, `bytes` and `sha256`, so the run keeps a readable copy after the caller's temporary file is gone; `plan-status` also reports whether that file is still `available`. Re-submitting an identical report is idempotent; a different report for a closed run returns `REPORT_CONFLICT`.
+
+The journal records shareable decisions, actions, and results — planner identity and plan digest, module dispatch and provider identity, dependency waits, verified delivery commits, failures and resets, integration with its claimed workspaces, MRs and the heads they were checked against, and the closing report digest. It stores no hidden reasoning or raw provider logs.
+
+The runtime verifies local evidence only. It cannot confirm that a recorded MR URL exists on a remote host; that remains the integrator's reported outcome.
+
+## Durable workspace claims
+
+A workspace claim is a durable reservation of one repository checkout branch by one task, stored in the state directory's `workspace-claims/`. Per-operation leases and the unfenced-operation scan already exclude a second writer, but both are bound to a single `op.target`. A claim expresses the same exclusion independently of any one operation, so one task can own the delivery worktree of several repositories at once — which is what lets the plan-to-implement pipeline run a single integrator across repositories without giving it unleased write access.
+
+Claims are created by `plan-integrate` and released by `plan-report` or `plan-integration-reset`. Any writable `start`, `turn`, `handoff`, or recovery whose worktree identity, or whose repository and checkout branch, matches a claim held by a *different* task fails with a retryable `WORKSPACE_CLAIM_CONFLICT` naming the owning task and run. The claim owner is never blocked by its own claim, and read-only operations are unaffected. No other start/turn behavior changes: a run with no claims behaves exactly as before.
 
 ## `check` versus `checkpoint`
 

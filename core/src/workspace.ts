@@ -26,6 +26,7 @@ import {
   sharedLocksSupported,
   validateIdentifier,
 } from "./state.js";
+import { claimConflictError, conflictingClaim } from "./workspace-claims.js";
 export function git(
   repository: string,
   args: string[],
@@ -365,6 +366,7 @@ export class WorkspaceManager {
     readOnly: boolean,
     workspace: Workspace,
     exclude?: string,
+    owner?: string,
   ): Lease {
     const identity = targetIdentity(target);
     const leases: Lease[] = [];
@@ -384,6 +386,19 @@ export class WorkspaceManager {
       });
     try {
       if (readOnly && !sharedLocksSupported()) return { release };
+      if (!readOnly) {
+        const branch = workspace.workspace_branch ?? workspace.source_branch;
+        const claim = conflictingClaim(
+          this.store.root,
+          owner,
+          identity,
+          workspace.repository
+            ? repositoryIdentity(workspace.repository)
+            : null,
+          branch ?? null,
+        );
+        if (claim) throw claimConflictError(claim);
+      }
       try {
         leases.push(
           recordLock(

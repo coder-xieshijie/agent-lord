@@ -139,9 +139,10 @@ export const COMMANDS: Record<string, CommandSpec> = {
     required: ["plan-file"],
   },
   "plan-create": {
-    description: "Freeze a validated module plan into a durable plan run",
-    strings: ["run-id", "plan-file"],
-    required: ["run-id", "plan-file"],
+    description:
+      "Accept a verified planner endpoint's module plan into a durable plan run",
+    strings: ["run-id", "plan-file", "planner-task-id"],
+    required: ["run-id", "plan-file", "planner-task-id"],
   },
   "plan-status": {
     description:
@@ -167,14 +168,20 @@ export const COMMANDS: Record<string, CommandSpec> = {
   },
   "plan-integrate": {
     description:
-      "Open the single final integration endpoint after every module delivered",
-    strings: ["run-id", "task-id", "provider", "model"],
+      "Open the single final integration endpoint and claim every repository delivery worktree",
+    strings: ["run-id", "task-id", "provider", "model", "worktree-root"],
     required: ["run-id", "task-id"],
+  },
+  "plan-integration-reset": {
+    description:
+      "Release this run's workspace claims and allow a replacement integrator",
+    strings: ["run-id", "reason"],
+    required: ["run-id"],
   },
   "plan-merge-request": {
     description: "Record the one merge request for one plan repository",
     strings: ["run-id", "repo", "mr-url", "head-sha"],
-    required: ["run-id", "repo", "mr-url"],
+    required: ["run-id", "repo", "mr-url", "head-sha"],
   },
   "plan-report": {
     description: "Close the run with a non-empty process report",
@@ -401,7 +408,8 @@ export async function main(
     else if (command === "plan-create")
       result = new PlanRuns(lord).create(
         get("run-id"),
-        parsePlanFile(get("plan-file")),
+        get("plan-file"),
+        get("planner-task-id"),
       );
     else if (command === "plan-status")
       result = new PlanRuns(lord).status(get("run-id"));
@@ -435,13 +443,19 @@ export async function main(
       result = new PlanRuns(lord).integrate(get("run-id"), get("task-id"), {
         provider: valueString(v, "provider"),
         model: valueString(v, "model"),
+        worktree_root: valueString(v, "worktree-root"),
       });
+    else if (command === "plan-integration-reset")
+      result = new PlanRuns(lord).integrationReset(
+        get("run-id"),
+        valueString(v, "reason") ?? null,
+      );
     else if (command === "plan-merge-request")
       result = new PlanRuns(lord).mergeRequest(
         get("run-id"),
         get("repo"),
         get("mr-url"),
-        valueString(v, "head-sha") ?? null,
+        get("head-sha"),
       );
     else if (command === "plan-report")
       result = new PlanRuns(lord).report(
