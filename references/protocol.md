@@ -57,6 +57,32 @@ Dispatch is serialized by a per-task filesystem lock. The journal is written bef
 
 普通 operation envelope 同时带 `provider_return_code`（未记录则 null）与 `timing.created_at_ms`、`timing.completed_at_ms`。`response.read_at_ms` 是脚本完成读取的时刻，不能替代宿主真正收到结果的时刻。观察页分别展示执行端结束、产物发布、主调度收到结果、主调度结束；缺少任一时间点时不计算对应耗时。收尾使用一次终态 envelope 和正文读取，复用已绑定的观察页，收取尚未回收的控制器句柄并清理私有输入，不再增加浏览器核验或重复状态查询。
 
+## Declared input preflight
+
+`start`, `turn`, and `request-add` accept repeatable `--require-input <workspace-relative-file>`. For repository-managed tasks, checks run against the prepared checkout. A declared path must resolve to a readable, nonempty regular file inside that workspace; missing, empty, unreadable, directory, and escaping paths prevent provider launch. `INPUT_INCOMPLETE` lists file-level issues. Omit this option when there are no required local files. No document topic, writing length, implementation choice, or extra review step is imposed.
+
+Successful dispatch records `input_evidence` (path, byte count, SHA-256) in the operation and envelope. These are historical receipts, not immutable-file restrictions: a new explicit turn checks its declared inputs afresh. Same-start idempotency includes the declared path set; retrying the same start does not revalidate or relaunch a completed operation. `recover` retains the parent's original input receipt as history and lets the CLI inspect saved work. Pending requests check inputs when dispatched, not when registered. Input bytes are not copied into Agent Lord state or automatically injected into the prompt; the caller supplies relevant paths/context to the CLI.
+
+## Persistent task sets
+
+Task sets hold caller-selected membership and received-result acknowledgements under the private state directory's `task-sets/`. They are passive: no automatic dispatch, graph expansion, content review, or Git integration.
+
+```sh
+node core/dist/cli.js run-create --run-id book --task-id chapter-1 --task-id chapter-2
+node core/dist/cli.js checkpoint --run-id book --seconds 120 --include-response
+# After receiving and processing a terminal actionable item's result:
+node core/dist/cli.js run-ack --run-id book --receipt <receipt-from-that-item>
+node core/dist/cli.js run-status --run-id book
+# Explicitly add a new assignment, then dispatch it through the usual start command:
+node core/dist/cli.js run-add --run-id book --task-id chapter-3
+```
+
+Registration may precede dispatch. Unobserved members appear as `not_observed`; they are not silently marked complete or failed. Repeating `run-create` with identical members is idempotent; use `run-add` for additions. `--run-id` is mutually exclusive with explicit `--task-id` / `--starting-task-id` checkpoint selectors. Membership for a running checkpoint is fixed at entry; additions join the next checkpoint.
+
+A terminal actionable result includes a durable `receipt`. Returning it does **not** consume the result. After a caller restart, an unacknowledged result is delivered again. `run-ack` is idempotent and accepts only receipts already issued by that set. Acknowledgement suppresses that exact operation/result on subsequent checkpoints, while other tasks remain supervised. A later turn, recovery operation, or changed terminal delivery/artifact/error produces a new receipt. Pending host actions are never suppressed by terminal acknowledgements. Receipt writes use the existing state lock and atomic-file primitives; concurrent readers may see duplicates, so this is at-least-once delivery with explicit acknowledgement, not exactly-once execution.
+
+`run-status` reads current operation/delivery states; it never consumes a result. `all_terminal` and `all_results_acknowledged` do not imply success or semantic acceptance: failed results can also be acknowledged. A fully acknowledged terminal set returns quiet immediately instead of waiting out the window. Existing task-ID checkpoints retain their snapshot behavior. Keep provider controller handles until collected; task sets do not replace host process handles or recovery decisions.
+
 ## `check` versus `checkpoint`
 
 The two commands are not interchangeable:
@@ -295,6 +321,8 @@ MCode checkpoint recovery stops at the existing Run boundary. For a verified tra
 
 New MCode tasks freeze `config.providers.mcode-cli.same_session_continuations` (default 2, range 0–5) as `contract.continuation_limit`. Existing contracts without the field retain a zero budget. Each recovery creates a new `turn` operation on the same saved Session with a short continuation instruction to inspect existing work and finish only remaining requirements; it never replays the original prompt. The child records parent/root operation and attempt/limit, while the failed parent is immutable. Repeated or concurrent recovery of that parent returns the same child. Each failed continuation spends the same chain budget. The command rechecks the frozen contract, source and write leases; only the latest failed operation can create a child. A normal user-requested `turn` starts a new logical chain.
 
+When that verified recoverable error contains `stream ended before message_stop`, the continuation adds a short advisory: if a large write was interrupted, inspect saved work and consider smaller writes or incremental edits. The CLI chooses the method and chunk size. This hint uses the existing recovery command, Session, and budget; it adds no interruption of healthy runs, fixed output limits, or automatic task decomposition. Other failures retain the ordinary continuation prompt.
+
 ## Scripted Claude RESULT_INVALID retry
 
 `retry-invalid --task-id <id> --operation-id <failed-id>` is the single control-plane entry for the bounded Claude `RESULT_INVALID` retry. The caller still invokes it explicitly per attempt; the command owns all budget, fingerprint, and lineage bookkeeping, so no second hand-maintained ledger exists.
@@ -342,3 +370,7 @@ A `codex.read` whose result is not ready yet is not an error either: `accept` ke
 App routing is independent of the CLI session namespace. Never migrate an existing `codex-app` task handle to `codex-cli` implicitly.
 
 `config/providers.json` owns provider capabilities, Claude default-resolution and child-environment policy, plus checkpoint, stall, termination grace, progress poll, dead-process grace, and lock retry constants. Dynamic facts such as `hostId`, PID, process group, Session/Turn/Run, controller lease/launch count, recovery marker, operation state, and observed model never belong in configuration.
+
+## MCode tool phase display
+
+Core progress and Observer use the same schema-v1 tool state mapping. Observed states 4/5 remain pending preparation/ready states, 1 is executing, 2 completed, and 3 or an explicit error is failed. Unknown values stay unclassified until a terminal event; they are never inferred to be successful. Successful MCode updates explicitly clear stale error text. The Observer separates parameter-preparation duration (first observed state 4 to first state 1) from execution duration (first state 1 to terminal success/failure), using provider event timestamps. Missing or invalid timestamps leave a duration absent rather than guessing. A provider stream ending before tool execution is not evidence of a slow filesystem write.

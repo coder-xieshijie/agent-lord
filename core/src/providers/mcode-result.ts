@@ -1,3 +1,4 @@
+import { mcodeToolPhase, type McodeToolPhase } from "../mcode-tools.js";
 import {
   type Data,
   type Operation,
@@ -371,6 +372,7 @@ export function validateMcodeOutput(
 export class McodeProgress {
   private tools = new Map<string, string>();
   private lastTool: string | null = null;
+  private phases = new Map<string, McodeToolPhase>();
   observe(event: Data): Data {
     const kind = String(event.type);
     const item = object(event.item);
@@ -382,9 +384,18 @@ export class McodeProgress {
         raw && /^[A-Za-z][A-Za-z0-9_.:-]{0,79}$/.test(raw) ? raw : "tool";
       this.lastTool = name;
       if (id) {
-        if (kind === "item.completed" || tool.status === 2 || tool.status === 3)
+        const phase = mcodeToolPhase(tool.status, kind, tool.error);
+        if (
+          kind === "item.completed" ||
+          phase === "completed" ||
+          phase === "failed"
+        ) {
           this.tools.delete(id);
-        else this.tools.set(id, name);
+          this.phases.delete(id);
+        } else {
+          this.tools.set(id, name);
+          this.phases.set(id, phase);
+        }
       }
     }
     let state = this.tools.size ? "tool_wait" : "progressing";
@@ -399,6 +410,7 @@ export class McodeProgress {
       state = "provider_wait";
     if (["turn.completed", "turn.failed", "exec.completed"].includes(kind)) {
       this.tools.clear();
+      this.phases.clear();
       state = kind === "turn.failed" ? "provider_failed" : "progressing";
       if (kind === "exec.completed")
         state =
@@ -412,6 +424,7 @@ export class McodeProgress {
       active_tool_count: this.tools.size,
       active_tools: [...new Set(this.tools.values())].sort().slice(0, 5),
       last_tool: this.lastTool,
+      active_tool_phases: [...new Set(this.phases.values())].sort(),
     };
   }
 }

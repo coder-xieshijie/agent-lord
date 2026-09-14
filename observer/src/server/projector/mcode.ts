@@ -2,9 +2,11 @@
  *
  * Verified fields (schemaVersion 1): sequence, timestampMs, type,
  * item.{id,type}, agent_message.contentDelta, tool_call.toolCall
- * {id,name,status(1=running,2=completed),input,output.content[].text,error}.
+ * {id,name,status(4=preparing,5=ready,1=running,2=completed,3=failed),
+ * input,output.content[].text,error}.
  */
 
+import { mcodeToolPhase, McodeToolTiming } from "@agent-lord/core/mcode-tools";
 import { toolInputText, toolOutputText, toolTitle } from "../sanitize.js";
 import { OpProjector } from "./common.js";
 
@@ -18,6 +20,7 @@ const LIFECYCLE: Record<string, string> = {
 };
 
 export class McodeProjector extends OpProjector {
+  private toolTimings = new Map<string, McodeToolTiming>();
   protected handleEvent(event: Record<string, unknown>): void {
     if (typeof event.sessionId === "string" && event.sessionId) {
       this.observedSessionId = event.sessionId;
@@ -76,18 +79,22 @@ export class McodeProjector extends OpProjector {
       const callRecord = call as Record<string, unknown>;
       const toolId =
         typeof callRecord.id === "string" ? callRecord.id : typeof record.id === "string" ? record.id : "tool";
-      const status = callRecord.status;
-      const failed =
-        callRecord.error !== undefined && callRecord.error !== null
-          ? true
-          : typeof status === "number" && status > 2;
+      const phase = mcodeToolPhase(callRecord.status, type, callRecord.error);
+      const failed = phase === "failed";
+      const unrecognized = type === "item.completed" && phase === "unknown";
+      const timing = this.toolTimings.get(toolId) ?? new McodeToolTiming();
+      this.toolTimings.set(toolId, timing);
       this.upsertTool(toolId, {
         name: typeof callRecord.name === "string" ? callRecord.name : undefined,
         title: toolTitle(callRecord.input),
         inputText: toolInputText(callRecord.input),
         outputText: toolOutputText(callRecord.output),
-        errorText: failed ? (toolOutputText(callRecord.error) ?? "工具失败") : undefined,
-        state: type === "item.completed" || status === 2 || failed ? (failed ? "error" : "completed") : "running",
+        errorText: failed
+          ? (toolOutputText(callRecord.error) ?? "工具失败")
+          : unrecognized ? "工具已结束，结果状态未识别" : null,
+        phase,
+        ...timing.observe(phase, tsMs),
+        state: failed || unrecognized ? "error" : phase === "completed" ? "completed" : "running",
         tsMs,
       });
       return;

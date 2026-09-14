@@ -91,6 +91,11 @@ export interface ErrorRecord {
   safe_recovery?: string;
   details?: Data;
 }
+export interface InputEvidence {
+  path: string;
+  bytes: number;
+  sha256: string;
+}
 export interface DeliveryRequirements {
   files: string[];
   require_commit: boolean;
@@ -155,6 +160,7 @@ export interface Operation extends Data {
   active_attempt?: Data | null;
   attempt_history?: Data[];
   delivery_requirements?: DeliveryRequirements | null;
+  input_evidence?: InputEvidence[];
   delivery?: Delivery;
   continuation?: Data;
   handoff?: Data;
@@ -222,6 +228,7 @@ export interface Envelope extends Data {
     | "NEEDS_DECISION"
     | "CHECKPOINT_ACTIONABLE"
     | "CHECKPOINT_QUIET"
+    | "RUN_RECORD"
     | "REQUEST_RECORD"
     | "REQUEST_LIST"
     | "REQUEST_PENDING";
@@ -273,6 +280,7 @@ export interface StartOptions {
   codex_environment?: "local" | "worktree";
   starting_branch?: string;
   required_files?: string[];
+  required_inputs?: string[];
   require_commit?: boolean;
   /** Set only by the request inbox, so the operation carries its origin. */
   request_id?: string;

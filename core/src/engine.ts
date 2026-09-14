@@ -65,6 +65,8 @@ import {
   verifyManagedAdvance,
 } from "./workspace.js";
 import { resolvePath } from "./paths.js";
+import { operationResultKey } from "./result-key.js";
+import { inspectInputs, sameInputs } from "./inputs.js";
 import { resolveInvocation } from "./invocation.js";
 import {
   deliveryRequirements,
@@ -407,6 +409,7 @@ export class AgentLord {
           object(object(op.handoff).packet).sha256 ===
             object(handoff.packet).sha256
         : equal(op.parallel_plan ?? {}, plan) &&
+          sameInputs(op, opts.required_inputs) &&
           sameDeliveryRequest(
             op,
             opts.required_files,
@@ -430,7 +433,12 @@ export class AgentLord {
     providerConfig(provider);
     const cli = provider !== "codex-app";
     const readOnly = Boolean(opts.read_only);
-    if (!cli && (opts.required_files?.length || opts.require_commit))
+    if (
+      !cli &&
+      (opts.required_files?.length ||
+        opts.require_commit ||
+        opts.required_inputs?.length)
+    )
       throw usageError(
         "delivery requirements apply only to local CLI providers",
       );
@@ -661,6 +669,7 @@ export class AgentLord {
             prepare!.release();
             prepare = undefined;
           }
+          const inputEvidence = inspectInputs(target!, opts.required_inputs);
           const id = this.operationId(taskId, "start");
           if (provider === "claude-cli")
             controller = recordLock(
@@ -692,6 +701,7 @@ export class AgentLord {
                 opts.required_files,
                 Boolean(opts.require_commit),
               ),
+              input_evidence: inputEvidence,
               resume: false,
             },
           );
@@ -954,7 +964,11 @@ export class AgentLord {
     message: string,
     opts: Pick<
       StartOptions,
-      "required_files" | "require_commit" | "invocation" | "request_id"
+      | "required_files"
+      | "required_inputs"
+      | "require_commit"
+      | "invocation"
+      | "request_id"
     > & {
       recovery_from?: string;
     } = {},
@@ -981,7 +995,12 @@ export class AgentLord {
         async () => {
           let task = this.store.task(taskId);
           const cli = task.provider !== "codex-app";
-          if (!cli && (opts.required_files?.length || opts.require_commit))
+          if (
+            !cli &&
+            (opts.required_files?.length ||
+              opts.require_commit ||
+              opts.required_inputs?.length)
+          )
             throw usageError(
               "delivery requirements apply only to local CLI providers",
             );
@@ -1020,6 +1039,7 @@ export class AgentLord {
           if (active) {
             if (
               active.message_sha256 === sha256(message) &&
+              sameInputs(active, opts.required_inputs) &&
               sameDeliveryRequest(
                 active,
                 opts.required_files,
@@ -1083,6 +1103,9 @@ export class AgentLord {
             contract.permission_mode,
             contract.continuation_limit ?? 0,
           );
+          const inputEvidence = opts.recovery_from
+            ? (this.store.operation(opts.recovery_from).input_evidence ?? [])
+            : inspectInputs(task.target, opts.required_inputs);
           const id = this.operationId(taskId, "turn");
           if (task.provider === "claude-cli")
             controller = recordLock(
@@ -1108,6 +1131,7 @@ export class AgentLord {
                 ? { controller_pid: process.pid, endpoint_id: task.endpoint_id }
                 : {}),
               parallel_plan: contract.parallel_plan ?? {},
+              input_evidence: inputEvidence,
               resume: true,
               ...(continuation ? { continuation } : {}),
               delivery_requirements: opts.recovery_from
@@ -1522,11 +1546,21 @@ export class AgentLord {
         "continuation cannot change the saved execution contract",
       );
     let plan: Data | null = null;
+    let recoveryHint = "";
     try {
       recoverMcode(parent);
     } catch (error) {
       if (!(error instanceof AgentLordError)) throw error;
       plan = this.mcodeContinuation(parent, error);
+      if (
+        plan &&
+        /stream ended before message_stop/i.test(
+          string(object(error.details.provider_error).message) ?? "",
+        )
+      ) {
+        recoveryHint =
+          "The previous provider response stream ended before its completion marker. If a large write was interrupted, consider smaller writes or incremental edits after checking what is already saved, so progress survives another interruption. Choose the tools, chunk sizes, and recovery approach yourself; no fixed size or implementation method is required.\n";
+      }
     }
     if (!plan)
       throw new AgentLordError(
@@ -1535,7 +1569,7 @@ export class AgentLord {
       );
     return [
       { ...plan, parent_operation_id: parentId },
-      `[agent-lord-continuation:${plan.root_operation_id}:${plan.attempt}]\nContinue the original task in this same session after the previous verified run ended with a transient provider failure. Inspect the existing conversation, current worktree, completed commands and any background work first. Preserve completed work and finish only the remaining authorized requirements. Do not repeat already completed actions. Return the final result and verification evidence.\n`,
+      `[agent-lord-continuation:${plan.root_operation_id}:${plan.attempt}]\nContinue the original task in this same session after the previous verified run ended with a transient provider failure. Inspect the existing conversation, current worktree, completed commands and any background work first. Preserve completed work and finish only the remaining authorized requirements. Do not repeat already completed actions. Return the final result and verification evidence.\n${recoveryHint}`,
     ];
   }
   private appObservation(op: Operation, fields: Data): Data {
@@ -2080,6 +2114,7 @@ export class AgentLord {
         checks: [],
       };
     if (op.continuation) result.continuation = op.continuation;
+    if (op.input_evidence?.length) result.input_evidence = op.input_evidence;
     if (op.error) result.error = op.error;
     if (records(op.observed.warnings).length)
       result.warnings = op.observed.warnings;
@@ -2739,6 +2774,7 @@ export class AgentLord {
     taskIds: string[] | undefined,
     seconds: number,
     startingIds?: string[],
+    acknowledged?: ReadonlySet<string>,
   ): Promise<[Envelope, boolean]> {
     if (!Number.isFinite(seconds) || seconds <= 0)
       throw usageError("checkpoint seconds must be greater than zero");
@@ -2771,9 +2807,16 @@ export class AgentLord {
         .latest(selected)
         .filter(
           (op) =>
-            TERMINAL_STATES.has(op.status) || scan.action(op.operation_id),
+            (TERMINAL_STATES.has(op.status) &&
+              !acknowledged?.has(operationResultKey(op))) ||
+            scan.action(op.operation_id),
         )
-        .map((op) => this.envelope(op, scan.action(op.operation_id), false));
+        .map((op) => ({
+          ...this.envelope(op, scan.action(op.operation_id), false),
+          ...(acknowledged && TERMINAL_STATES.has(op.status)
+            ? { result_key: operationResultKey(op) }
+            : {}),
+        }));
       return envelopes.length ? this.checkpointBatch(envelopes, active) : null;
     };
     let result = actionable();
@@ -2787,7 +2830,13 @@ export class AgentLord {
       }),
       true,
     ];
-    if (!selected.length) return quiet();
+    if (
+      !selected.length ||
+      (acknowledged &&
+        !active.length &&
+        scan.latest(selected).length === selected.length)
+    )
+      return quiet();
     const deadline = performance.now() + seconds * 1000;
     while (performance.now() < deadline) {
       scan.tick(selected);
@@ -2814,7 +2863,12 @@ export class AgentLord {
           if (!supervised.length) throw error;
           continue;
         }
-        if (envelope) supervised.push(envelope);
+        if (envelope) {
+          const current = this.store.operation(op.operation_id);
+          if (acknowledged && TERMINAL_STATES.has(current.status))
+            envelope.result_key = operationResultKey(current);
+          supervised.push(envelope);
+        }
       }
       if (supervised.length)
         return [report(this.checkpointBatch(supervised, active)), false];

@@ -7,7 +7,7 @@
   "properties": {
     "version": {"const": 1},
     "status": {
-      "enum": ["RUNNING", "ACTION_REQUIRED", "SUCCEEDED", "ERROR", "NEEDS_DECISION", "CHECKPOINT_ACTIONABLE", "CHECKPOINT_QUIET", "IDLE", "REQUEST_RECORD", "REQUEST_LIST", "REQUEST_PENDING"]
+      "enum": ["RUNNING", "ACTION_REQUIRED", "SUCCEEDED", "ERROR", "NEEDS_DECISION", "CHECKPOINT_ACTIONABLE", "CHECKPOINT_QUIET", "IDLE", "RUN_RECORD", "REQUEST_RECORD", "REQUEST_LIST", "REQUEST_PENDING"]
     },
     "task_id": {"type": "string"},
     "operation_id": {"type": "string"},
@@ -183,11 +183,26 @@
       }
     },
     "request": {"type": "object"},
+    "run": {
+      "type": "object",
+      "required": ["run_id", "task_ids", "tasks", "all_terminal", "all_results_acknowledged"],
+      "properties": {
+        "run_id": {"type": "string"},
+        "task_ids": {"type": "array", "items": {"type": "string"}},
+        "tasks": {"type": "array", "items": {"type": "object"}},
+        "all_terminal": {"type": "boolean"},
+        "all_results_acknowledged": {"type": "boolean"}
+      }
+    },
     "requests": {"type": "array", "items": {"type": "object"}},
     "counts": {"type": "object"},
     "pending_reason": {"$ref": "#/properties/error"}
   },
   "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "RUN_RECORD"}}},
+      "then": {"required": ["run"]}
+    },
     {
       "if": {"properties": {"status": {"const": "CHECKPOINT_ACTIONABLE"}}},
       "then": {"required": ["actionable", "active"]}

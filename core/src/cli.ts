@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { pathToFileURL } from "node:url";
 import { AgentLord } from "./engine.js";
+import { TaskSets } from "./task-sets.js";
 import { RequestInbox } from "./requests.js";
 import { retryResultInvalid } from "./invalid-retry.js";
 import { NATIVE_TERMINALS, openTaskTerminal } from "./terminal.js";
@@ -43,7 +44,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     ],
     booleans: ["require-commit", "read-only", "include-response"],
     integers: ["retry-attempts", "integration-order"],
-    multiple: ["require-file", "integration-worker"],
+    multiple: ["require-file", "require-input", "integration-worker"],
     required: ["task-id", "provider", "message-file"],
     choices: {
       provider: providers,
@@ -56,7 +57,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     description: "Continue the exact saved endpoint",
     strings: ["task-id", "message-file", "invocation-file"],
     booleans: ["require-commit", "include-response"],
-    multiple: ["require-file"],
+    multiple: ["require-file", "require-input"],
     required: ["task-id", "message-file"],
   },
   recover: {
@@ -108,8 +109,31 @@ export const COMMANDS: Record<string, CommandSpec> = {
     booleans: ["include-response"],
     required: ["task-id"],
   },
+  "run-create": {
+    description: "Persist a passive task set before or after dispatch",
+    strings: ["run-id"],
+    multiple: ["task-id"],
+    required: ["run-id", "task-id"],
+  },
+  "run-add": {
+    description: "Explicitly add members to a task set",
+    strings: ["run-id"],
+    multiple: ["task-id"],
+    required: ["run-id", "task-id"],
+  },
+  "run-status": {
+    description: "Read task and delivery states without consuming results",
+    strings: ["run-id"],
+    required: ["run-id"],
+  },
+  "run-ack": {
+    description: "Acknowledge a checkpoint receipt after receiving its result",
+    strings: ["run-id", "receipt"],
+    required: ["run-id", "receipt"],
+  },
   checkpoint: {
     description: "Bounded foreground supervision; quiet output exits 124",
+    strings: ["run-id"],
     multiple: ["task-id", "starting-task-id"],
     integers: ["seconds"],
     booleans: ["include-response"],
@@ -146,7 +170,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     ],
     booleans: ["require-commit", "read-only"],
     integers: ["retry-attempts", "integration-order"],
-    multiple: ["require-file", "integration-worker"],
+    multiple: ["require-file", "require-input", "integration-worker"],
     required: ["request-id", "intent", "task-id", "message-file"],
     choices: {
       intent: ["start", "turn"],
@@ -220,6 +244,7 @@ export async function main(
         {
           repo: "repository",
           "require-file": "required_files",
+          "require-input": "required_inputs",
           "integration-worker": "integration_workers",
         }[key] ?? key.replaceAll("-", "_"),
         value,
@@ -285,13 +310,35 @@ export async function main(
       }
       result = lord.accept(get("action-id"), value, Boolean(v["auto-read"]));
     } else if (command === "check") result = lord.check(get("task-id"));
-    else if (command === "checkpoint")
-      [result, quiet] = await lord.checkpoint(
-        v["task-id"] as string[] | undefined,
-        (v.seconds as number | undefined) ?? controlConfig().checkpoint_seconds,
-        v["starting-task-id"] as string[] | undefined,
+    else if (["run-create", "run-add"].includes(command))
+      result = new TaskSets(lord).create(
+        get("run-id"),
+        v["task-id"] as string[],
+        command === "run-add",
       );
-    else if (command === "request-add") {
+    else if (command === "run-status")
+      result = new TaskSets(lord).status(get("run-id"));
+    else if (command === "run-ack")
+      result = new TaskSets(lord).ack(get("run-id"), get("receipt"));
+    else if (command === "checkpoint") {
+      const seconds =
+        (v.seconds as number | undefined) ?? controlConfig().checkpoint_seconds;
+      if (v["run-id"]) {
+        if (v["task-id"] || v["starting-task-id"])
+          throw usageError(
+            "run-id cannot be combined with task-id or starting-task-id",
+          );
+        [result, quiet] = await new TaskSets(lord).checkpoint(
+          get("run-id"),
+          seconds,
+        );
+      } else
+        [result, quiet] = await lord.checkpoint(
+          v["task-id"] as string[] | undefined,
+          seconds,
+          v["starting-task-id"] as string[] | undefined,
+        );
+    } else if (command === "request-add") {
       const {
         request_id: _id,
         intent: _intent,

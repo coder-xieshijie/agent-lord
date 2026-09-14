@@ -8,6 +8,33 @@ import type { MessageItem, OmittedItem, ToolItem } from "../src/shared/types.js"
 const j = (value: unknown): string => JSON.stringify(value);
 
 describe("McodeProjector (fixture stream)", () => {
+  it("replays preparation, execution and success without stale errors and separates timings", () => {
+    const timeline = new Timeline();
+    const projector = new McodeProjector(timeline, "fixture-real-lifecycle");
+    for (const [status, ts] of [[4, 1000], [4, 225800], [5, 225803], [1, 225884], [2, 225935], [2, 225937]]) {
+      projector.handleLine(j({ type: status === 2 ? "item.completed" : "item.updated", timestampMs: ts, item: { type: "tool_call", toolCall: { id: "a", name: "write", status } } }));
+      const tool = timeline.snapshotItems()[0] as ToolItem;
+      expect(tool.errorText).toBeNull();
+      expect(tool.state).toBe(status === 2 ? "completed" : "running");
+    }
+    const tool = timeline.snapshotItems()[0] as ToolItem;
+    expect(tool.preparationMs).toBe(224884);
+    expect(tool.executionMs).toBe(51);
+  });
+  it("clears an explicit old error when the same tool reports success", () => {
+    const timeline = new Timeline();
+    const projector = new McodeProjector(timeline, "fixture-error-clear");
+    projector.handleLine(j({type:"item.updated",item:{type:"tool_call",toolCall:{id:"a",name:"write",status:3,error:{message:"old failure"}}}}));
+    projector.handleLine(j({type:"item.completed",item:{type:"tool_call",toolCall:{id:"a",name:"write",status:2}}}));
+    expect(timeline.snapshotItems()[0]).toMatchObject({state:"completed",errorText:null});
+  });
+  it("keeps unknown nonterminal statuses pending and real errors failed", () => {
+    const timeline = new Timeline(); const projector = new McodeProjector(timeline,"fixture-unknown");
+    projector.handleLine(j({type:"item.updated",item:{type:"tool_call",toolCall:{id:"a",name:"write",status:99}}}));
+    expect(timeline.snapshotItems()[0]).toMatchObject({state:"running",phase:"unknown"});
+    projector.handleLine(j({type:"item.completed",item:{type:"tool_call",toolCall:{id:"a",name:"write",status:3}}}));
+    expect(timeline.snapshotItems()[0]).toMatchObject({state:"error",phase:"failed"});
+  });
   it("honors completed tool status on updates and closes partial output at terminal failure", () => {
     const timeline = new Timeline();
     const projector = new McodeProjector(timeline, "fixture-terminal");

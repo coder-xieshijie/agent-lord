@@ -161,7 +161,7 @@ if (provider === "claude-cli") {
       result.error = {
         category: options.category ?? "runtime",
         code: "TEST",
-        message: "test failure",
+        message: options.errorMessage ?? "test failure",
         retryable: options.retryable === true,
       };
       event("turn.failed", { status, error: result.error, durationMs: 1 });

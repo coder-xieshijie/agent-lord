@@ -25,6 +25,8 @@ _Observer with synthetic example data. The current interface uses Chinese labels
 - **Continue saved sessions.** Follow-up turns use the task's existing endpoint and saved execution contract.
 - **Supervise running work.** Checkpoints watch selected tasks for completion, actionable errors, and provider-specific recovery opportunities.
 - **Coordinate independent tasks.** The main session controls dependencies and dispatch order; concurrent CLI tasks use separate worktrees with workspace and branch leases.
+- **Persist task sets.** Register selected task IDs, resume supervision after a caller restart, and explicitly acknowledge received results. See [task sets](references/protocol.md#persistent-task-sets).
+- **Check declared inputs.** Optional local-file preflight catches missing material before provider launch, while the CLI keeps control of its approach.
 - **Keep pending instructions.** A passive request inbox records work that cannot run yet. The caller explicitly dispatches it when ready.
 - **Inspect execution evidence.** The Observer shows requests, tool activity, results, and available model evidence. Missing evidence stays unknown.
 - **Check declared deliverables.** Verify that requested files exist and are non-empty, or that a new commit exists with a clean worktree. Content correctness and test results still need actual acceptance.
