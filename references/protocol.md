@@ -45,9 +45,41 @@ Dispatch is serialized by a per-task filesystem lock. The journal is written bef
 
 省略 `caller` 时，脚本从宿主的 `CODEX_THREAD_ID`（兼容 `CODEX_SESSION_ID`）、可选 `CODEX_TURN_ID` 和 `CODEX_HOME` 捕获来源；数据根默认 `~/.codex`。`identity_source: "runtime-env"` 表示宿主环境来源，不是密码学身份验证。显式 caller 标记为 `caller-declared`，不会借用当前宿主的 Session、Turn 或数据根；没有 Session 则标为 `unavailable`。不要从 prompt 或最近活跃会话猜测身份。
 
-`kind` 与非空 id 只允许 `[A-Za-z0-9][A-Za-z0-9._:-]*`，最多 160 字符；Turn 必须同时提供 Session。显式 `data_root` 必须是绝对路径，仅 Codex caller 保留它。输入不接受自行声称的 `identity_source` 或其他未知字段。调用者身份变量不会传入 provider 子进程，避免后续嵌套调用误认父 Session；子运行时应提供自己的身份，否则保持未知。
+`kind` 与非空 id 只允许 `[A-Za-z0-9][A-Za-z0-9._:-]*`，最多 160 字符；Turn 必须同时提供 Session。显式 `data_root` 必须是绝对路径，所有调度客户端均保留它。输入不接受自行声称的 `identity_source` 或其他未知字段。调用者身份变量不会传入 provider 子进程，避免后续嵌套调用误认父 Session；子运行时应提供自己的身份，否则保持未知。
 
-观察页按首次 operation 与当前 operation 分别显示最初调度者、本轮调用者，并按轮次展示原始请求和实际派发正文。Codex 生命周期读取只定位该数据根下唯一匹配的 Session 日志，并校验 `session_meta`；仅投影匹配 Turn 的开始、结束和精确 operation 成功回执时间。未观测、日志不支持、身份不匹配均显示未知，不把执行端结束当成主调度结束；宿主正文与推理内容不进入页面。`data_root` 只留在本地服务端。
+### CLI 调度身份与展示绑定
+
+支持 `caller.kind` 为 `codex`、`claude`、`mcode`；`codex-cli`、`claude-cli` / `claude-code`、`mcode-cli` 归一化为对应名称。这描述谁在调度，与被启动的 provider 无关。
+
+Claude Code 和 MCode 在每次 `--invocation-file` 中显式填写当前客户端提供的 Session 身份。数据根使用当前客户端实际配置的绝对目录：Codex 通常是 `~/.codex`，Claude Code 通常是 `~/.claude`，MCode 通常是 `~/.minimax`。JSON 中必须展开 `~`。例如：
+
+```json
+{
+  "trigger": "user_request",
+  "user_request": "用户本次的原始任务",
+  "caller": {
+    "kind": "mcode",
+    "session_id": "mvs_CURRENT_SESSION_ID",
+    "data_root": "/absolute/path/to/.minimax"
+  }
+}
+```
+
+Session 身份必须来自当前客户端上下文、明确匹配的运行时记录或客户端 hook；不能按工作目录、标题或最近更新时间挑一个会话。已知 Turn 时可传 `turn_id`；MCode 使用 ingress 的 turn id，Claude Code 使用对应用户输入记录的 uuid；不知道则省略，以操作创建时间推断并在页面标注。显式 caller 不借用宿主的其他身份字段。
+
+也可通过宿主集成在工具命令环境中设置 `AGENT_LORD_CALLER_KIND`、`AGENT_LORD_CALLER_SESSION_ID`、可选的 `AGENT_LORD_CALLER_TURN_ID`、`AGENT_LORD_CALLER_DATA_ROOT`。这是 Agent Lord 的集成契约，不声称 Claude/MCode 原生自动导出这些变量。优先级为显式 `caller` > 这组环境变量 > 原 Codex 自动识别。派发的子进程会清除这组父身份变量；根目录等客户端配置仍保留。历史 unknown 记录不自动回填。
+
+**所有客户端派发后均执行 observer 的 `preview:attach`，新增任务时合并本次任务集合并检查 `binding_verified`。** `start` 不会自动公开任务。只有用户明确要求不打开观察页时跳过。CLI 没有 Codex 宿主打开链接工具时，返回绑定后的本机链接即可；不因此省略绑定。
+
+### 调度会话元数据与生命周期
+
+观察页按首次 operation 与当前 operation 分别显示最初调度者、本轮调用者，并按轮次展示原始请求和实际派发正文。仅读取已绑定身份的数据根：
+
+- Codex Desktop / CLI：唯一匹配的 rollout，校验 `session_meta`，读取 Session 标题、项目、Turn 开始结束及结构化工具回执。
+- MCode：只读打开 `v2/sqlite/runtime-state.sqlite`，按精确 Session ID 读取 `local_runtime_sessions` 标题/项目及 `local_runtime_turn_ingress` 的回合开始结束。最多最近 1000 个回合；展示消息时间不是工具完成时间，因此不伪造回执时间。
+- Claude Code：只定位 `projects/*/<session-id>.jsonl`，排除 sidechain 和其他 Session 的历史。读取 `custom-title`（缺失时使用首条用户输入摘要）、cwd、用户输入 uuid 与 `system/turn_duration` 结束事件，以及工具结果中的结构化回执。仅有模型 `end_turn` 而没有客户端结束事件时，明确显示生命周期未完整观测；不把 hook 运行期间误报为已完成。
+
+未观测、日志不支持、身份不匹配均显示未知，不把执行端结束当成主调度结束。宿主正文除标题摘要外不投影，推理内容不进入页面；`data_root` 只留在本地服务端。
 
 ## Inline terminal response
 

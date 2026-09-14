@@ -117,7 +117,7 @@ describe("Hub ordering and incremental refresh", () => {
     }
     const hub = new Hub([taskId], root);
     hub.refresh();
-    const expected = { sessionId: "fixture-initial-caller", name: "规划调度时间线", projectName: null };
+    const expected = { kind: "codex", sessionId: "fixture-initial-caller", name: "规划调度时间线", projectName: null };
     expect(hub.overview()[0].caller?.session).toEqual(expected);
     expect(hub.snapshot(taskId)!.task.caller?.session).toEqual(expected);
     expect(JSON.stringify(hub.overview())).not.toContain(callerRoot);
@@ -148,7 +148,7 @@ describe("Hub ordering and incremental refresh", () => {
     // (first operation's caller) owns it; a later follow-up from another
     // session never moves it. Unverifiable metadata stays an honest null and
     // no data_root leaks.
-    expect(snapshot.task.caller?.session).toEqual({ sessionId: "caller-first", name: null, projectName: null });
+    expect(snapshot.task.caller?.session).toEqual({ kind: "codex", sessionId: "caller-first", name: null, projectName: null });
     expect(snapshot.task.execution).toMatchObject({ requestedModel: "test/fable#xhigh", actualModel: "test/fable", requestedVariant: "xhigh", actualVariant: "xhigh", actualEffort: null });
     expect(JSON.stringify(snapshot)).not.toContain("/private/not-for-web");
     const ids = snapshot.items.map((item) => item.id);

@@ -68,7 +68,7 @@ allowlist，显式传入时替换整个观察列表。使用自定义 state-dir 
 
 ## 派发后的任务绑定
 
-Codex Desktop 的调用方按 [Skill 主流程](../SKILL.md#deterministic-loop) 接入观察页。
+Codex Desktop、Codex CLI、Claude Code 与 MCode 的调用方均按 [Skill 主流程](../SKILL.md#deterministic-loop) 接入观察页。
 绑定沿用已派发的 `task_id`，使用 CLI 和认证 HTTP；不使用或依赖 Computer Use / CUA，
 也不以浏览器自动化作为失败后的兜底。
 
@@ -81,9 +81,10 @@ Codex Desktop 的调用方按 [Skill 主流程](../SKILL.md#deterministic-loop) 
 3. 返回 `binding_verified: true` 表示 health、overview 和本次各任务 snapshot 均已核验；
    `page_http_verified: true` 仅表示静态 HTML 可访问。`tasks[].available: false` 允许首轮操作
    尚未落盘，只证明该 task 已绑定，不代表执行已经开始。
-4. 通过宿主 `open_in_codex` 链接接口请求打开返回的 URL 一次。页面读取 `task` 参数自动定位，
+4. 有 Codex 宿主工具时，通过宿主 `open_in_codex` 链接接口请求打开返回的 URL 一次。页面读取 `task` 参数自动定位，
    无需点击；后续手动选择会更新 URL。目标不在列表时明确提示，不静默展示其他任务。
-   `queued` 只报告“已请求打开”；无法打开时提供本机链接并继续监督。
+   `queued` 只报告“已请求打开”；其他 CLI 直接提供返回的本机链接并继续监督。绑定与客户端是否有打开链接工具无关。
+5. Claude Code / MCode 调度方按 [身份契约](../references/protocol.md#invocation-metadata) 显式记录自身 Session 和数据根。缺失 caller 的任务仍能绑定，但归入“未记录调度会话”；不会从标题或最近会话推断归属。
 
 同一任务的续聊、恢复和完成复用当前绑定，不再次打开或核验页面。只有任务集合变化或服务故障
 才重新 attach。观察页失败不改变执行任务状态，原有 `checkpoint` 监督继续进行。

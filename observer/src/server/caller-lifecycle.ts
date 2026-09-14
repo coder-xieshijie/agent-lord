@@ -5,9 +5,8 @@ import path from "node:path";
 import type { CallerIdentity } from "@agent-lord/core/contracts";
 import type { CallerLifecycle, ScheduleReceipt, ScheduleTurn } from "../shared/types.js";
 import { readCompleteLines } from "./scan.js";
-
-/** Structured receipt statuses projected from the caller's rollout log. */
-const RECEIPT_STATUSES = new Set(["SUCCEEDED", "ERROR", "NEEDS_DECISION"]);
+import { collectReceipts } from "./caller-receipts.js";
+import { NativeCallerReader } from "./caller-native.js";
 
 interface Receipt {
   atMs: number;
@@ -61,27 +60,9 @@ export function locateRolloutFile(root: string, session: string): string | null 
   return found.length === 1 ? found[0] : null;
 }
 
-/** Unwrap host transport containers only, retaining an operation id and receipt time. */
-function receipts(value: unknown, turn: Turn, ts: number, depth = 0): void {
-  if (depth > 12) return;
-  if (typeof value === "string") {
-    if (value.length > 4 * 1024 * 1024) return;
-    try { receipts(JSON.parse(value), turn, ts, depth + 1); } catch { /* not structured transport */ }
-  } else if (Array.isArray(value)) {
-    for (const item of value.slice(0, 1000)) receipts(item, turn, ts, depth + 1);
-  } else {
-    const item = object(value);
-    if (typeof item.status === "string" && RECEIPT_STATUSES.has(item.status)
-      && typeof item.operation_id === "string" && !turn.receipts.has(item.operation_id)) {
-      turn.receipts.set(item.operation_id, { atMs: ts, status: item.status as ScheduleReceipt["status"] });
-      if (turn.receipts.size > 1000) turn.receipts.delete(turn.receipts.keys().next().value!);
-    }
-    for (const key of ["output", "text", "content", "value", "result", "actionable"]) if (key in item) receipts(item[key], turn, ts, depth + 1);
-  }
-}
-
 export class CallerLifecycleReader {
   private readers = new Map<string, Reader>();
+  private native = new NativeCallerReader();
 
   /** Locate + incrementally consume the session's rollout log. Returns the
    * up-to-date reader with the current stat, or an honest failure note. */
@@ -134,7 +115,7 @@ export class CallerLifecycleReader {
           }
         } else if (event.type === "response_item" && ["function_call_output", "custom_tool_call_output"].includes(String(payload.type))) {
           const turn = reader.active ? reader.turns.get(reader.active) : null;
-          if (turn) receipts(payload.output, turn, ts);
+          if (turn) collectReceipts(payload.output, turn, ts);
         }
       }
       if (!reader.verified || reader.rejected) return { note: "Codex 日志的 Session 身份不匹配" };
@@ -150,6 +131,7 @@ export class CallerLifecycleReader {
    * Turn plus a cross-turn, multi-status receipt index. observe() keeps its
    * original narrower contract (creation turn + SUCCEEDED only). */
   sessionTimeline(caller: CallerIdentity | undefined): SessionTimeline {
+    if (caller?.kind === "mcode" || caller?.kind === "claude") return this.native.read(caller).timeline;
     const pumped = this.pump(caller);
     if ("note" in pumped) return { turns: [], receipts: new Map(), note: pumped.note };
     const turns = [...pumped.reader.turns.values()].sort((a, b) => a.started - b.started);
@@ -167,6 +149,24 @@ export class CallerLifecycleReader {
   }
 
   observe(caller: CallerIdentity | undefined, opId: string, createdAt: string, readyAt: number | null): CallerLifecycle {
+    if (caller?.kind === "mcode" || caller?.kind === "claude") {
+      const snapshot = this.native.read(caller);
+      const created = Date.parse(createdAt);
+      const ordered = snapshot.timeline.turns;
+      const turn = caller.turn_id ? ordered.find((turn) => turn.turnId === caller.turn_id)
+        : ordered.filter((turn) => turn.startedAtMs <= created).at(-1);
+      if (!turn || !Number.isFinite(created) || created < turn.startedAtMs
+        || (turn.completedAtMs !== null && created > turn.completedAtMs)) return unknown(snapshot.timeline.note || "无法将本次操作绑定到调度 Turn");
+      const receipt = snapshot.timeline.receipts.get(opId);
+      const received = receipt?.status === "SUCCEEDED" && receipt.turnId === turn.turnId
+        && (readyAt === null || receipt.atMs >= readyAt) ? receipt.atMs : null;
+      return {
+        status: turn.completedAtMs !== null ? turn.aborted ? "aborted" : "completed"
+          : ordered.some((other) => other.startedAtMs > turn.startedAtMs) || !snapshot.lifecycleKnown ? "unknown" : "running",
+        turnId: turn.turnId, startedAtMs: turn.startedAtMs, completedAtMs: turn.completedAtMs,
+        receivedAtMs: received, observedAtMs: snapshot.observedAtMs, note: snapshot.timeline.note,
+      };
+    }
     const pumped = this.pump(caller);
     if ("note" in pumped) return unknown(pumped.note);
     const reader = pumped.reader;

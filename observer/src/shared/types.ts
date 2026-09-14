@@ -18,6 +18,7 @@ export interface CallerLifecycle {
  * session id, its display title and the basename of its own project
  * directory are exposed; full paths never leave the server. */
 export interface CallerSessionMeta {
+  kind?: string;
   sessionId: string;
   /** Caller name or request preview from its own data root; null when absent. */
   name: string | null;
@@ -310,6 +311,7 @@ export interface ScheduleTask {
 }
 
 export interface ScheduleGroup {
+  kind?: string;
   /** Attributed scheduling session id; null for the unattributed group. */
   sessionId: string | null;
   name: string | null;

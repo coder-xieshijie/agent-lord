@@ -108,3 +108,11 @@ describe("groupKeyForTask", () => {
     expect(groupKeyForTask(groups, null)).toBeNull();
   });
 });
+
+it("keeps matching ids from different scheduling clients in distinct groups", () => {
+  const a = task("mcode-task", 100, { ...session("same-id", "MCode"), kind: "mcode" });
+  const b = task("claude-task", 200, { ...session("same-id", "Claude"), kind: "claude" });
+  const groups = groupTasksByCaller([a, b]);
+  expect(groups).toHaveLength(2);
+  expect(new Set(groups.map((group) => group.key)).size).toBe(2);
+});

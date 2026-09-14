@@ -4,7 +4,7 @@
 
 Dispatch, follow, and continue coding agent tasks from one conversation.
 
-Agent Lord lets your main Codex Desktop session delegate work to **Claude Code, Codex CLI, MCode CLI, or another Codex App task**. It saves each task's session, execution settings, and results so you can follow the work and continue the same task in a later turn.
+Agent Lord lets your main Codex Desktop, Codex CLI, Claude Code, or MCode session delegate work to **Claude Code, Codex CLI, MCode CLI, or another Codex App task**. It saves each task's session, execution settings, and results so you can follow the work and continue the same task in a later turn.
 
 It combines an **Agent Skill** for the caller, a **CLI runtime** for task execution and supervision, and an **Observer** for viewing progress and explicitly opening a saved native CLI Session in Orca or iTerm.
 

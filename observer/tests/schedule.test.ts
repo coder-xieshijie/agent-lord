@@ -53,6 +53,17 @@ function stubLifecycle(timelines: Record<string, SessionTimeline>): CallerLifecy
 const stubSessions = { read: () => ({ name: "调度会话名", projectName: "fixture-project" }) } as unknown as CallerSessionReader;
 
 describe("buildSchedule", () => {
+  it("keeps identical session ids from different CLI clients separate", () => {
+    const result = buildSchedule({ generation: "g", now: Tms(50), lifecycle: stubLifecycle({}), sessions: stubSessions,
+      tasks: ["mcode", "claude", "codex"].map((kind) => input(kind, [op(kind, `op-${kind}`, {
+        invocation: { caller: { ...caller("same-session"), kind }, trigger: "user_request", user_request: null, reason: null },
+      })])),
+    });
+    expect(result.groups).toHaveLength(3);
+    expect(new Set(result.groups.map((group) => group.kind))).toEqual(new Set(["mcode", "claude", "codex"]));
+    expect(result.groups.every((group) => group.tasks.length === 1)).toBe(true);
+  });
+
   it("attributes by the first operation, keeps lanes stable, binds turns honestly and joins cross-turn receipts", () => {
     const receipts = new Map<string, ScheduleReceipt>([
       ["op-a1", { turnId: "turn-2", atMs: Tms(120), status: "SUCCEEDED" }],
