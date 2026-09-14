@@ -81,7 +81,10 @@ export interface ToolItem {
   inputText?: string;
   /** Extracted readable output (content[].text / stdout), clipped. */
   outputText?: string;
-  errorText?: string;
+  errorText?: string | null;
+  phase?: "preparing" | "ready" | "executing" | "completed" | "failed" | "unknown";
+  preparationMs?: number;
+  executionMs?: number;
   exitCode?: number;
   opId?: string;
   ord: number;

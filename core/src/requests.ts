@@ -40,9 +40,14 @@ const START_OPTION_KEYS = [
   "codex_environment",
   "starting_branch",
   "required_files",
+  "required_inputs",
   "require_commit",
 ] as const;
-const TURN_OPTION_KEYS = ["required_files", "require_commit"] as const;
+const TURN_OPTION_KEYS = [
+  "required_files",
+  "required_inputs",
+  "require_commit",
+] as const;
 const STATUSES = ["pending", "dispatched", "cancelled"] as const;
 /**
  * Only contention keeps a consumed request pending. Every other failure is a

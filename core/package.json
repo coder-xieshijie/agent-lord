@@ -15,6 +15,10 @@
     "./contracts": {
       "types": "./dist/contracts.d.ts",
       "default": "./dist/contracts.js"
+    },
+    "./mcode-tools": {
+      "types": "./dist/mcode-tools.d.ts",
+      "default": "./dist/mcode-tools.js"
     }
   },
   "bin": {

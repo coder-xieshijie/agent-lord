@@ -61,7 +61,12 @@ function ToolDetails({ item }: { item: ToolItem }) {
 }
 
 export function ToolRow({ item, open, onOpenChange }: { item: ToolItem; open: boolean; onOpenChange: (open: boolean) => void }) {
-  const status = item.state === "running" ? "运行中" : item.state === "error" ? "执行失败" : "已完成";
+  const runningStatus = item.phase === "preparing" ? "准备参数" : item.phase === "ready" ? "等待执行" : "运行中";
+  const status = item.state === "running" ? runningStatus : item.state === "error" ? "执行失败" : "已完成";
+  const timing = [
+    item.preparationMs !== undefined ? `参数准备 ${(item.preparationMs / 1000).toFixed(2)}s` : null,
+    item.executionMs !== undefined ? `执行 ${(item.executionMs / 1000).toFixed(2)}s` : null,
+  ].filter(Boolean).join(" · ");
   return (
     <Tool className="tool-row mb-0 rounded-none border-0" onOpenChange={onOpenChange} open={open}>
       <CollapsibleTrigger aria-label={`${item.name} · ${status}`} className="group flex min-h-8 w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs text-muted-foreground hover:bg-accent/60 hover:text-foreground">
@@ -70,6 +75,8 @@ export function ToolRow({ item, open, onOpenChange }: { item: ToolItem; open: bo
           : item.state === "error" ? <X className="size-3.5 shrink-0 text-destructive" />
           : <Check className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />}
         <span className="truncate font-medium">{item.name}</span>
+        {item.state === "running" ? <span className="shrink-0">{status}</span> : null}
+        {timing ? <span className="ml-auto shrink-0 text-[0.6875rem]">{timing}</span> : null}
         {item.state === "error" ? <span className="shrink-0 text-destructive">执行失败</span> : null}
       </CollapsibleTrigger>
       <ToolContent className="ml-7 space-y-0 border-l py-2 pr-0 pl-3">

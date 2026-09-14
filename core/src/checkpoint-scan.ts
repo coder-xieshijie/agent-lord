@@ -234,6 +234,7 @@ export function compactActive(active: ActiveOperation[]): Data[] {
       "last_tool",
       "active_tool_count",
       "active_tools",
+      "active_tool_phases",
       "last_progress_at_ms",
     ])
       if (key in s) result[key] = s[key];

@@ -44,7 +44,13 @@ export function argumentsFor(
     throw usageError(error instanceof Error ? error.message : String(error));
   }
   for (const name of spec.required ?? [])
-    if (typeof values[name] !== "string" || !values[name])
+    if (
+      spec.multiple?.includes(name)
+        ? !Array.isArray(values[name]) ||
+          !(values[name] as string[]).length ||
+          (values[name] as string[]).some((v) => !v)
+        : typeof values[name] !== "string" || !values[name]
+    )
       throw usageError(`--${name} is required`);
   for (const name of spec.integers ?? []) {
     const value = values[name];
