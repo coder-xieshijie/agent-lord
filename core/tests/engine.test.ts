@@ -208,6 +208,40 @@ describe("local CLI lifecycle", () => {
     expect(object(next.continuation).attempt).toBe(1);
     expect(h.calls()[1].prompt).toContain("agent-lord-continuation:");
     expect(h.calls()[1].prompt).not.toContain("original\n");
+    expect(h.calls()[1].prompt).not.toContain("consider smaller writes");
+    expect(await h.lord.recover("task", first.operation_id)).toEqual(next);
+    expect(h.calls()).toHaveLength(2);
+  });
+  it("MCode stream interruption recovery offers incremental writes within the existing continuation", async () => {
+    h.options({
+      status: "failed",
+      retryable: true,
+      errorMessage:
+        "BYOK upstream error: Anthropic stream ended before message_stop",
+    });
+    await expect(
+      h.lord.start("task", "mcode", h.target, "write a chapter", {
+        model: "test/model",
+      }),
+    ).rejects.toMatchObject({ safe_recovery: "CONTINUE_SAME_SESSION" });
+    const first = h.lord.store.operations()[0];
+    h.options({});
+    const next = await h.lord.recover("task", first.operation_id);
+    expect(next.status).toBe("SUCCEEDED");
+    expect(next.endpoint_id).toBe(first.endpoint_id);
+    expect(next.expected).toEqual(first.expected);
+    expect(next.continuation).toMatchObject({
+      parent_operation_id: first.operation_id,
+      root_operation_id: first.operation_id,
+      attempt: 1,
+      limit: 2,
+    });
+    const prompt = h.calls()[1].prompt;
+    expect(prompt).toContain("consider smaller writes or incremental edits");
+    expect(prompt).toContain("checking what is already saved");
+    expect(prompt).toContain(
+      "Choose the tools, chunk sizes, and recovery approach yourself",
+    );
     expect(await h.lord.recover("task", first.operation_id)).toEqual(next);
     expect(h.calls()).toHaveLength(2);
   });

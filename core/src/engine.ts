@@ -1522,11 +1522,21 @@ export class AgentLord {
         "continuation cannot change the saved execution contract",
       );
     let plan: Data | null = null;
+    let recoveryHint = "";
     try {
       recoverMcode(parent);
     } catch (error) {
       if (!(error instanceof AgentLordError)) throw error;
       plan = this.mcodeContinuation(parent, error);
+      if (
+        plan &&
+        /stream ended before message_stop/i.test(
+          string(object(error.details.provider_error).message) ?? "",
+        )
+      ) {
+        recoveryHint =
+          "The previous provider response stream ended before its completion marker. If a large write was interrupted, consider smaller writes or incremental edits after checking what is already saved, so progress survives another interruption. Choose the tools, chunk sizes, and recovery approach yourself; no fixed size or implementation method is required.\n";
+      }
     }
     if (!plan)
       throw new AgentLordError(
@@ -1535,7 +1545,7 @@ export class AgentLord {
       );
     return [
       { ...plan, parent_operation_id: parentId },
-      `[agent-lord-continuation:${plan.root_operation_id}:${plan.attempt}]\nContinue the original task in this same session after the previous verified run ended with a transient provider failure. Inspect the existing conversation, current worktree, completed commands and any background work first. Preserve completed work and finish only the remaining authorized requirements. Do not repeat already completed actions. Return the final result and verification evidence.\n`,
+      `[agent-lord-continuation:${plan.root_operation_id}:${plan.attempt}]\nContinue the original task in this same session after the previous verified run ended with a transient provider failure. Inspect the existing conversation, current worktree, completed commands and any background work first. Preserve completed work and finish only the remaining authorized requirements. Do not repeat already completed actions. Return the final result and verification evidence.\n${recoveryHint}`,
     ];
   }
   private appObservation(op: Operation, fields: Data): Data {

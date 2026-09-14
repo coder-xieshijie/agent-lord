@@ -295,6 +295,8 @@ MCode checkpoint recovery stops at the existing Run boundary. For a verified tra
 
 New MCode tasks freeze `config.providers.mcode-cli.same_session_continuations` (default 2, range 0–5) as `contract.continuation_limit`. Existing contracts without the field retain a zero budget. Each recovery creates a new `turn` operation on the same saved Session with a short continuation instruction to inspect existing work and finish only remaining requirements; it never replays the original prompt. The child records parent/root operation and attempt/limit, while the failed parent is immutable. Repeated or concurrent recovery of that parent returns the same child. Each failed continuation spends the same chain budget. The command rechecks the frozen contract, source and write leases; only the latest failed operation can create a child. A normal user-requested `turn` starts a new logical chain.
 
+When that verified recoverable error contains `stream ended before message_stop`, the continuation adds a short advisory: if a large write was interrupted, inspect saved work and consider smaller writes or incremental edits. The CLI chooses the method and chunk size. This hint uses the existing recovery command, Session, and budget; it adds no interruption of healthy runs, fixed output limits, or automatic task decomposition. Other failures retain the ordinary continuation prompt.
+
 ## Scripted Claude RESULT_INVALID retry
 
 `retry-invalid --task-id <id> --operation-id <failed-id>` is the single control-plane entry for the bounded Claude `RESULT_INVALID` retry. The caller still invokes it explicitly per attempt; the command owns all budget, fingerprint, and lineage bookkeeping, so no second hand-maintained ledger exists.

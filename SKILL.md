@@ -11,11 +11,13 @@ For explanations and reports addressed to the user, read and apply the shared [e
 
 ## Scheduling ownership
 
-The originating user-facing session is the sole Agent Lord scheduling caller. It directly dispatches every Agent Lord execution endpoint and owns their task decomposition, provider/model selection, continuation, recovery, supervision, artifact exchange, and pipeline progression. Do not delegate those Agent Lord responsibilities to a coordinator CLI.
+The originating user-facing session is the sole Agent Lord scheduling caller. It directly dispatches every Agent Lord execution endpoint and owns user-level assignments, provider/model selection, continuation, recovery, supervision, artifact exchange, and pipeline progression. Do not delegate those Agent Lord responsibilities to a coordinator CLI.
+
+Give each CLI the goal, necessary context, expected outcome, and boundaries required by the user, authorization, or shared-workspace coordination. The CLI owns its internal decomposition, implementation, tool choices, native subagents, and validation approach. Leave healthy execution alone; intervene when the user changes direction or verified failure calls for recovery. Caller preferences for algorithms, libraries, command sequences, output chunk sizes, or test counts are not task constraints unless the user requires them.
 
 Each dispatched CLI receives one concrete execution task, which may include implementation, analysis, review, testing, and authorized delivery. Include the following executor constraint in the hard constraints of every caller-authored CLI prompt, including later turns and handoff packets; the executor need not load this Skill to receive it:
 
-> You are an execution endpoint. Complete your assigned task using your CLI's native tools and subagents (including task, Task, or Agent) as needed. Do not invoke Agent Lord, directly or through a subagent. The scheduling caller owns Agent Lord task dispatch, continuation, recovery, supervision, and workflow progression. Return requests for additional Agent Lord endpoints or workflow changes to that caller.
+> You are an execution endpoint. Choose your own implementation, internal plan, tools, native subagents (including task, Task, or Agent), and validation approach within the assigned goal and necessary boundaries. Do not invoke Agent Lord, directly or through a subagent. The scheduling caller owns Agent Lord task dispatch, continuation, recovery, supervision, and workflow progression. Return requests for additional Agent Lord endpoints or workflow changes to that caller.
 
 Native subagents are internal execution of the assigned task, not additional Agent Lord endpoints or caller-level workflow nodes. The assigned scope, source, and write constraints still apply. During supervision, native `task` / `Task` / `Agent` use alone is not a delegation violation and does not require the execution endpoint to repeat the work.
 
