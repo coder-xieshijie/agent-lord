@@ -14,6 +14,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes, randomUUID } from "node:crypto";
 import { Hub } from "./hub.js";
+import { runTasks } from "./run-binding.js";
 import { createObserverServer } from "./http.js";
 import { defaultStateDir, IDENTIFIER_PATTERN } from "./scan.js";
 import { removeMetadata, writeMetadata, type PreviewRecord } from "./runtime.js";
@@ -26,6 +27,7 @@ export interface CliOptions {
   webRoot: string | null;
   refreshMs: number;
   focusTask?: string;
+  runIds?: string[];
 }
 
 export function parseArgs(argv: string[], requireTasks = true): CliOptions {
@@ -49,6 +51,9 @@ export function parseArgs(argv: string[], requireTasks = true): CliOptions {
       case "--tasks":
         options.tasks.push(...next().split(",").map((part) => part.trim()).filter(Boolean));
         break;
+      case "--run-id":
+        (options.runIds ??= []).push(next());
+        break;
       case "--focus-task":
         options.focusTask = next();
         break;
@@ -71,6 +76,8 @@ export function parseArgs(argv: string[], requireTasks = true): CliOptions {
         throw new Error(`未知参数：${arg}`);
     }
   }
+  options.runIds = [...new Set(options.runIds ?? [])].sort();
+  for (const runId of options.runIds) options.tasks.push(...runTasks(options.stateDir, runId));
   options.tasks = [...new Set(options.tasks)].sort();
   if (requireTasks && !options.tasks.length) throw new Error("必须用 --tasks 指定至少一个 task id（显式 allowlist）");
   for (const taskId of options.tasks) {
@@ -105,7 +112,7 @@ function main(): void {
     process.exit(2);
   }
   const instanceId = randomUUID();
-  const hub = new Hub(options.tasks, options.stateDir);
+  const hub = new Hub(options.tasks, options.stateDir, options.runIds);
   hub.refresh();
   const timer = setInterval(() => hub.refresh(), options.refreshMs);
   timer.unref();
@@ -140,6 +147,7 @@ function main(): void {
         port: options.port,
         url,
         tasks: options.tasks,
+        run_ids: options.runIds,
         state_dir: options.stateDir,
         web_root: options.webRoot!,
         refresh_ms: options.refreshMs,

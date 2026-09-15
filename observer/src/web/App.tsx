@@ -575,7 +575,7 @@ export default function App() {
               {activeMeta.artifact && <a className="text-xs underline" href={`/api/tasks/${encodeURIComponent(activeMeta.taskId)}/artifact?operation_id=${encodeURIComponent(activeMeta.artifact.operationId)}&token=${encodeURIComponent(new URLSearchParams(window.location.search).get("token") ?? "")}`}>下载最终产物</a>}
               {activeMeta.delivery ? (
                 <Badge className={cn("rounded-full font-normal text-xs", activeMeta.delivery.status === "incomplete" && "text-amber-600 dark:text-amber-400")} variant="outline">
-                  {activeMeta.delivery.status === "verified" ? "声明的交付项已核验" : activeMeta.delivery.status === "incomplete" ? "交付项未齐" : "交付未核验"}
+                  {activeMeta.delivery.status === "verified" ? "文件/提交检查通过" : activeMeta.delivery.status === "incomplete" ? "交付项未齐" : "交付未核验"}
                 </Badge>
               ) : null}
               {activeMeta.recovery ? (
@@ -614,7 +614,7 @@ export default function App() {
                 <ExecutionDetails meta={activeMeta} />
                 {activeMeta.delivery ? (
                   <div className="space-y-1 border-b pb-2">
-                    <p className="text-muted-foreground text-xs">交付核验仅检查声明的非空文件和提交；测试结果与页面效果需单独验收。</p>
+                    <p className="text-muted-foreground text-xs">此状态仅确认声明的文件非空及提交条件。测试通过需引用执行端报告；独立复核仅在实际执行后标记。</p>
                     {activeMeta.delivery.checks.map((check, index) => (
                       <p className={cn("break-all text-xs", !check.ok && "text-amber-600 dark:text-amber-400")} key={index}>
                         {check.ok ? "✓" : "待完成"} {check.label}

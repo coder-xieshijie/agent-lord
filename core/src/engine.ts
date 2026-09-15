@@ -46,6 +46,7 @@ import {
   type Lease,
   StateStore,
   recordLock,
+  readJson,
   stateDir,
   utcNow,
   validateIdentifier,
@@ -68,6 +69,7 @@ import { resolvePath } from "./paths.js";
 import { operationResultKey } from "./result-key.js";
 import { inspectInputs, sameInputs } from "./inputs.js";
 import { resolveInvocation } from "./invocation.js";
+import { workflowNodes } from "./workflow-nodes.js";
 import {
   deliveryRequirements,
   sameDeliveryRequest,
@@ -403,6 +405,7 @@ export class AgentLord {
       equal(op.expected, expected) &&
       equal(op.source, source) &&
       op.read_only === readOnly &&
+      (object(op.workflow).run_id ?? undefined) === opts.workflow_run_id &&
       equal(op.workspace ?? {}, workspace ?? {}) &&
       (handoff
         ? object(op.handoff).handoff_id === handoff.handoff_id &&
@@ -429,6 +432,35 @@ export class AgentLord {
       ? validateIdentifier("request_id", opts.request_id)
       : undefined;
     const invocation = resolveInvocation(opts.invocation);
+    let workflow: Data | undefined;
+    if (opts.workflow_run_id) {
+      const runId = validateIdentifier("run_id", opts.workflow_run_id);
+      const run = readJson(
+        path.join(this.root, "task-sets", `${runId}.json`),
+        "RUN_UNKNOWN",
+        "task set does not exist",
+      );
+      const nodes = workflowNodes(run.nodes);
+      if (
+        run.run_id !== runId ||
+        !Array.isArray(run.task_ids) ||
+        !run.task_ids.includes(taskId) ||
+        !nodes[taskId]
+      )
+        throw usageError(
+          "task requires declared run membership and node provenance before dispatch",
+        );
+      const node = nodes[taskId]!;
+      if (node.source.kind === "replacement") {
+        const old = this.store.task(node.source.task_id!);
+        const oldOperation = this.store.operation(old.last_operation_id!);
+        if (!TERMINAL_STATES.has(oldOperation.status))
+          throw usageError(
+            "replacement source operation must be terminal before dispatch",
+          );
+      }
+      workflow = { run_id: runId, node, provenance_status: "caller-declared" };
+    }
     const provider = normalizeProvider(rawProvider);
     providerConfig(provider);
     const cli = provider !== "codex-app";
@@ -697,6 +729,7 @@ export class AgentLord {
               operation_id: id,
               parallel_plan: plan,
               invocation,
+              ...(workflow ? { workflow } : {}),
               ...(requestId ? { request_id: requestId } : {}),
               ...(cli ? { controller_pid: process.pid } : {}),
               ...(provider === "claude-cli"
@@ -1121,6 +1154,9 @@ export class AgentLord {
             ? (this.store.operation(opts.recovery_from).input_evidence ?? [])
             : inspectInputs(task.target, opts.required_inputs);
           const id = this.operationId(taskId, "turn");
+          const workflow = task.last_operation_id
+            ? this.store.operation(task.last_operation_id).workflow
+            : undefined;
           if (task.provider === "claude-cli")
             controller = recordLock(
               "controller-lease",
@@ -1140,6 +1176,7 @@ export class AgentLord {
             {
               operation_id: id,
               invocation,
+              ...(workflow ? { workflow } : {}),
               ...(requestId ? { request_id: requestId } : {}),
               ...(cli
                 ? { controller_pid: process.pid, endpoint_id: task.endpoint_id }
@@ -2090,6 +2127,7 @@ export class AgentLord {
       workspace: op.workspace ?? {},
       parallel_plan: op.parallel_plan ?? {},
       ...(op.invocation ? { invocation: op.invocation } : {}),
+      ...(op.workflow ? { workflow: op.workflow } : {}),
       provider_return_code:
         typeof op.provider_return_code === "number"
           ? op.provider_return_code

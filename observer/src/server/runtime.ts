@@ -8,6 +8,7 @@ export interface PreviewRecord {
   port: number;
   url: string;
   tasks: string[];
+  run_ids?: string[];
   state_dir: string;
   web_root: string;
   refresh_ms: number;

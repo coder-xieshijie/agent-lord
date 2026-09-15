@@ -68,6 +68,12 @@ allowlist，显式传入时替换整个观察列表。使用自定义 state-dir 
 
 ## 派发后的任务绑定
 
+多节点任务优先绑定整个 run：`pnpm preview:attach --run-id <run-id> --port 8791`。run 必须已通过 `run-create` 登记，可以包含尚未启动的节点。绑定一次后，`run-add` 新增成员会自动进入 Observer，无需再次 attach 或重启；CLI 返回 `observer.status` 和各实例的 `binding_verified`。`run-status` 可重新核验。只有显式订阅的 run 会扩展可见范围。
+
+`observer.status: unverified` 表示观察绑定未确认，成员登记仍然有效；修复观察服务后用 `run-status` 复核，不能因此重复派发任务。`not_attached` 表示尚无订阅该 run 的实例，需要首次 attach（用户要求后台运行时除外）。任务本身是否存在与绑定是否成功是两回事。
+
+下面的 `--tasks` 流程适用于单任务或固定列表；固定列表新增成员仍需再次 attach。
+
 Codex Desktop、Codex CLI、Claude Code 与 MCode 的调用方均按 [Skill 主流程](../SKILL.md#deterministic-loop) 接入观察页。
 绑定沿用已派发的 `task_id`，使用 CLI 和认证 HTTP；不使用或依赖 Computer Use / CUA，
 也不以浏览器自动化作为失败后的兜底。
@@ -86,8 +92,8 @@ Codex Desktop、Codex CLI、Claude Code 与 MCode 的调用方均按 [Skill 主�
    `queued` 只报告“已请求打开”；其他 CLI 直接提供返回的本机链接并继续监督。绑定与客户端是否有打开链接工具无关。
 5. Claude Code / MCode 调度方按 [身份契约](../references/protocol.md#invocation-metadata) 显式记录自身 Session 和数据根。缺失 caller 的任务仍能绑定，但归入“未记录调度会话”；不会从标题或最近会话推断归属。
 
-同一任务的续聊、恢复和完成复用当前绑定，不再次打开或核验页面。只有任务集合变化或服务故障
-才重新 attach。观察页失败不改变执行任务状态，原有 `checkpoint` 监督继续进行。
+同一任务的续聊、恢复和完成复用当前绑定，不再次打开或核验页面。固定列表成员变化、增加另一个 run 订阅或服务故障时
+才重新 attach；已订阅 run 的成员新增自动同步。观察页失败不改变执行任务状态，原有 `checkpoint` 监督继续进行。
 
 ## 展示与核验
 

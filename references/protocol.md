@@ -100,14 +100,16 @@ Successful dispatch records `input_evidence` (path, byte count, SHA-256) in the 
 Task sets hold caller-selected membership and received-result acknowledgements under the private state directory's `task-sets/`. They are passive: no automatic dispatch, graph expansion, content review, or Git integration.
 
 ```sh
-node core/dist/cli.js run-create --run-id book --task-id chapter-1 --task-id chapter-2
+node core/dist/cli.js run-create --run-id book --task-id chapter-1 --task-id chapter-2 --nodes-file /tmp/book-nodes.json
 node core/dist/cli.js checkpoint --run-id book --seconds 120 --include-response
 # After receiving and processing a terminal actionable item's result:
 node core/dist/cli.js run-ack --run-id book --receipt <receipt-from-that-item>
 node core/dist/cli.js run-status --run-id book
 # Explicitly add a new assignment, then dispatch it through the usual start command:
-node core/dist/cli.js run-add --run-id book --task-id chapter-3
+node core/dist/cli.js run-add --run-id book --task-id chapter-3 --nodes-file /tmp/chapter-3-node.json
 ```
+
+For new ordinary multi-endpoint work, use [node provenance and reporting](scheduling-updates.md) to register role sources before `start --run-id`. Existing task sets without node metadata remain readable and report `provenance_status: unavailable`; they are not retroactively authorized.
 
 Registration may precede dispatch. Unobserved members appear as `not_observed`; they are not silently marked complete or failed. Repeating `run-create` with identical members is idempotent; use `run-add` for additions. `--run-id` is mutually exclusive with explicit `--task-id` / `--starting-task-id` checkpoint selectors. Membership for a running checkpoint is fixed at entry; additions join the next checkpoint.
 

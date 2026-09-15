@@ -259,6 +259,8 @@ export interface ProviderResult extends Data {
   effort: string | null;
 }
 export interface StartOptions {
+  /** An ordinary task set with frozen, caller-declared node provenance. */
+  workflow_run_id?: string;
   invocation?: unknown;
   model?: string | null;
   effort?: string | null;

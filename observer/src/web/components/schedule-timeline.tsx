@@ -56,7 +56,7 @@ function OperationDetail({ group, op, taskId }: { group: ScheduleGroup; op: Sche
     ["调度收到回执", op.receipt
       ? `${fmt(op.receipt.atMs)} · ${op.receipt.status} · Turn ${op.receipt.turnId ?? "未记录"}`
       : "未观测到结构化回执"],
-    ["交付核验", op.deliveryStatus === "verified" ? "声明的交付项已核验（无独立时间戳）" : op.deliveryStatus === "incomplete" ? "交付项未齐" : op.deliveryStatus === "unverified" ? "未核验" : "未声明"],
+    ["交付核验", op.deliveryStatus === "verified" ? "文件/提交检查通过（无独立时间戳）" : op.deliveryStatus === "incomplete" ? "交付项未齐" : op.deliveryStatus === "unverified" ? "未核验" : "未声明"],
   ];
   return (
     <div className="mt-2 space-y-1 rounded-md bg-muted/40 p-3 text-xs">

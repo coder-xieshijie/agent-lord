@@ -18,6 +18,12 @@ import {
 } from "./state.js";
 import { CheckpointScan } from "./checkpoint-scan.js";
 import { operationResultKey } from "./result-key.js";
+import {
+  mergeWorkflowNodes,
+  workflowNodes,
+  type WorkflowNode,
+} from "./workflow-nodes.js";
+import { reportChanges, type ReportState } from "./reporting.js";
 
 interface Receipt {
   operation_id: string;
@@ -31,6 +37,8 @@ interface TaskSet {
   receipts: Record<string, Receipt>;
   created_at: string;
   updated_at: string;
+  nodes?: Record<string, WorkflowNode>;
+  reported?: ReportState;
 }
 /** Passive task membership and explicit result acknowledgements; never dispatches work. */
 export class TaskSets {
@@ -57,6 +65,20 @@ export class TaskSets {
     )
       throw new AgentLordError("STATE_CORRUPT", "invalid task set record");
     raw.task_ids.forEach((v) => validateIdentifier("task_id", v));
+    if (
+      raw.reported !== undefined &&
+      (!isObject(raw.reported) ||
+        Object.values(raw.reported).some(
+          (v) => typeof v !== "string" || !/^[0-9a-f]{64}$/.test(v),
+        ))
+    )
+      throw new AgentLordError("STATE_CORRUPT", "invalid reporting ledger");
+    if (raw.nodes !== undefined)
+      raw.nodes = mergeWorkflowNodes(
+        raw.task_ids as string[],
+        undefined,
+        workflowNodes(raw.nodes),
+      );
     for (const [token, value] of Object.entries(raw.receipts)) {
       if (
         !isObject(value) ||
@@ -76,8 +98,14 @@ export class TaskSets {
     });
     writeJson(this.file(record.run_id), { ...record, updated_at: utcNow() });
   }
-  create(id: string, taskIds: string[], append = false): Envelope {
+  create(
+    id: string,
+    taskIds: string[],
+    append = false,
+    nodes?: Record<string, WorkflowNode>,
+  ): Envelope {
     this.file(id);
+    if (nodes) nodes = workflowNodes(nodes);
     if (!Array.isArray(taskIds) || !taskIds.length)
       throw usageError("at least one task-id is required");
     const ids = [
@@ -86,16 +114,22 @@ export class TaskSets {
     withLock("task-set", id, this.lord.root, () => {
       if (existsSync(this.file(id))) {
         const record = this.read(id);
+        const members = append
+          ? [...new Set([...record.task_ids, ...ids])].sort()
+          : ids;
+        const provenance = mergeWorkflowNodes(members, record.nodes, nodes);
         if (append)
           this.persist({
             ...record,
-            task_ids: [...new Set([...record.task_ids, ...ids])].sort(),
+            task_ids: members,
+            ...(provenance ? { nodes: provenance } : {}),
           });
         else if (JSON.stringify(record.task_ids) !== JSON.stringify(ids))
           throw new AgentLordError(
             "RUN_EXISTS",
             "task set already has different members; use run-add for explicit additions",
           );
+        else if (provenance) this.persist({ ...record, nodes: provenance });
       } else {
         if (append)
           throw new AgentLordError("RUN_UNKNOWN", "task set does not exist");
@@ -107,6 +141,9 @@ export class TaskSets {
           receipts: {},
           created_at: now,
           updated_at: now,
+          ...(nodes
+            ? { nodes: mergeWorkflowNodes(ids, undefined, nodes) }
+            : {}),
         });
       }
     });
@@ -134,6 +171,15 @@ export class TaskSets {
         status: op?.status ?? "not_observed",
         delivery: op?.delivery?.status ?? "unverified",
         acknowledged: receipt?.acknowledged ?? false,
+        result_key: key ?? null,
+        action_id: op
+          ? (scan.action(op.operation_id)?.action_id ?? null)
+          : null,
+        error_code: op?.error?.code ?? null,
+        node: record.nodes?.[task_id] ?? null,
+        provenance_status: record.nodes?.[task_id]
+          ? "caller-declared"
+          : "unavailable",
       };
     });
     return {
@@ -200,6 +246,16 @@ export class TaskSets {
       });
     }
     result.run = this.status(id).run as Data;
+    withLock("task-set", id, this.lord.root, () => {
+      const current = this.read(id);
+      const { next, reporting } = reportChanges(
+        (result.run as Data).tasks as Data[],
+        current.reported ?? {},
+      );
+      if (JSON.stringify(next) !== JSON.stringify(current.reported ?? {}))
+        this.persist({ ...current, reported: next });
+      result.reporting = reporting;
+    });
     return [result, quiet];
   }
 }
