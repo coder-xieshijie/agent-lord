@@ -1,5 +1,6 @@
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, statSync } from "node:fs";
 import { createServer } from "node:http";
+import { execFileSync } from "node:child_process";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -29,6 +30,37 @@ async function fixture(): Promise<LaunchOptions> {
 }
 
 describe("preview lifecycle", () => {
+  it("subscribes to a run once and verifies later CLI additions without restart or a second attach", async () => {
+    const options = await fixture();
+    mkdirSync(path.join(options.stateDir, "task-sets"));
+    const runFile = path.join(options.stateDir, "task-sets", "replicas.json");
+    writeFileSync(runFile, JSON.stringify({ version: 1, run_id: "replicas", task_ids: ["worker"], receipts: {},
+      created_at: new Date().toISOString(), updated_at: new Date().toISOString() }));
+    const subscribed = { ...options, tasks: ["worker"], runIds: ["replicas"] };
+    const first = await attachPreview(subscribed);
+    cleanups.push(async () => { await stopPreview(options.stateDir, options.port); });
+    const cli = fileURLToPath(new URL("../../core/dist/cli.js", import.meta.url));
+    const call = (...args: string[]) => JSON.parse(execFileSync(process.execPath, [cli, ...args], {
+      env: { ...process.env, AGENT_LORD_STATE_DIR: options.stateDir }, encoding: "utf8", timeout: 10_000,
+    }));
+    const added = call("run-add", "--run-id", "replicas", "--task-id", "compare");
+    expect(added.observer).toMatchObject({ status: "verified", bindings: [{ port: options.port, binding_verified: true }] });
+    expect(readMetadata(options.stateDir, options.port)!.instance_id).toBe(first.record.instance_id);
+    const base = `http://127.0.0.1:${options.port}`;
+    const headers = { authorization: `Bearer ${previewToken(first.record)}` };
+    expect((await fetch(`${base}/api/tasks/compare/snapshot`, { headers })).status).toBe(200);
+    expect((await fetch(`${base}/api/tasks/unrelated/snapshot`, { headers })).status).toBe(404);
+    expect((await fetch(`${base}/api/binding`)).status).toBe(401);
+    // A stale/reused instance must never be reported as bound; membership remains recorded.
+    writeMetadata({ ...first.record, instance_id: "stale-instance" });
+    expect(call("run-add", "--run-id", "replicas", "--task-id", "later").observer.status).toBe("unverified");
+    writeMetadata(first.record);
+    expect(call("run-status", "--run-id", "replicas").run.task_ids).toContain("later");
+    writeFileSync(runFile, "not json");
+    const invalid = await (await fetch(`${base}/api/binding`, { headers })).json() as { errors: object };
+    expect(Object.keys(invalid.errors)).toEqual(["replicas"]);
+    expect((await fetch(`${base}/api/tasks/worker/snapshot`, { headers })).status).toBe(200);
+  }, 15_000);
   it("attaches using HTTP, preserves other tasks and configuration, and focuses the requested task without a browser", async () => {
     const options = await fixture();
     let owned: PreviewRecord | null = null;

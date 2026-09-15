@@ -9,6 +9,7 @@
  */
 
 import path from "node:path";
+import { runTasks } from "./run-binding.js";
 import { randomBytes } from "node:crypto";
 import type { DeltaResponse, Patch, ProviderId, TaskMeta } from "../shared/types.js";
 import {
@@ -218,10 +219,16 @@ export class Hub {
   private readonly tasks = new Map<string, TaskState>();
   private refreshing = false;
 
-  constructor(taskIds: string[], stateDir?: string) {
+  readonly bindingErrors: Record<string, string> = {};
+  constructor(taskIds: string[], stateDir?: string, readonly runIds: string[] = []) {
     this.root = stateDir ? path.resolve(stateDir) : defaultStateDir();
     this.generation = `${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`;
+    this.addTasks(taskIds);
+  }
+
+  private addTasks(taskIds: string[]): void {
     for (const taskId of taskIds) {
+      if (this.tasks.has(taskId)) continue;
       this.tasks.set(taskId, {
         taskId,
         timeline: new Timeline(),
@@ -304,6 +311,14 @@ export class Hub {
     if (this.refreshing) return;
     this.refreshing = true;
     try {
+      for (const runId of this.runIds) {
+        try {
+          this.addTasks(runTasks(this.root, runId));
+          delete this.bindingErrors[runId];
+        } catch {
+          this.bindingErrors[runId] = "run membership could not be read; retained last verified members";
+        }
+      }
       for (const state of this.tasks.values()) {
         try {
           this.refreshTask(state);

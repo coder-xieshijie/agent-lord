@@ -2,7 +2,7 @@
  *
  * Security boundary:
  * - binds 127.0.0.1 only, requires a bearer/query token on every request;
- * - the task allowlist is fixed at startup — no other task is readable;
+ * - visibility comes from explicit tasks and explicitly subscribed run membership;
  * - one authenticated, allow-listed POST may invoke the constrained native
  *   terminal launcher; it cannot accept a shell command from the browser;
  * - static files are served only from the built web root, resolved paths
@@ -147,6 +147,12 @@ export function createObserverServer(options: ObserverServerOptions): Server {
 
     if (url.pathname === "/api/health") {
       sendJson(res, 200, { service: "agent-lord-observer", instanceId, pid: process.pid });
+      return;
+    }
+    if (url.pathname === "/api/binding") {
+      hub.refresh();
+      sendJson(res, 200, { instanceId, pid: process.pid, run_ids: hub.runIds,
+        task_ids: hub.taskIds(), errors: hub.bindingErrors });
       return;
     }
     if (url.pathname === "/api/overview") {

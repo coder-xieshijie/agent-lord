@@ -44,6 +44,7 @@ export async function startPreview(options: LaunchOptions): Promise<PreviewRecor
   if (existing && await probe(existing)) {
     if (JSON.stringify(existing.tasks) !== JSON.stringify(options.tasks) || existing.web_root !== options.webRoot
       || existing.refresh_ms !== options.refreshMs || existing.entrypoint !== entrypoint
+      || JSON.stringify(existing.run_ids ?? []) !== JSON.stringify(options.runIds ?? [])
       || (options.token && previewToken(existing) !== options.token)) {
       throw new Error("该端口的 observer 配置不同；请显式使用 preview:restart 应用新配置");
     }
@@ -58,6 +59,7 @@ export async function startPreview(options: LaunchOptions): Promise<PreviewRecor
   const args = [
     ...(options.nodeArgs ?? []), entrypoint, "--tasks", options.tasks.join(","), "--port", String(options.port),
     "--token", token, "--state-dir", options.stateDir, "--web-root", options.webRoot!, "--refresh-ms", String(options.refreshMs),
+    ...(options.runIds ?? []).flatMap((id) => ["--run-id", id]),
   ];
   let child;
   try {
@@ -88,11 +90,12 @@ export async function attachPreview(options: LaunchOptions) {
   if (record) {
     if (!await probe(record)) throw new Error("无法核验已有 observer；未停止或替换服务");
     const tasks = [...new Set([...record.tasks, ...options.tasks])].sort();
-    if (tasks.some((task) => !record!.tasks.includes(task))) {
+    const runIds = [...new Set([...(record.run_ids ?? []), ...(options.runIds ?? [])])].sort();
+    if (tasks.some((task) => !record!.tasks.includes(task)) || runIds.some((id) => !record!.run_ids?.includes(id))) {
       const old = record;
       await stopPreview(options.stateDir, options.port, old.instance_id);
       record = await startPreview({
-        ...options, tasks, token: previewToken(old), webRoot: old.web_root,
+        ...options, tasks, runIds, token: previewToken(old), webRoot: old.web_root,
         refreshMs: old.refresh_ms, entrypoint: old.entrypoint,
       });
     }
@@ -104,6 +107,13 @@ export async function attachPreview(options: LaunchOptions) {
     if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) throw new Error(`绑定 HTTP 核验失败：${route}`);
     return response.json() as Promise<Record<string, unknown>>;
   };
+  if (options.runIds?.length) {
+    const binding = await json("/api/binding");
+    if (binding.instanceId !== record.instance_id || binding.pid !== record.pid ||
+        !Array.isArray(binding.run_ids) || options.runIds.some((id) => !(binding.run_ids as unknown[]).includes(id)) ||
+        !binding.errors || typeof binding.errors !== "object" || Object.keys(binding.errors).length)
+      throw new Error("run 自动绑定核验失败");
+  }
   const overview = await json("/api/overview");
   const tasks = Array.isArray(overview.tasks) ? overview.tasks as Array<{ taskId?: string }> : [];
   if (options.tasks.some((task) => !tasks.some((entry) => entry.taskId === task))) throw new Error("overview 缺少本次任务");
@@ -137,6 +147,7 @@ async function main(): Promise<void> {
       const old = readMetadata(options.stateDir, options.port);
       if (old) {
         if (!options.tasks.length) options.tasks = old.tasks;
+        if (!argv.includes("--run-id")) options.runIds = old.run_ids;
         if (!argv.includes("--token")) options.token = previewToken(old);
         if (!argv.includes("--web-root")) options.webRoot = old.web_root;
         if (!argv.includes("--refresh-ms")) options.refreshMs = old.refresh_ms;

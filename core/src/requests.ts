@@ -21,6 +21,7 @@ import {
 
 /** Dispatch options frozen at registration; the same names `start` accepts. */
 const START_OPTION_KEYS = [
+  "workflow_run_id",
   "model",
   "effort",
   "retry_attempts",

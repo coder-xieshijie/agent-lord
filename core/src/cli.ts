@@ -2,6 +2,9 @@
 import { pathToFileURL } from "node:url";
 import { AgentLord } from "./engine.js";
 import { TaskSets } from "./task-sets.js";
+import { workflowNodes } from "./workflow-nodes.js";
+import { verifyRunObservers } from "./observer-binding.js";
+
 import { PlanRuns, planValidationEnvelope } from "./plan.js";
 import { RequestInbox } from "./requests.js";
 import { retryResultInvalid } from "./invalid-retry.js";
@@ -17,12 +20,23 @@ import {
   inputText,
   valueString,
 } from "./arguments.js";
+function parseNodesFile(file: string) {
+  let value: unknown;
+  try {
+    value = parseJson(inputText(file));
+  } catch (error) {
+    if (error instanceof AgentLordError) throw error;
+    throw usageError("nodes-file must contain valid JSON");
+  }
+  return workflowNodes(value);
+}
 const providers = [...PROVIDERS, "codex", "mcode"];
 export const COMMANDS: Record<string, CommandSpec> = {
   start: {
     description: "Create one durable endpoint",
     strings: [
       "task-id",
+      "run-id",
       "provider",
       "target",
       "repo",
@@ -112,13 +126,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
   },
   "run-create": {
     description: "Persist a passive task set before or after dispatch",
-    strings: ["run-id"],
+    strings: ["run-id", "nodes-file"],
     multiple: ["task-id"],
     required: ["run-id", "task-id"],
   },
   "run-add": {
     description: "Explicitly add members to a task set",
-    strings: ["run-id"],
+    strings: ["run-id", "nodes-file"],
     multiple: ["task-id"],
     required: ["run-id", "task-id"],
   },
@@ -199,6 +213,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     description:
       "Register one not-yet-dispatched instruction in the passive inbox",
     strings: [
+      "run-id",
       "request-id",
       "intent",
       "task-id",
@@ -308,6 +323,7 @@ export async function main(
       Object.entries(v).map(([key, value]) => [
         {
           repo: "repository",
+          "run-id": "workflow_run_id",
           "require-file": "required_files",
           "require-input": "required_inputs",
           "integration-worker": "integration_workers",
@@ -380,6 +396,7 @@ export async function main(
         get("run-id"),
         v["task-id"] as string[],
         command === "run-add",
+        v["nodes-file"] ? parseNodesFile(get("nodes-file")) : undefined,
       );
     else if (command === "run-status")
       result = new TaskSets(lord).status(get("run-id"));
@@ -530,6 +547,14 @@ export async function main(
         get("source-file"),
         get("source-format"),
       );
+    if (["run-create", "run-add", "run-status"].includes(command)) {
+      const envelope = result as Envelope;
+      envelope.observer = await verifyRunObservers(
+        lord.root,
+        get("run-id"),
+        (envelope.run as { task_ids: string[] }).task_ids,
+      );
+    }
     if (v["include-response"]) result = lord.withResponse(result as Envelope);
     write(`${stringifyJson(result, 2)}\n`);
     return quiet ? 124 : 0;
