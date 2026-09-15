@@ -654,7 +654,13 @@ export class AgentLord {
             );
           }
           if (cli)
-            writes = this.workspaces.writeLeases(target!, readOnly, workspace!);
+            writes = this.workspaces.writeLeases(
+              target!,
+              readOnly,
+              workspace!,
+              undefined,
+              taskId,
+            );
           if (repository) {
             target = this.workspaces.prepare(
               repository,
@@ -878,7 +884,13 @@ export class AgentLord {
             );
           verifyCheckout(target, source);
           const snapshot = snapshotExactTarget(target);
-          writes = this.workspaces.writeLeases(target, readOnly, workspace);
+          writes = this.workspaces.writeLeases(
+            target,
+            readOnly,
+            workspace,
+            undefined,
+            taskId,
+          );
           const id = this.operationId(taskId, "handoff");
           if (provider === "claude-cli")
             controller = recordLock(
@@ -1092,6 +1104,8 @@ export class AgentLord {
               task.target,
               contract.read_only,
               workspace,
+              undefined,
+              task.task_id,
             );
           }
           const expected = this.expected(
@@ -2236,6 +2250,7 @@ export class AgentLord {
           op.read_only,
           op.workspace ?? { policy: "exact-target" },
           operationId,
+          op.task_id,
         );
         return await this.finishClaude(op, op.kind === "turn");
       } catch (error) {
