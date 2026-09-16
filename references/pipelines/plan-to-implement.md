@@ -6,7 +6,7 @@ One planner CLI turns the user's plan into a module ticket plan. The scheduling 
 
 The durable state lives in the runtime, not in the conversation. `plan-*` commands hold the plan, the ready set, the barriers, the integrator's per-repository workspace claims, and the run journal, so a restarted caller resumes from `plan-status`.
 
-Completion is verified, never asserted. Every barrier checks the bound endpoint's real task, current operation, and runtime-verified delivery, so a caller cannot close a run by reporting success for work that did not happen.
+完成依据是交付事实，不是最后一段自然语言。Runtime 核验端点、提交、整合历史和远端 MR 身份；测试结论来自调度方提交的结构化证据，须明确区分通过和用户接受的已知失败。
 
 ## Roles and defaults
 
@@ -48,7 +48,9 @@ node core/dist/cli.js plan-dispatch --run-id feature-x --module-id auth-core \
   --task-id feature-x-auth-core --provider mcode-cli --model "$MODEL"
 ```
 
-Record each module with `plan-dispatch` before or immediately after its `start`; the command refuses a module whose dependencies are unmet, a module already dispatched, and a `task_id` bound to another module. Binding a `task_id` this early is deliberate — the endpoint may still be starting — so the endpoint itself is verified at delivery, not here. Dispatch also binds the endpoint to the run's task set, so `checkpoint --run-id` and the observer supervise the whole pipeline through the existing run.
+先 `plan-dispatch`，再 `start`。Runtime 从已登记角色补齐 repository、source、workspace policy 和 commit requirement；显式参数与计划冲突会被拒绝，worker 仍须给出自己的 `--workspace-branch`。依赖屏障、任务绑定和 Observer 分组保持在这个 run 内。旧的先 start 后登记记录仍可读取，但完成时同样必须有有效的 commit delivery。
+
+CLI `start` / `turn` 返回 `RUNNING` 派发回执，独立控制器持续持有执行与写锁。用 `checkpoint --run-id ... --include-response` 取得终态；等待命令结束或超时不代表执行失败，也不会终止控制器。控制器真的消失时，沿用 checkpoint 的恢复与进程身份核验。
 
 Give each worker its module responsibility, acceptance criteria, `owned_paths` as its write boundary, the sanitized interface contracts of the modules it depends on, and its repository's fixed head. A worker commits locally on its own branch and never pushes, opens an MR, or edits another module's paths.
 
@@ -72,23 +74,45 @@ node core/dist/cli.js plan-integrate --run-id feature-x --task-id feature-x-inte
 
 `plan-integrate` prepares each declared repository's `delivery_branch` worktree at its frozen head and records a durable [workspace claim](../protocol.md#durable-workspace-claims) owned by that one integrator task. This is what makes a single multi-repository integrator safe: a task's own leases cover only the one repository it targets, so the run holds the others. While the claims exist, any other Agent Lord task that tries to write a claimed worktree or delivery branch fails with `WORKSPACE_CLAIM_CONFLICT`. Each claim is taken under the same `workspace-write` and `branch-write` locks an ordinary writer uses, so two runs competing for one repository cannot both pass the check — the loser gets `WORKSPACE_CLAIM_CONFLICT`, and a repository already being written returns a retryable `STATE_BUSY`. Replaying `plan-integrate` with the same task reuses the existing claims instead of re-preparing them.
 
-Start the integrator on the primary repository with the normal `start --repo … --workspace-branch <delivery_branch> --head-sha … --require-commit`; the runtime reuses the already-claimed worktree, and the integrator's own claim never blocks itself. Pass the other repositories' claimed worktree paths from `plan-status` in its prompt, and state that those paths are its entire write boundary outside the primary repository.
+`plan-integrate` 后以该 `task_id` 调用 `start`，Runtime 自动使用计划第一个仓库及其已占用的 delivery worktree，冻结角色交付要求。其他仓库的路径从 `plan-status` 传入 prompt，并声明它们是主仓库之外的完整写入边界。
 
 The integrator merges every module branch into each repository's `delivery_branch`, resolves conflicts, fixes the problems merging exposes, runs the whole-project verification, pushes, and opens or updates each repository's single MR. It never merges an MR. It also writes the process report. Because these commands verify the integrator's finished result, the scheduling caller runs them after the integrator returns — never the integrator itself mid-run.
 
 ```bash
 node core/dist/cli.js plan-merge-request --run-id feature-x --repo /path/repo \
-  --mr-url https://example/mr/42 --head-sha "$HEAD"
+  --mr-url https://gitlab.example/group/repo/-/merge_requests/42 --head-sha "$HEAD" \
+  --verification-file /tmp/run/repo-verification.json
 node core/dist/cli.js plan-report --run-id feature-x --report-file /tmp/run/report.md
 ```
 
-`plan-merge-request` requires the integrator's current operation to have succeeded, a live claim for that repository, and a `--head-sha` that equals the repository's real local `delivery_branch` head; for the integrator's own repository it must also equal its verified delivery commit. A repository accepts exactly one MR URL; a second distinct URL returns `MR_CONFLICT`.
+`plan-merge-request` 要求 integrator 当前 operation 成功且有 verified commit delivery，仓库 claim 有效，SHA 与本地 delivery branch 一致。主仓库还要与端点核验的 commit 一致。Runtime 通过已认证的 `gh api` / `glab api` 回读 MR/PR，核验 origin 项目、source branch、target branch（计划的 `source_branch`）、SHA 和 opened 状态；目前支持同项目 GitHub / GitLab PR/MR，fork 与其他 forge 明确拒绝。每仓库一个 URL，重复登记同 URL 可更新 SHA 和证据。
 
-`plan-report` closes the run only with a non-empty report and an MR recorded for every declared repository. It copies the report into Agent Lord state, so the run keeps a readable canonical copy after the caller's temporary file is gone, and releases the workspace claims. Re-submitting the identical report is idempotent; a different report for a closed run returns `REPORT_CONFLICT`.
+验证文件绑定最终 SHA，`checks` 覆盖该仓库所有模块的 `verification` 字符串，以及名为 `ci` 的检查：
 
-When an integrator must be replaced, `plan-integration-reset` releases the claims and returns integration to pending for a new integrator task.
+```json
+{
+  "head_sha": "<40-hex final SHA>",
+  "checks": [
+    {"name": "pnpm test", "status": "passed", "evidence": "测试日志路径或链接"},
+    {"name": "ci", "status": "accepted_failure", "evidence": "pipeline/job 链接", "reason": "用户明确接受的已知问题及授权依据"}
+  ]
+}
+```
 
-Worker success is not run success. Complete the run only on the integrator's verified result: the merge happened, the verification ran, and the MR head was read back. Report an unverified environment, an external blocker, or an incomplete delivery as exactly that. The runtime verifies local evidence — endpoint success, delivery commits, delivery-branch heads — not the remote MR itself, so state the remote publication as the integrator's reported outcome.
+`passed` 必须有实际证据；`accepted_failure` 只用于用户已经授权接受的失败或未执行项，必须保留原因和依据。未结束的测试/CI 继续等待，未获接受的失败继续修复或报告阻塞。Runtime 检查证据结构和 SHA，不代替调度方执行测试或判断豁免授权，也不把自报测试结论当成独立证明。
+
+`plan-report` 再次核验全部仓库：干净的 delivery branch、最终 SHA、相对原始计划基线的增量、每个模块的 merge 或 patch-equivalent cherry-pick、完整验证记录，以及远端 MR 身份。Squash/改写导致 patch 无法对应时会拒绝，保留可追踪的模块整合历史。成功后持久化报告再释放 claims；相同报告重试可清理中断遗留的 claims，不同报告返回 `REPORT_CONFLICT`。
+
+整合恢复优先复用同 task 的 `recover` / `turn`；必须换 session 时：
+
+```bash
+node core/dist/cli.js plan-integration-resume --run-id feature-x \
+  --task-id feature-x-integrator-2 --reason "原执行已终止，需要新会话完成剩余验证"
+```
+
+该命令先核验旧 operation 已终止、相关进程已退出、所有工作区干净且历史未倒退，再转移 claims，保留工作区、commit、MR、验证记录和模块状态。然后对新 task 调用 `start`，从原交付 HEAD 继续。角色交付基线始终是原计划 SHA，所以只补测试或报告的恢复不必制造新 commit。交接中断则重复同一 resume 命令；完成交接前禁止启动两边的角色。`plan-integration-reset` 只用于明确放弃本次整合登记，不能用于普通恢复；它仍会清空 MR/workspace 登记，并同样拒绝释放活跃执行的 claims。
+
+Worker 成功不等于 run 成功。最终报告分别列出 Runtime 已核验的提交/MR 事实、实际测试结果、用户接受的例外和仍未验证的平台边界。已关闭 run 的角色不再接受新执行；后续改动使用新 task/run，保留已验收交付的边界。
 
 ## Process record and report
 

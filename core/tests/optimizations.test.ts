@@ -93,7 +93,9 @@ describe("O1: MCode progress journal throttling", () => {
     } finally {
       await run;
     }
-  });
+    // Covers the existing 6s bounded observation plus provider startup/teardown
+    // under suite-level process contention; a 5s test deadline preempts it.
+  }, 15000);
 });
 
 describe("O3: checkpoint scan stat cache", () => {
@@ -217,9 +219,15 @@ describe("O2: scripted Claude RESULT_INVALID retry", () => {
     expect(h.calls()).toHaveLength(2);
   });
   it("two identical fingerprints force a replacement session with frozen contract and lineage", async () => {
-    await h.lord.start("task", "claude-cli", h.target, "perform original work", {
-      model: "claude-opus-5",
-    });
+    await h.lord.start(
+      "task",
+      "claude-cli",
+      h.target,
+      "perform original work",
+      {
+        model: "claude-opus-5",
+      },
+    );
     invalidOp("task", "fail-1");
     h.options({ missingTerminal: true });
     await expect(
@@ -431,7 +439,9 @@ describe("O2: scripted Claude RESULT_INVALID retry", () => {
     const adopted = await retryResultInvalid(h.lord, "task", "root-failed");
     expect(object(adopted.invalid_retry as Data).outcome).toBe("adopted");
     // The adopted child now resolves back to the shared ledger.
-    expect(object(h.lord.store.operation("child-failed").invalid_retry)).toMatchObject({
+    expect(
+      object(h.lord.store.operation("child-failed").invalid_retry),
+    ).toMatchObject({
       root_operation_id: "root-failed",
       attempt: 1,
       mode: "same-session",
@@ -490,15 +500,20 @@ describe("O2: scripted Claude RESULT_INVALID retry", () => {
       retry_attempts: 1,
     });
     h.options({ missingTerminal: true });
-    await expect(h.lord.turn("task", "authorized follow-up")).rejects.toMatchObject({
+    await expect(
+      h.lord.turn("task", "authorized follow-up"),
+    ).rejects.toMatchObject({
       code: "RESULT_INVALID",
     });
     const rootId = h.lord.store.task("task").last_operation_id!;
-    await expect(retryResultInvalid(h.lord, "task", rootId)).rejects.toMatchObject({
+    await expect(
+      retryResultInvalid(h.lord, "task", rootId),
+    ).rejects.toMatchObject({
       code: "RESULT_INVALID",
     });
     const ledger = () =>
-      object(h.lord.store.operation(rootId).invalid_retry_ledger).attempts as Data[];
+      object(h.lord.store.operation(rootId).invalid_retry_ledger)
+        .attempts as Data[];
     await expect(
       retryResultInvalid(h.lord, "task", String(ledger()[0].operation_id)),
     ).rejects.toMatchObject({ code: "RESULT_INVALID" });

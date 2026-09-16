@@ -115,7 +115,13 @@ Registration may precede dispatch. Unobserved members appear as `not_observed`; 
 
 A terminal actionable result includes a durable `receipt`. Returning it does **not** consume the result. After a caller restart, an unacknowledged result is delivered again. `run-ack` is idempotent and accepts only receipts already issued by that set. Acknowledgement suppresses that exact operation/result on subsequent checkpoints, while other tasks remain supervised. A later turn, recovery operation, or changed terminal delivery/artifact/error produces a new receipt. Pending host actions are never suppressed by terminal acknowledgements. Receipt writes use the existing state lock and atomic-file primitives; concurrent readers may see duplicates, so this is at-least-once delivery with explicit acknowledgement, not exactly-once execution.
 
-`run-status` reads current operation/delivery states; it never consumes a result. `all_terminal` and `all_results_acknowledged` do not imply success or semantic acceptance: failed results can also be acknowledged. A fully acknowledged terminal set returns quiet immediately instead of waiting out the window. Existing task-ID checkpoints retain their snapshot behavior. Keep provider controller handles until collected; task sets do not replace host process handles or recovery decisions.
+`run-status` reads current operation/delivery states; it never consumes a result. `all_terminal` and `all_results_acknowledged` do not imply success or semantic acceptance: failed results can also be acknowledged. A fully acknowledged terminal set returns quiet immediately instead of waiting out the window. Existing task-ID checkpoints retain their snapshot behavior.
+
+### 执行与等待分离
+
+CLI 的 `start`、`turn`、`handoff` 和触发新 turn 的 `recover` 先持久化 operation，再启动独立 `execution-worker` 并返回 `RUNNING` 回执。后台控制器负责 provider、执行写锁、最终结果和退出凭据；调用 CLI 或 checkpoint 的进程退出不停止执行。`--include-response` 在终态才携带正文，使用 `checkpoint` 收取结果。回执后的任务不依赖宿主保留原 start handle；仅继续收取仍在运行的 checkpoint handle。
+
+控制器 PID 在启动 provider 前写入 operation，worker 校验自己就是已登记的 owner；重复派发复用 operation。交接写锁的间隙由非终态 operation 阻止其他 writer。控制器本身失败仍由现有 checkpoint 恢复，不自动重放原 prompt。直接使用 TypeScript `AgentLord` / `main` 的嵌入式调用保持同步兼容，可显式选择 background；生产 CLI 默认启用后台控制器。
 
 ## Durable plan runs
 
@@ -128,7 +134,7 @@ node core/dist/cli.js plan-status --run-id feature-x
 node core/dist/cli.js plan-dispatch --run-id feature-x --module-id auth-core --task-id feature-x-auth-core
 node core/dist/cli.js plan-deliver --run-id feature-x --module-id auth-core --state delivered
 node core/dist/cli.js plan-integrate --run-id feature-x --task-id feature-x-integrator
-node core/dist/cli.js plan-merge-request --run-id feature-x --repo /path/repo --mr-url <url> --head-sha <sha>
+node core/dist/cli.js plan-merge-request --run-id feature-x --repo /path/repo --mr-url <url> --head-sha <sha> --verification-file /tmp/run/verification.json
 node core/dist/cli.js plan-report --run-id feature-x --report-file /tmp/run/report.md
 ```
 
@@ -146,7 +152,7 @@ Replaying `plan-create` with the same plan and planner is idempotent and keeps r
 
 The journal records shareable decisions, actions, and results — planner identity and plan digest, module dispatch and provider identity, dependency waits, verified delivery commits, failures and resets, integration with its claimed workspaces, MRs and the heads they were checked against, and the closing report digest. It stores no hidden reasoning or raw provider logs.
 
-The runtime verifies local evidence only. It cannot confirm that a recorded MR URL exists on a remote host; that remains the integrator's reported outcome.
+`plan-integration-resume --run-id ... --task-id <replacement> --reason ...` 保留整合工作区、提交和 MR，核验旧执行已停止后才交接 claims；不要用 reset 代替恢复。已登记的 worker/integrator 自动继承角色交付要求，跨 attempt 的 commit 基线使用原计划 SHA。`plan-report` 除报告和 MR 登记外，还核验最终工作区、模块整合历史、绑定 SHA 的验证记录，并用已认证的 GitHub/GitLab API 回读 MR 的项目、分支和 SHA。验证记录格式、豁免边界和恢复步骤以 [plan-to-implement](pipelines/plan-to-implement.md#final-integration) 为准。
 
 ## Durable workspace claims
 
@@ -408,7 +414,7 @@ Every retry operation is stamped with its root operation, attempt number, mode, 
 
 ## Declared delivery evidence
 
-For local CLI `start`/`turn`, repeated `--require-file <workspace-relative-path>` checks that every declared file exists, is non-empty and resolves inside the workspace. `--require-commit` checks a new descendant of the dispatch-time HEAD and a clean worktree. Requirements are operation-scoped and inherited by `recover`; an ordinary new turn declares its own requirements. Repeating an in-flight request cannot silently change them.
+For ordinary local CLI `start`/`turn`, repeated `--require-file <workspace-relative-path>` checks that every declared file exists, is non-empty and resolves inside the workspace. `--require-commit` checks a new descendant of the dispatch-time HEAD and a clean worktree. Requirements are operation-scoped and inherited by `recover`; an ordinary new turn declares its own requirements. Repeating an in-flight request cannot silently change them. 已绑定 plan 的实现角色始终要求 commit，基线固定为计划原始 SHA；恢复仅完成验证时，已有交付 commit 仍然有效。
 
 `SUCCEEDED` continues to mean execution success. Its separate `delivery` record has scope `declared-files-and-commit` and status `verified`, `incomplete`, or `unverified` (no requirements, including old operations). Checks record files and optional commit evidence; the observer displays these separately. No semantic tests, browser behavior, or license correctness are inferred from a provider's final prose. A missing declared file keeps delivery incomplete even if the CLI exited successfully.
 

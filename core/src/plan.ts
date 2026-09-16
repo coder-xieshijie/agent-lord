@@ -1,10 +1,19 @@
-import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+} from "node:fs";
 import path from "node:path";
 import type { AgentLord } from "./engine.js";
 import {
   type Data,
   type Envelope,
   type Operation,
+  type StartOptions,
+  type DeliveryRequirements,
+  TERMINAL_STATES,
   isObject,
   records,
   string,
@@ -19,11 +28,14 @@ import {
   withLock,
   validateIdentifier,
   utcNow,
+  type Lease,
+  recordLock,
 } from "./state.js";
 import { controlConfig } from "./config.js";
 import { resolvePath } from "./paths.js";
 import {
   WorkspaceManager,
+  git,
   refHead,
   repositoryIdentity,
   targetIdentity,
@@ -43,6 +55,8 @@ import {
   writeClaim,
 } from "./workspace-claims.js";
 import { TaskSets } from "./task-sets.js";
+import { groupAlive, pidAlive } from "./process.js";
+import { verifyPublication } from "./publication.js";
 
 const SHA_PATTERN = /^[0-9a-f]{40}$/u;
 /** Module delivery is the only barrier input; a worker never publishes its own MR. */
@@ -93,6 +107,8 @@ interface IntegrationWorkspace {
   branch: string;
   target: string;
   claim_id: string;
+  /** Current checkout accepted at handover; the plan's source SHA stays frozen. */
+  head_sha?: string;
 }
 interface ReportRecord {
   canonical_path: string;
@@ -113,8 +129,19 @@ interface IntegrationRecord {
     url: string;
     head_sha: string;
     recorded_at: string;
+    verification?: VerificationReceipt;
   }>;
   report: ReportRecord | null;
+  handover?: { from: string; to: string };
+}
+interface VerificationReceipt {
+  head_sha: string;
+  checks: Array<{
+    name: string;
+    status: "passed" | "accepted_failure";
+    evidence: string;
+    reason?: string;
+  }>;
 }
 interface PlanRun {
   version: 1;
@@ -312,6 +339,120 @@ function findCycle(modules: PlanModule[]): string[] | null {
  * claims, and journals every shareable decision for the process report.
  */
 export class PlanRuns {
+  private taskPlan(
+    taskId: string,
+  ):
+    | { record: PlanRun; repo: PlanRepository; integration: boolean }
+    | undefined {
+    const directory = path.join(this.lord.root, "plan-runs");
+    if (!existsSync(directory)) return;
+    const found = readdirSync(directory)
+      .filter((f) => f.endsWith(".json"))
+      .flatMap((f) => {
+        const record = this.read(f.slice(0, -5));
+        if (
+          record.integration.task_id === taskId ||
+          record.integration.handover?.to === taskId
+        ) {
+          const primary = record.plan.repositories[0];
+          return [{ record, repo: primary, integration: true }];
+        }
+        const module = record.plan.modules.find(
+          (m) => record.modules[m.module_id]?.task_id === taskId,
+        );
+        return module
+          ? [
+              {
+                record,
+                repo: this.repository(record, module.repository),
+                integration: false,
+              },
+            ]
+          : [];
+      });
+    if (found.length > 1)
+      throw barrierError("task belongs to more than one plan run", {
+        task_id: taskId,
+      });
+    return found[0];
+  }
+  /** Role requirements come from the accepted plan, not optional CLI flags. */
+  executionContract(
+    taskId: string,
+    opts: StartOptions,
+    target: string | null,
+  ): StartOptions | undefined {
+    const found = this.taskPlan(taskId);
+    if (!found) return;
+    const { record, repo, integration } = found;
+    if (record.integration.state === "reported")
+      throw barrierError(
+        "completed plan roles require a new task or run for further work",
+      );
+    if (record.integration.handover)
+      throw barrierError(
+        "integration handover is incomplete; repeat plan-integration-resume",
+      );
+    const claimed = integration
+      ? record.integration.workspaces.find(
+          (w) => w.repository === repo.repository,
+        )
+      : undefined;
+    if (
+      target &&
+      (!claimed || targetIdentity(target) !== targetIdentity(claimed.target))
+    )
+      throw barrierError(
+        "plan task must use its declared repository workspace",
+      );
+    const expected = {
+      repository: repo.repository,
+      source_branch: repo.source_branch,
+      head_sha: claimed?.head_sha ?? repo.head_sha,
+      workspace_policy: "isolated",
+      ...(integration ? { workspace_branch: repo.delivery_branch } : {}),
+    };
+    for (const [key, value] of Object.entries(expected)) {
+      const given = (opts as Data)[key];
+      if (given !== undefined && given !== value)
+        throw barrierError("dispatch differs from the frozen plan", {
+          field: key,
+          expected: value,
+          observed: given,
+        });
+    }
+    if (opts.read_only)
+      throw barrierError("implementation roles require writable execution");
+    // Plan runs carry their own role provenance, unlike ordinary task sets.
+    if (opts.workflow_run_id && opts.workflow_run_id !== record.run_id)
+      throw barrierError("dispatch names another run");
+    return {
+      ...opts,
+      ...expected,
+      workflow_run_id: undefined,
+      require_commit: true,
+    } as StartOptions;
+  }
+  executionDelivery(
+    taskId: string,
+    delivery: DeliveryRequirements | null | undefined,
+  ): DeliveryRequirements | null {
+    const found = this.taskPlan(taskId);
+    if (!found) return delivery ?? null;
+    if (found.record.integration.state === "reported")
+      throw barrierError(
+        "completed plan roles require a new task or run for further work",
+      );
+    if (found.record.integration.handover)
+      throw barrierError(
+        "integration handover is incomplete; repeat plan-integration-resume",
+      );
+    return {
+      files: delivery?.files ?? [],
+      require_commit: true,
+      base_head: found.repo.head_sha,
+    };
+  }
   constructor(private readonly lord: AgentLord) {}
   private file(id: string): string {
     return path.join(
@@ -921,6 +1062,169 @@ export class PlanRuns {
     );
   }
   /** Release every claim and return integration to pending for a replacement. */
+  private requireStopped(taskId: string | null): void {
+    if (!taskId) return;
+    const active = this.lord.store
+      .operations(taskId)
+      .find(
+        (op) =>
+          !TERMINAL_STATES.has(op.status) ||
+          pidAlive(op.execution_worker_pid) ||
+          groupAlive(
+            op.pid,
+            op.active_attempt?.process_group_id ?? op.process_group_id,
+          ),
+      );
+    if (active)
+      throw barrierError(
+        "integration owner must be terminal and its processes stopped before handover",
+        {
+          task_id: taskId,
+          operation_id: active.operation_id,
+          status: active.status,
+        },
+      );
+  }
+  /** Transfer ownership, never reconstruct a delivery checkout from the plan base. */
+  integrationResume(id: string, taskId: string, reason: string): Envelope {
+    validateIdentifier("task_id", taskId);
+    if (!reason.trim()) throw planError("integration resume requires a reason");
+    withLock(
+      "plan-run",
+      validateIdentifier("run_id", id),
+      this.lord.root,
+      () => {
+        const record = this.read(id);
+        if (record.integration.state !== "dispatched")
+          throw barrierError("only a dispatched integration can resume");
+        const previous = record.integration.task_id;
+        if (
+          previous === taskId &&
+          record.journal.some(
+            (entry) =>
+              entry.event === "integration_resumed" && entry.task_id === taskId,
+          )
+        )
+          return; // Lost acknowledgement: rebind the observer set below, without resetting the new attempt.
+        if (
+          record.integration.handover &&
+          record.integration.handover.to !== taskId
+        )
+          throw barrierError(
+            "complete the recorded handover before choosing another owner",
+          );
+        const leases: Lease[] = [];
+        try {
+          for (const owner of [
+            ...new Set(
+              [previous, taskId].filter((s): s is string => Boolean(s)),
+            ),
+          ].sort())
+            leases.push(
+              recordLock(
+                "dispatch",
+                leaseId("dispatch", owner),
+                this.lord.root,
+              ),
+            );
+          this.requireStopped(previous);
+          if (
+            taskId !== previous &&
+            (this.lord.store.hasTask(taskId) ||
+              this.lord.store.operations(taskId).length ||
+              (!record.integration.handover && this.taskPlan(taskId)))
+          )
+            throw barrierError("replacement task id is already in use", {
+              task_id: taskId,
+            });
+          const workspaces = [...record.integration.workspaces].sort((a, b) =>
+            a.claim_id.localeCompare(b.claim_id),
+          );
+          if (workspaces.length !== record.plan.repositories.length)
+            throw barrierError("integration workspaces are incomplete");
+          for (const workspace of workspaces) {
+            leases.push(
+              recordLock(
+                WORKSPACE_LOCK_KIND,
+                workspaceLockId(targetIdentity(workspace.target)),
+                this.lord.root,
+              ),
+            );
+            leases.push(
+              recordLock(
+                BRANCH_LOCK_KIND,
+                branchLockId(
+                  repositoryIdentity(workspace.repository),
+                  workspace.branch,
+                ),
+                this.lord.root,
+              ),
+            );
+          }
+          const claims = claimsForRun(this.lord.root, id);
+          // Validate every repository before changing any owner; keep all locks until persisted.
+          for (const workspace of workspaces) {
+            const claim = claims.find((c) => c.claim_id === workspace.claim_id);
+            if (
+              !claim ||
+              ![previous, taskId].includes(claim.task_id) ||
+              claim.target_identity !== targetIdentity(workspace.target)
+            )
+              throw barrierError(
+                "integration claim is missing or belongs to another owner",
+              );
+            const repo = this.repository(record, workspace.repository);
+            const head = refHead(workspace.target, "HEAD");
+            if (
+              !head ||
+              git(workspace.target, ["status", "--porcelain"]).stdout.trim() ||
+              git(workspace.target, [
+                "branch",
+                "--show-current",
+              ]).stdout.trim() !== workspace.branch ||
+              repositoryIdentity(workspace.target) !==
+                repositoryIdentity(repo.repository) ||
+              git(
+                workspace.target,
+                [
+                  "merge-base",
+                  "--is-ancestor",
+                  workspace.head_sha ?? repo.head_sha,
+                  head,
+                ],
+                false,
+              ).status !== 0
+            )
+              throw barrierError(
+                "integration checkout must be clean and retain its recorded history",
+                { target: workspace.target },
+              );
+            workspace.head_sha = head;
+          }
+          record.integration.handover = { from: previous!, to: taskId };
+          this.persist(record); // A crash during claim transfer blocks both owners until replay.
+          for (const claim of claims)
+            writeClaim(this.lord.root, { ...claim, task_id: taskId });
+          record.integration.task_id = taskId;
+          delete record.integration.handover;
+          record.integration.operation_id = null;
+          record.integration.provider = null;
+          record.integration.model = null;
+          this.journal(record, "integration_resumed", {
+            previous_task_id: previous,
+            task_id: taskId,
+            reason,
+            workspaces,
+          });
+          this.persist(record);
+        } finally {
+          for (const lease of leases.reverse()) lease.release();
+        }
+      },
+    );
+    this.bind(id, taskId);
+    return this.status(id);
+  }
   integrationReset(id: string, reason: string | null): Envelope {
     withLock(
       "plan-run",
@@ -933,18 +1237,32 @@ export class PlanRuns {
         if (record.integration.state === "pending")
           throw barrierError("this run has no integrator to reset");
         const previous = record.integration.task_id;
-        const released = releaseClaims(this.lord.root, id);
-        record.integration.state = "pending";
-        record.integration.task_id = null;
-        record.integration.operation_id = null;
-        record.integration.workspaces = [];
-        record.integration.merge_requests = [];
-        this.journal(record, "integration_reset", {
-          previous_task_id: previous,
-          released_claims: released.map((claim) => claim.claim_id),
-          reason,
-        });
-        this.persist(record);
+        if (record.integration.handover)
+          throw barrierError(
+            "complete the recorded handover before resetting integration",
+          );
+        const ownerLease = recordLock(
+          "dispatch",
+          leaseId("dispatch", previous!),
+          this.lord.root,
+        );
+        try {
+          this.requireStopped(previous);
+          const released = releaseClaims(this.lord.root, id);
+          record.integration.state = "pending";
+          record.integration.task_id = null;
+          record.integration.operation_id = null;
+          record.integration.workspaces = [];
+          record.integration.merge_requests = [];
+          this.journal(record, "integration_reset", {
+            previous_task_id: previous,
+            released_claims: released.map((claim) => claim.claim_id),
+            reason,
+          });
+          this.persist(record);
+        } finally {
+          ownerLease.release();
+        }
       },
     );
     return this.status(id);
@@ -959,6 +1277,7 @@ export class PlanRuns {
     repository: string,
     url: string,
     headSha: string,
+    verification?: unknown,
   ): Envelope {
     withLock(
       "plan-run",
@@ -983,7 +1302,7 @@ export class PlanRuns {
         const operation = this.verifiedOperation(
           record.integration.task_id!,
           "integrator",
-          false,
+          true,
         );
         const claim = claimsForRun(this.lord.root, id).find(
           (entry) => entry.repository === repository,
@@ -1035,13 +1354,28 @@ export class PlanRuns {
               exit_code: 2,
             },
           );
-        if (existing) existing.head_sha = head;
-        else
+        verifyPublication(
+          repository,
+          url,
+          declared.delivery_branch,
+          declared.source_branch,
+          head,
+        );
+        const receipt =
+          verification === undefined
+            ? undefined
+            : this.verification(record, repository, head, verification);
+        if (existing) {
+          if (receipt || existing.head_sha !== head)
+            existing.verification = receipt;
+          existing.head_sha = head;
+        } else
           record.integration.merge_requests.push({
             repository,
             url,
             head_sha: head,
             recorded_at: utcNow(),
+            verification: receipt,
           });
         this.journal(record, "merge_request_recorded", {
           repository,
@@ -1054,6 +1388,117 @@ export class PlanRuns {
       },
     );
     return this.status(id);
+  }
+  private verification(
+    record: PlanRun,
+    repository: string,
+    head: string,
+    value: unknown,
+  ): VerificationReceipt {
+    if (
+      !isObject(value) ||
+      value.head_sha !== head ||
+      !Array.isArray(value.checks)
+    )
+      throw barrierError("verification receipt must name the final SHA", {
+        repository,
+        head_sha: head,
+      });
+    const checks = records(value.checks);
+    const required = new Set([
+      "ci",
+      ...record.plan.modules
+        .filter((m) => m.repository === repository)
+        .flatMap((m) => m.verification),
+    ]);
+    if (
+      checks.length !== value.checks.length ||
+      checks.some(
+        (c) =>
+          !string(c.name)?.trim() ||
+          !string(c.evidence)?.trim() ||
+          !["passed", "accepted_failure"].includes(String(c.status)) ||
+          (c.status === "accepted_failure" && !string(c.reason)?.trim()),
+      ) ||
+      new Set(checks.map((c) => c.name)).size !== checks.length ||
+      [...required].some((name) => !checks.some((c) => c.name === name))
+    )
+      throw barrierError(
+        "verification must cover CI and every declared check, with evidence and reasons for user-accepted exceptions",
+        {
+          repository,
+          required_checks: [...required],
+        },
+      );
+    return {
+      head_sha: head,
+      checks: checks.map((c) => ({
+        name: String(c.name),
+        status: c.status as "passed" | "accepted_failure",
+        evidence: String(c.evidence),
+        ...(c.reason ? { reason: String(c.reason) } : {}),
+      })),
+    };
+  }
+  private verifyFinalRepository(record: PlanRun, repo: PlanRepository): void {
+    const workspace = record.integration.workspaces.find(
+      (w) => w.repository === repo.repository,
+    );
+    const publication = record.integration.merge_requests.find(
+      (m) => m.repository === repo.repository,
+    );
+    if (!workspace || !publication)
+      throw barrierError("final repository delivery is missing");
+    const claim = claimsForRun(this.lord.root, record.run_id).find(
+      (c) => c.claim_id === workspace.claim_id,
+    );
+    if (
+      !claim ||
+      claim.task_id !== record.integration.task_id ||
+      claim.target_identity !== targetIdentity(workspace.target)
+    )
+      throw barrierError("final delivery no longer owns its workspace claim");
+    const head = refHead(workspace.target, "HEAD");
+    if (
+      !head ||
+      head !== publication.head_sha ||
+      head === repo.head_sha ||
+      git(workspace.target, ["status", "--porcelain"]).stdout.trim() ||
+      git(workspace.target, ["branch", "--show-current"]).stdout.trim() !==
+        repo.delivery_branch ||
+      git(
+        workspace.target,
+        ["merge-base", "--is-ancestor", repo.head_sha, head],
+        false,
+      ).status !== 0
+    )
+      throw barrierError(
+        "final checkout changed or is not a clean delivery descendant",
+        { repository: repo.repository },
+      );
+    for (const module of record.plan.modules.filter(
+      (m) => m.repository === repo.repository,
+    )) {
+      const commit = record.modules[module.module_id]?.commit_sha;
+      // git cherry accepts both merged commits and patch-equivalent cherry-picks.
+      if (
+        !commit ||
+        git(workspace.target, ["cherry", head, commit, repo.head_sha])
+          .stdout.split("\n")
+          .some((line) => line.startsWith("+"))
+      )
+        throw barrierError("final delivery omits module commits", {
+          module_id: module.module_id,
+        });
+    }
+    this.verification(record, repo.repository, head, publication.verification);
+    verifyPublication(
+      repo.repository,
+      publication.url,
+      repo.delivery_branch,
+      repo.source_branch,
+      head,
+    );
   }
   /**
    * Close the run: save the integrator's report inside Agent Lord state so it
@@ -1068,14 +1513,20 @@ export class PlanRuns {
         const record = this.read(id);
         if (record.integration.state === "pending")
           throw barrierError("the final integrator has not started yet");
+        if (record.integration.handover)
+          throw barrierError(
+            "complete the recorded handover before closing integration",
+          );
         if (!reportText.trim())
           throw barrierError("the process report must not be empty");
         const digest = sha256(reportText);
         const canonical = this.reportFile(id);
         const current = record.integration.report;
         if (current && record.integration.state === "reported") {
-          if (current.sha256 === digest && existsSync(current.canonical_path))
+          if (current.sha256 === digest && existsSync(current.canonical_path)) {
+            releaseClaims(this.lord.root, id);
             return;
+          }
           if (current.sha256 !== digest)
             throw new AgentLordError(
               "REPORT_CONFLICT",
@@ -1091,43 +1542,68 @@ export class PlanRuns {
               },
             );
         }
-        this.verifiedOperation(
-          record.integration.task_id!,
-          "integrator",
-          false,
+        const ownerLease = recordLock(
+          "dispatch",
+          leaseId("dispatch", record.integration.task_id!),
+          this.lord.root,
         );
-        const missing = record.plan.repositories
-          .map((r) => r.repository)
-          .filter(
-            (repository) =>
-              !record.integration.merge_requests.some(
-                (entry) => entry.repository === repository,
-              ),
+        try {
+          this.requireStopped(record.integration.task_id);
+          const operation = this.verifiedOperation(
+            record.integration.task_id!,
+            "integrator",
+            true,
           );
-        if (missing.length)
-          throw barrierError(
-            "every repository needs its merge request recorded",
-            { missing },
+          const missing = record.plan.repositories
+            .map((r) => r.repository)
+            .filter(
+              (repository) =>
+                !record.integration.merge_requests.some(
+                  (entry) => entry.repository === repository,
+                ),
+            );
+          if (missing.length)
+            throw barrierError(
+              "every repository needs its merge request recorded",
+              { missing },
+            );
+          for (const repo of record.plan.repositories)
+            this.verifyFinalRepository(record, repo);
+          const primary = record.integration.workspaces.find(
+            (w) =>
+              targetIdentity(w.target) === targetIdentity(operation.target),
           );
-        mkdirSync(path.dirname(canonical), { recursive: true, mode: 0o700 });
-        atomicWrite(canonical, reportText);
-        record.integration.state = "reported";
-        record.integration.report = {
-          canonical_path: canonical,
-          source_path: resolvePath(sourcePath),
-          bytes: statSync(canonical).size,
-          sha256: digest,
-          reported_at: utcNow(),
-        };
-        const released = releaseClaims(this.lord.root, id);
-        this.journal(record, "run_reported", {
-          canonical_path: canonical,
-          report_sha256: digest,
-          bytes: record.integration.report.bytes,
-          merge_requests: record.integration.merge_requests.map((e) => e.url),
-          released_claims: released.map((claim) => claim.claim_id),
-        });
-        this.persist(record);
+          const publication = record.integration.merge_requests.find(
+            (m) => m.repository === primary?.repository,
+          );
+          if (
+            !publication ||
+            operation.delivery?.commit_sha !== publication.head_sha
+          )
+            throw unverified(
+              "current integrator result does not cover the final primary SHA",
+            );
+          mkdirSync(path.dirname(canonical), { recursive: true, mode: 0o700 });
+          atomicWrite(canonical, reportText);
+          record.integration.state = "reported";
+          record.integration.report = {
+            canonical_path: canonical,
+            source_path: resolvePath(sourcePath),
+            bytes: statSync(canonical).size,
+            sha256: digest,
+            reported_at: utcNow(),
+          };
+          this.journal(record, "run_reported", {
+            canonical_path: canonical,
+            report_sha256: digest,
+            bytes: record.integration.report.bytes,
+            merge_requests: record.integration.merge_requests.map((e) => e.url),
+          });
+          this.persist(record);
+          releaseClaims(this.lord.root, id); // Replay releases leftover claims if the caller dies after commit.
+        } finally {
+          ownerLease.release();
+        }
       },
     );
     return this.status(id);

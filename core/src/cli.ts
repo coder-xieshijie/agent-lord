@@ -192,9 +192,15 @@ export const COMMANDS: Record<string, CommandSpec> = {
     strings: ["run-id", "reason"],
     required: ["run-id"],
   },
+  "plan-integration-resume": {
+    description:
+      "Resume integration with retained worktrees, commits, and merge requests",
+    strings: ["run-id", "task-id", "reason"],
+    required: ["run-id", "task-id", "reason"],
+  },
   "plan-merge-request": {
     description: "Record the one merge request for one plan repository",
-    strings: ["run-id", "repo", "mr-url", "head-sha"],
+    strings: ["run-id", "repo", "mr-url", "head-sha", "verification-file"],
     required: ["run-id", "repo", "mr-url", "head-sha"],
   },
   "plan-report": {
@@ -299,17 +305,18 @@ export const COMMANDS: Record<string, CommandSpec> = {
     choices: { terminal: NATIVE_TERMINALS },
   },
 };
-function parsePlanFile(file: string): unknown {
+function parsePlanFile(file: string, label = "plan-file"): unknown {
   try {
     return parseJson(inputText(file));
   } catch (error) {
     if (error instanceof AgentLordError) throw error;
-    throw usageError("plan-file must contain valid JSON");
+    throw usageError(`${label} must contain valid JSON`);
   }
 }
 export async function main(
   argv = process.argv.slice(2),
   write: (value: string) => void = (value) => process.stdout.write(value),
+  execution: { background?: boolean } = {},
 ): Promise<number> {
   try {
     const help = helpFor(argv, COMMANDS, "agent-lord");
@@ -340,7 +347,7 @@ export async function main(
       }
     }
     // All parser and input validation happens before any dispatch.
-    const lord = new AgentLord();
+    const lord = new AgentLord(undefined, execution.background ?? false);
     let result;
     let quiet = false;
     if (command === "start") {
@@ -467,12 +474,21 @@ export async function main(
         get("run-id"),
         valueString(v, "reason") ?? null,
       );
+    else if (command === "plan-integration-resume")
+      result = new PlanRuns(lord).integrationResume(
+        get("run-id"),
+        get("task-id"),
+        get("reason"),
+      );
     else if (command === "plan-merge-request")
       result = new PlanRuns(lord).mergeRequest(
         get("run-id"),
         get("repo"),
         get("mr-url"),
         get("head-sha"),
+        get("verification-file")
+          ? parsePlanFile(get("verification-file"), "verification-file")
+          : undefined,
       );
     else if (command === "plan-report")
       result = new PlanRuns(lord).report(
@@ -567,4 +583,4 @@ export async function main(
   }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
-  process.exitCode = await main();
+  process.exitCode = await main(undefined, undefined, { background: true });

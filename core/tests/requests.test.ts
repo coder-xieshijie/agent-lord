@@ -239,11 +239,17 @@ describe("passive request inbox", () => {
     const consume = () =>
       h.controller(["request-dispatch", "--request-id", "req-race"]);
     const children = [consume(), consume()];
+    const replies = ["", ""];
+    children.forEach((child, index) =>
+      child.stdout!.on("data", (chunk) => {
+        replies[index] += chunk;
+      }),
+    );
     const codes = await Promise.all(
       children.map(
         (child) =>
           new Promise<number>((resolve) =>
-            child.on("exit", (code) => resolve(code ?? -1)),
+            child.on("close", (code) => resolve(code ?? -1)),
           ),
       ),
     );
@@ -251,9 +257,20 @@ describe("passive request inbox", () => {
     const operations = h.lord.store.operations("raced");
     expect(operations).toHaveLength(1);
     expect(operations[0].request_id).toBe("req-race");
+    // CLI completion is a dispatch acknowledgement, not provider completion.
+    await waitFor(
+      () =>
+        h.lord.store.operation(operations[0].operation_id).status ===
+        "succeeded",
+    );
     expect(h.calls()).toHaveLength(1);
-    // The loser is a deterministic busy refusal, never a second dispatch.
-    expect(codes.filter((v) => v === 0)).toHaveLength(1);
+    // A contender either hits the lock or reads the already-bound operation.
+    replies.forEach((reply, index) => {
+      const body = JSON.parse(reply);
+      if (codes[index] === 0)
+        expect(body.operation_id).toBe(operations[0].operation_id);
+      else expect(body.error.code).toBe("STATE_BUSY");
+    });
     const settled = await inbox().dispatch("req-race");
     expect(settled.operation_id).toBe(operations[0].operation_id);
     expect(h.lord.store.operations("raced")).toHaveLength(1);

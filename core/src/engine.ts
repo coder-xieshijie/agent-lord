@@ -70,6 +70,7 @@ import { operationResultKey } from "./result-key.js";
 import { inspectInputs, sameInputs } from "./inputs.js";
 import { resolveInvocation } from "./invocation.js";
 import { workflowNodes } from "./workflow-nodes.js";
+import { PlanRuns } from "./plan.js";
 import {
   deliveryRequirements,
   sameDeliveryRequest,
@@ -126,7 +127,10 @@ export class AgentLord {
   readonly control: Control;
   readonly workspaces: WorkspaceManager;
   readonly app: CodexAppAdapter;
-  constructor(root = stateDir()) {
+  constructor(
+    root = stateDir(),
+    readonly background = false,
+  ) {
     this.store = new StateStore(root);
     this.control = controlConfig();
     this.workspaces = new WorkspaceManager(this.store, this.control);
@@ -428,6 +432,15 @@ export class AgentLord {
     opts: StartOptions = {},
   ): Promise<Envelope> {
     validateIdentifier("task_id", taskId);
+    const planned = new PlanRuns(this).executionContract(
+      taskId,
+      opts,
+      rawTarget,
+    );
+    if (planned) {
+      opts = planned;
+      rawTarget = null;
+    }
     const requestId = opts.request_id
       ? validateIdentifier("request_id", opts.request_id)
       : undefined;
@@ -735,10 +748,13 @@ export class AgentLord {
               ...(provider === "claude-cli"
                 ? { endpoint_id: randomUUID() }
                 : {}),
-              delivery_requirements: deliveryRequirements(
-                target!,
-                opts.required_files,
-                Boolean(opts.require_commit),
+              delivery_requirements: new PlanRuns(this).executionDelivery(
+                taskId,
+                deliveryRequirements(
+                  target!,
+                  opts.required_files,
+                  Boolean(opts.require_commit),
+                ),
               ),
               input_evidence: inputEvidence,
               resume: false,
@@ -760,7 +776,16 @@ export class AgentLord {
       group?.release();
       group = undefined;
       if (existing) return existing;
-      if (cli) return await this.finishCli(operation!, false);
+      if (cli) {
+        if (this.background) {
+          controller?.release();
+          controller = undefined;
+          writes?.release();
+          writes = undefined;
+          return await this.launchExecution(operation!);
+        }
+        return await this.finishCli(operation!, false);
+      }
       this.store.event(
         taskId,
         "action-required",
@@ -915,6 +940,12 @@ export class AgentLord {
               "task_id already has a durable endpoint",
               { details: { task_id: taskId }, exit_code: 2 },
             );
+          if (new PlanRuns(this).executionDelivery(taskId, null))
+            throw new AgentLordError(
+              "PLAN_BARRIER",
+              "plan roles must use start after role registration, not a handoff contract",
+              { exit_code: 2 },
+            );
           verifyCheckout(target, source);
           const snapshot = snapshotExactTarget(target);
           writes = this.workspaces.writeLeases(
@@ -998,7 +1029,15 @@ export class AgentLord {
           return undefined;
         },
       );
-      return existing ?? (await this.finishCli(operation!, false));
+      if (existing) return existing;
+      if (this.background) {
+        controller?.release();
+        controller = undefined;
+        writes?.release();
+        writes = undefined;
+        return await this.launchExecution(operation!);
+      }
+      return await this.finishCli(operation!, false);
     } finally {
       controller?.release();
       writes?.release();
@@ -1019,6 +1058,8 @@ export class AgentLord {
     } = {},
   ): Promise<Envelope> {
     validateIdentifier("task_id", taskId);
+    if (new PlanRuns(this).executionDelivery(taskId, null)?.require_commit)
+      opts = { ...opts, require_commit: true };
     const requestId = opts.request_id
       ? validateIdentifier("request_id", opts.request_id)
       : undefined;
@@ -1185,13 +1226,16 @@ export class AgentLord {
               input_evidence: inputEvidence,
               resume: true,
               ...(continuation ? { continuation } : {}),
-              delivery_requirements: opts.recovery_from
-                ? delivery
-                : deliveryRequirements(
-                    task.target,
-                    opts.required_files,
-                    Boolean(opts.require_commit),
-                  ),
+              delivery_requirements: new PlanRuns(this).executionDelivery(
+                taskId,
+                opts.recovery_from
+                  ? delivery
+                  : deliveryRequirements(
+                      task.target,
+                      opts.required_files,
+                      Boolean(opts.require_commit),
+                    ),
+              ),
             },
           );
           if (continuation)
@@ -1207,6 +1251,13 @@ export class AgentLord {
         },
       );
       if (existing) return existing;
+      if (this.background && operation!.provider !== "codex-app") {
+        controller?.release();
+        controller = undefined;
+        writes?.release();
+        writes = undefined;
+        return await this.launchExecution(operation!);
+      }
       return operation!.provider === "codex-app"
         ? this.envelope(operation!, action)
         : await this.finishCli(operation!, true);
@@ -1320,6 +1371,116 @@ export class AgentLord {
     } finally {
       lease.release();
     }
+  }
+  /** The journal reserves the workspace before its leases pass to the worker. */
+  private async launchExecution(op: Operation): Promise<Envelope> {
+    const source = import.meta.url.endsWith(".ts");
+    const worker = fileURLToPath(
+      new URL(
+        source ? "./execution-worker.ts" : "./execution-worker.js",
+        import.meta.url,
+      ),
+    );
+    const args = [
+      ...(source
+        ? ["--import", createRequire(import.meta.url).resolve("tsx")]
+        : []),
+      worker,
+      "--state-dir",
+      this.root,
+      "--operation-id",
+      op.operation_id,
+    ];
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(process.execPath, args, {
+        stdio: "ignore",
+        detached: true,
+        windowsHide: true,
+      });
+      await new Promise<void>((resolve, reject) => {
+        child.once("spawn", resolve);
+        child.once("error", reject);
+      });
+    } catch (error) {
+      return this.raiseFailure(
+        op,
+        new AgentLordError(
+          "PROVIDER_UNAVAILABLE",
+          "cannot launch execution controller",
+          {
+            details: { error: String(error) },
+            retryable: true,
+          },
+        ),
+      );
+    }
+    const updated = this.setStatus(op.operation_id, "preparing", {
+      controller_pid: child.pid!,
+      execution_worker_pid: child.pid!,
+    });
+    child.unref();
+    return this.envelope(updated);
+  }
+  /** Private entry: only the process named by the durable dispatch may execute. */
+  async executeOperation(id: string): Promise<Envelope> {
+    validateIdentifier("operation_id", id);
+    const deadline = Date.now() + 5000;
+    let op = this.store.operation(id);
+    while (op.execution_worker_pid !== process.pid && Date.now() < deadline) {
+      if (TERMINAL_STATES.has(op.status) || !pidAlive(op.controller_pid))
+        throw new AgentLordError(
+          "STATE_CONFLICT",
+          "execution worker was not assigned this operation",
+        );
+      await delay(20);
+      op = this.store.operation(id);
+    }
+    if (op.execution_worker_pid !== process.pid || op.provider === "codex-app")
+      throw new AgentLordError(
+        "STATE_CONFLICT",
+        "execution worker identity mismatch",
+      );
+    return withAsyncLock(
+      "controller-lease",
+      leaseId("controller", id),
+      this.root,
+      async () => {
+        const current = this.store.operation(id);
+        if (TERMINAL_STATES.has(current.status)) return this.envelope(current);
+        if (current.provider_command || current.controller_pid !== process.pid)
+          throw new AgentLordError(
+            "STATE_CONFLICT",
+            "execution already started or ownership changed",
+          );
+        let writes: Lease | undefined;
+        try {
+          writes = this.workspaces.writeLeases(
+            current.target,
+            current.read_only,
+            current.workspace ?? { policy: "exact-target" },
+            id,
+            current.task_id,
+          );
+          const branch =
+            current.workspace?.workspace_branch ??
+            current.workspace?.source_branch;
+          if (branch && !current.read_only)
+            verifyManagedAdvance(current.target, current.source, branch);
+          else verifyCheckout(current.target, current.source);
+          return await this.finishCli(current, Boolean(current.resume));
+        } catch (error) {
+          // Unknown failures retain a nonterminal journal for checkpoint fencing.
+          if (!(error instanceof AgentLordError) || error.code === "STATE_BUSY")
+            throw error;
+          const latest = this.store.operation(id);
+          if (TERMINAL_STATES.has(latest.status)) return this.envelope(latest);
+          return this.envelope(this.fail(latest, error));
+        } finally {
+          writes?.release();
+        }
+      },
+    );
   }
   private async finishCli(op: Operation, resume: boolean): Promise<Envelope> {
     if (op.provider === "claude-cli") return this.finishClaude(op, resume);
