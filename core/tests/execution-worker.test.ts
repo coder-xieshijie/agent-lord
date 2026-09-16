@@ -15,7 +15,8 @@ describe("detached execution controller", () => {
   it.each(["mcode-cli", "claude-cli", "codex-cli"])(
     "%s completes after its CLI client exits",
     async (provider) => {
-      h.options({ delayMs: 700, output: "durable final" });
+      const release = path.join(h.base, "release");
+      h.options({ releaseFile: release, output: "durable final" });
       const prompt = path.join(h.base, "prompt.txt");
       writeFileSync(prompt, "work");
       const client = h.controller([
@@ -30,16 +31,21 @@ describe("detached execution controller", () => {
         prompt,
       ]);
       let output = "";
+      let closed = false;
+      client.once("close", () => {
+        closed = true;
+      });
       client.stdout!.on("data", (chunk) => {
         output += chunk;
       });
-      await waitFor(() => client.exitCode !== null);
+      await waitFor(() => closed);
       expect(client.exitCode).toBe(0);
       const ack = JSON.parse(output);
       expect(ack.status).toBe("RUNNING");
       const op = h.lord.store.operations("task")[0];
       expect(op.controller_pid).not.toBe(client.pid);
       expect(pidAlive(op.execution_worker_pid)).toBe(true);
+      writeFileSync(release, "client exited; provider may finish");
       await waitFor(
         () => h.lord.store.operations("task")[0]?.status === "succeeded",
       );
@@ -48,9 +54,11 @@ describe("detached execution controller", () => {
       ).toContain("durable final");
       expect(h.calls()).toHaveLength(1);
     },
+    15000,
   );
   it("repeated submissions cannot start a second worker or provider", async () => {
-    h.options({ delayMs: 700 });
+    const release = path.join(h.base, "release");
+    h.options({ releaseFile: release });
     const lord = new AgentLord(h.root, true);
     const first = await lord.start("task", "mcode", h.target, "work", {
       model: "test/model",
@@ -59,6 +67,7 @@ describe("detached execution controller", () => {
       model: "test/model",
     });
     expect(first.operation_id).toBe(second.operation_id);
+    writeFileSync(release, "both submissions acknowledged");
     await waitFor(
       () => h.lord.store.operations("task")[0]?.status === "succeeded",
     );
@@ -73,9 +82,10 @@ describe("detached execution controller", () => {
     );
     expect(h.calls()).toHaveLength(2);
     expect(h.calls()[1].args).toContain("--session");
-  });
+  }, 15000);
   it("killing a checkpoint client leaves execution and its terminal receipt intact", async () => {
-    h.options({ delayMs: 1200 });
+    const release = path.join(h.base, "release");
+    h.options({ releaseFile: release });
     const lord = new AgentLord(h.root, true);
     await lord.start("task", "mcode", h.target, "work", {
       model: "test/model",
@@ -90,10 +100,12 @@ describe("detached execution controller", () => {
     ]);
     await new Promise<void>((resolve) => waiter.once("spawn", resolve));
     waiter.kill("SIGKILL");
+    await waitFor(() => waiter.signalCode !== null);
+    writeFileSync(release, "waiter terminated; provider may finish");
     await waitFor(
       () => h.lord.store.operations("task")[0]?.status === "succeeded",
     );
     expect(h.lord.store.operations("task")[0].provider_return_code).toBe(0);
     expect(h.calls()).toHaveLength(1);
-  });
+  }, 15000);
 });

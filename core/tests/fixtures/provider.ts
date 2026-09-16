@@ -31,6 +31,14 @@ const emit = (value: unknown) => {
 };
 const provider = process.env.FAKE_PROVIDER;
 const model = flag("--model");
+async function waitForRelease(): Promise<void> {
+  const deadline = Date.now() + 20000;
+  while (options.releaseFile && !existsSync(options.releaseFile)) {
+    if (Date.now() >= deadline)
+      throw new Error("test provider release timed out");
+    await sleep(20);
+  }
+}
 if (provider === "claude-cli") {
   const session = options.wrongSession
     ? "other-session"
@@ -52,6 +60,7 @@ if (provider === "claude-cli") {
       session_id: session,
       message: { content: [{ type: "tool_use", name: "Bash" }] },
     });
+  await waitForRelease();
   if (options.delayMs && (!options.delayFirstOnly || number === 1))
     await sleep(options.delayMs);
   const failed = options.failAll || number <= (options.failAttempts ?? 0);
@@ -73,6 +82,7 @@ if (provider === "claude-cli") {
       ? args.at(-2)
       : "codex-session";
   emit({ type: "thread.started", thread_id: session });
+  await waitForRelease();
   if (options.delayMs) await sleep(options.delayMs);
   if (options.failAll) {
     emit({ type: "turn.failed", error: { message: "test failure" } });
@@ -128,6 +138,7 @@ if (provider === "claude-cli") {
       },
     });
   if (options.delayMs) await sleep(options.delayMs);
+  await waitForRelease();
   if (options.crossIdentity) {
     event("item.completed", { sessionId: "wrong-session", item: {} });
   } else if (!options.missingTerminal) {
