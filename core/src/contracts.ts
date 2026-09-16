@@ -156,6 +156,7 @@ export interface Operation extends Data {
   parallel_plan?: ParallelPlan | Data;
   pid?: number | null;
   controller_pid?: number | null;
+  execution_worker_pid?: number | null;
   recovery_controller_pid?: number | null;
   active_attempt?: Data | null;
   attempt_history?: Data[];

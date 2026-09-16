@@ -165,6 +165,7 @@
     "artifact": {"type": ["object", "null"]},
     "error": {"type": ["object", "null"]},
     "controller_pid": {"type": ["integer", "null"]},
+    "execution_worker_pid": {"type": ["integer", "null"]},
     "pid": {"type": ["integer", "null"]},
     "provider_return_code": {"type": ["integer", "null"]},
     "run_id": {"type": "string"},

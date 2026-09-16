@@ -1,4 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as publication from "../src/publication.js";
+import * as workspaceClaims from "../src/workspace-claims.js";
+import { PlanRuns } from "../src/plan.js";
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
@@ -21,8 +24,12 @@ import {
 let h: ReturnType<typeof harness>;
 beforeEach(() => {
   h = harness();
+  vi.spyOn(publication, "verifyPublication").mockImplementation(() => {});
 });
-afterEach(() => h.cleanup());
+afterEach(() => {
+  h.cleanup();
+  vi.restoreAllMocks();
+});
 function run(repo: string, args: string[]): string {
   const result = spawnSync(
     "git",
@@ -1063,6 +1070,8 @@ describe("single multi-repository integrator", () => {
     const workspaces = integration(integrated.body).workspaces as Data[];
     const primary = workspaces.find((w) => w.repository === a.repo)!;
     const secondary = workspaces.find((w) => w.repository === b.repo)!;
+    run(primary.target as string, ["merge", "--ff-only", "module/alpha"]);
+    run(secondary.target as string, ["cherry-pick", "module/beta"]);
     const headB = commitInto(
       secondary.target as string,
       "merged.txt",
@@ -1084,6 +1093,8 @@ describe("single multi-repository integrator", () => {
       "https://example.invalid/mr/1",
       "--head-sha",
       headA,
+      "--verification-file",
+      verificationFile(headA),
     ]);
     const reportFile = path.join(h.base, "report.md");
     writeFileSync(reportFile, "# Run report\n\nMerged both repositories.\n");
@@ -1107,6 +1118,8 @@ describe("single multi-repository integrator", () => {
       "https://example.invalid/mr/2",
       "--head-sha",
       headB,
+      "--verification-file",
+      verificationFile(headB),
     ]);
     const empty = path.join(h.base, "empty.md");
     writeFileSync(empty, "   \n");
@@ -1118,6 +1131,16 @@ describe("single multi-repository integrator", () => {
       empty,
     ]);
     expect((blank.body.error as Data).code).toBe("PLAN_BARRIER");
+    const release = vi
+      .spyOn(workspaceClaims, "releaseClaims")
+      .mockImplementationOnce(() => {
+        throw new Error("interrupted after report commit");
+      });
+    await expect(
+      cli(["plan-report", "--run-id", "run-21", "--report-file", reportFile]),
+    ).rejects.toThrow(/interrupted/);
+    release.mockRestore();
+    expect(readClaims(h.root)).toHaveLength(2);
     const closed = await cli([
       "plan-report",
       "--run-id",
@@ -1137,6 +1160,9 @@ describe("single multi-repository integrator", () => {
     );
     expect(report.bytes).toBe(readFileSync(reportFile).length);
     expect(record(closed.body).claims).toEqual([]);
+    await expect(
+      h.lord.turn("t-int", "change a closed delivery"),
+    ).rejects.toThrow(/completed plan roles/);
     // An identical report replays; a different one cannot silently replace it.
     const again = await cli([
       "plan-report",
@@ -1162,7 +1188,199 @@ describe("single multi-repository integrator", () => {
     expect(journal).toContain("integration_dispatched");
     expect(journal.at(-1)).toBe("run_reported");
   });
+  it("resumes integration without discarding commits, claims, or recorded MRs", async () => {
+    const { a } = await twoRepositoryRun("resume");
+    const plans = new PlanRuns(h.lord);
+    const initial = plans.integrate("resume", "old");
+    const primary = (integration(initial).workspaces as Data[]).find(
+      (w) => w.repository === a.repo,
+    )!;
+    const head = integratorEndpoint(
+      "old",
+      primary.target as string,
+      a.repo,
+      "feature/delivery",
+    );
+    plans.mergeRequest("resume", a.repo, "https://example.invalid/mr/1", head, {
+      head_sha: head,
+      checks: [
+        { name: "ci", status: "passed", evidence: "pipeline" },
+        { name: "pnpm test", status: "passed", evidence: "test log" },
+      ],
+    });
+    const resumed = plans.integrationResume(
+      "resume",
+      "replacement",
+      "prior session exhausted",
+    );
+    expect(integration(resumed).merge_requests).toHaveLength(1);
+    expect(readClaims(h.root).every((c) => c.task_id === "replacement")).toBe(
+      true,
+    );
+    expect(run(primary.target as string, ["rev-parse", "HEAD"])).toBe(head);
+    const contract = plans.executionContract("replacement", {}, null)!;
+    expect(contract.head_sha).toBe(head);
+    expect(contract.require_commit).toBe(true);
+    const result = await h.lord.start(
+      "replacement",
+      "mcode",
+      null,
+      "finish existing delivery",
+      { model: "test/model", ...contract },
+    );
+    expect(result.status).toBe("SUCCEEDED");
+    const op = h.lord.store.operations("replacement")[0];
+    expect(op.delivery_requirements?.base_head).toBe(a.head);
+    expect(op.delivery?.commit_sha).toBe(head); // No new commit in this attempt.
+    expect(run(primary.target as string, ["rev-parse", "HEAD"])).toBe(head);
+  });
+  it("refuses resume and reset while the old attempt is active", async () => {
+    const { a } = await twoRepositoryRun("live");
+    const plans = new PlanRuns(h.lord);
+    const initial = plans.integrate("live", "old");
+    const primary = (integration(initial).workspaces as Data[]).find(
+      (w) => w.repository === a.repo,
+    )!;
+    endpoint("old", primary.target as string, { status: "running" });
+    expect(() =>
+      plans.integrationResume("live", "replacement", "retry"),
+    ).toThrow(/stopped/);
+    expect(() => plans.integrationReset("live", "retry")).toThrow(/stopped/);
+    h.lord.store.updateOperation("old-op", (op) => ({
+      ...op,
+      status: "failed",
+      pid: process.pid,
+    }));
+    expect(() =>
+      plans.integrationResume("live", "replacement", "retry"),
+    ).toThrow(/stopped/);
+    expect(readClaims(h.root).every((c) => c.task_id === "old")).toBe(true);
+  });
+  it("prevalidates every repository before transferring any claim", async () => {
+    const { b } = await twoRepositoryRun("dirty");
+    const plans = new PlanRuns(h.lord);
+    const initial = plans.integrate("dirty", "old");
+    const secondary = (integration(initial).workspaces as Data[]).find(
+      (w) => w.repository === b.repo,
+    )!;
+    writeFileSync(
+      path.join(secondary.target as string, "dirty.txt"),
+      "unfinished",
+    );
+    expect(() =>
+      plans.integrationResume("dirty", "replacement", "retry"),
+    ).toThrow(/clean/);
+    expect(readClaims(h.root).every((c) => c.task_id === "old")).toBe(true);
+  });
+  it("replays an interrupted multi-repository handover with both owners fenced", async () => {
+    await twoRepositoryRun("partial");
+    const plans = new PlanRuns(h.lord);
+    plans.integrate("partial", "old");
+    const original = workspaceClaims.writeClaim;
+    let writes = 0;
+    const crash = vi
+      .spyOn(workspaceClaims, "writeClaim")
+      .mockImplementation((root, claim) => {
+        if (++writes === 2) throw new Error("interrupted claim transfer");
+        original(root, claim);
+      });
+    expect(() =>
+      plans.integrationResume("partial", "replacement", "recover"),
+    ).toThrow(/interrupted/);
+    crash.mockRestore();
+    expect(() => plans.executionContract("old", {}, null)).toThrow(
+      /handover is incomplete/,
+    );
+    expect(() => plans.executionContract("replacement", {}, null)).toThrow(
+      /handover is incomplete/,
+    );
+    expect(() =>
+      plans.integrationResume("partial", "different", "retry"),
+    ).toThrow(/recorded handover/);
+    const resumed = plans.integrationResume(
+      "partial",
+      "replacement",
+      "recover",
+    );
+    expect(integration(resumed).handover).toBeUndefined();
+    expect(readClaims(h.root).every((c) => c.task_id === "replacement")).toBe(
+      true,
+    );
+    const again = plans.integrationResume("partial", "replacement", "recover");
+    expect(
+      (record(again).journal as Data[]).filter(
+        (e) => e.event === "integration_resumed",
+      ),
+    ).toHaveLength(1);
+  });
+  it("rejects final delivery missing a module, then requires SHA-bound verification", async () => {
+    const { a, b } = await twoRepositoryRun("facts");
+    const plans = new PlanRuns(h.lord);
+    const initial = plans.integrate("facts", "int");
+    const workspaces = integration(initial).workspaces as Data[];
+    const primary = workspaces.find((w) => w.repository === a.repo)!;
+    const secondary = workspaces.find((w) => w.repository === b.repo)!;
+    const headA = integratorEndpoint(
+      "int",
+      primary.target as string,
+      a.repo,
+      "feature/delivery",
+    );
+    const headB = commitInto(
+      secondary.target as string,
+      "merged.txt",
+      "not actually integrated",
+    );
+    plans.mergeRequest("facts", a.repo, "https://example.invalid/mr/1", headA);
+    plans.mergeRequest("facts", b.repo, "https://example.invalid/mr/2", headB);
+    expect(() => plans.report("facts", "/tmp/report.md", "Done")).toThrow(
+      /omits module/,
+    );
+    run(primary.target as string, ["merge", "--no-edit", "module/alpha"]);
+    const changed = run(primary.target as string, ["rev-parse", "HEAD"]);
+    expect(() => plans.report("facts", "/tmp/report.md", "Done")).toThrow(
+      /checkout changed/,
+    );
+    expect(() =>
+      plans.mergeRequest(
+        "facts",
+        b.repo,
+        "https://example.invalid/mr/2",
+        headB,
+        { head_sha: changed, checks: [] },
+      ),
+    ).toThrow(/final SHA/);
+    expect(() =>
+      plans.mergeRequest(
+        "facts",
+        b.repo,
+        "https://example.invalid/mr/2",
+        headB,
+        { head_sha: headB, checks: [] },
+      ),
+    ).toThrow(/every declared check/);
+    expect(readClaims(h.root)).toHaveLength(2);
+  });
 });
+function verificationFile(head: string): string {
+  const file = path.join(h.base, `verification-${head}.json`);
+  writeFileSync(
+    file,
+    JSON.stringify({
+      head_sha: head,
+      checks: [
+        { name: "pnpm test", status: "passed", evidence: "focused tests log" },
+        {
+          name: "ci",
+          status: "accepted_failure",
+          evidence: "pipeline URL",
+          reason: "user accepted known unrelated issue",
+        },
+      ],
+    }),
+  );
+  return file;
+}
 /** The integrator's own endpoint on the primary repository worktree. */
 function integratorEndpoint(
   taskId: string,

@@ -215,6 +215,16 @@ export function harness(controlOverrides: Partial<Control> = {}): {
         if (child.exitCode === null && child.signalCode === null)
           child.kill("SIGKILL");
       for (const op of lord.store.operations()) {
+        if (
+          typeof op.execution_worker_pid === "number" &&
+          op.execution_worker_pid !== process.pid
+        ) {
+          try {
+            process.kill(op.execution_worker_pid, "SIGKILL");
+          } catch {
+            /* exited */
+          }
+        }
         const command = op.provider_command;
         if (
           Array.isArray(command) &&

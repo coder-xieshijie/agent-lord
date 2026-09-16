@@ -287,8 +287,10 @@ describe("durable process recovery", () => {
     ]);
     await waitFor(() => h.calls().length === 1);
     await waitFor(() => h.lord.store.operations()[0]?.status === "running");
-    controller.kill("SIGKILL");
-    await waitFor(() => controller.signalCode !== null);
+    await waitFor(() => controller.exitCode !== null);
+    const owner = h.lord.store.operations()[0].controller_pid!;
+    process.kill(owner, "SIGKILL");
+    await waitFor(() => !pidAlive(owner));
     const started = Date.now();
     const results = await Promise.all([
       h.lord.checkpoint(["task"], 0.15),
@@ -351,8 +353,10 @@ describe("durable process recovery", () => {
     ]);
     await waitFor(() => h.calls().length === 1 && h.lord.store.hasTask("task"));
     const pid = Number(h.calls()[0].pid);
-    controller.kill("SIGKILL");
-    await waitFor(() => controller.signalCode !== null);
+    await waitFor(() => controller.exitCode !== null);
+    const owner = h.lord.store.operations()[0].controller_pid!;
+    process.kill(owner, "SIGKILL");
+    await waitFor(() => !pidAlive(owner));
     const result = onlyAction(await h.lord.checkpoint(["task"], 3));
     expect(result.error!.code).toBe("DELIVERY_UNKNOWN");
     expect(pidAlive(pid)).toBe(false);
