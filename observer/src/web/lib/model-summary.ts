@@ -5,7 +5,7 @@ export interface ScheduledModelSummary {
   name: string | null;
   /** Full recorded route, kept for tooltip/copy so the header never loses evidence. */
   full: string | null;
-  /** Requested reasoning strength (MCode variant or Claude/Codex effort); null when unspecified. */
+  /** Requested reasoning strength; effort wins, with a legacy variant fallback. */
   strength: string | null;
   /** Where the strength came from, so the UI never implies a verified runtime value. */
   strengthSource: "variant" | "effort" | null;
@@ -30,12 +30,12 @@ export function summarizeScheduledModel(meta: Pick<TaskMeta, "provider" | "model
   const execution = meta.execution;
   const full = execution?.requestedModel ?? meta.model ?? null;
   const { name, variant } = parseModelRoute(full);
-  const mcode = meta.provider === "mcode-cli";
   const requestedVariant = execution?.requestedVariant ?? variant;
   const requestedEffort = execution?.requestedEffort ?? meta.effort ?? null;
-  const order: Array<["variant" | "effort", string | null]> = mcode
-    ? [["variant", requestedVariant], ["effort", requestedEffort]]
-    : [["effort", requestedEffort], ["variant", requestedVariant]];
+  const order: Array<["variant" | "effort", string | null]> = [
+    ["effort", requestedEffort],
+    ["variant", requestedVariant],
+  ];
   const picked = order.find(([, value]) => Boolean(value));
   return { name, full, strength: picked?.[1] ?? null, strengthSource: picked?.[0] ?? null };
 }

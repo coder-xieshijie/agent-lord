@@ -80,7 +80,7 @@ ln -s "$PWD" "$HOME/.agents/skills/agent-lord"
 
 `codex` 和 `mcode` 分别是 `codex-cli` 和 `mcode-cli` 的别名。默认配置位于 [config/providers.json](config/providers.json)；创建任务时可以通过显式参数覆盖，后续轮次沿用保存的契约。
 
-MCode 使用 `--model provider/model[#variant]`，没有独立的 effort 参数。不同执行端提供的模型证据也不同，例如 Codex CLI 可以通过参数约束请求模型，却不一定回报实际模型。核验与恢复规则见[协议说明](references/protocol.md#execution-contract)。
+该能力要求 MCode 0.4.9 或更高版本。模型与 effort 相互独立：`--model provider/model[#variant]` 表示模型身份，`--effort <level>` 表示本次 Run 的思考强度。Agent Lord 会冻结两者并在后续轮次重复传入；MCode 在发请求前按所选模型校验 effort。终态流会回报模型与 variant，但不回报 effort，因此 Agent Lord 将 effort 记录为启动参数已约束。不同执行端提供的模型证据也不同，例如 Codex CLI 可以通过参数约束请求模型，却不一定回报实际模型。核验与恢复规则见[协议说明](references/protocol.md#execution-contract)。
 
 ## 工作原理
 

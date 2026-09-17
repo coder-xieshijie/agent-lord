@@ -82,7 +82,7 @@ Prefer shell commands? The [CLI walkthrough](references/cli-quickstart.md) takes
 
 `codex` and `mcode` are aliases for `codex-cli` and `mcode-cli`. Defaults live in [config/providers.json](config/providers.json); explicit arguments override them when a task starts. Later turns keep the saved contract.
 
-MCode uses `--model provider/model[#variant]` and has no separate effort flag. Model evidence also differs by provider: for example, Codex CLI can enforce a requested model through arguments without reporting an actual model. See the [protocol](references/protocol.md#execution-contract) for verification and recovery rules.
+MCode 0.4.9 or newer is required. Model and effort are independent: use `--model provider/model[#variant]` for model identity and `--effort <level>` for one Run's reasoning strength. Agent Lord freezes both values and reapplies them on later turns. MCode validates effort against the selected model before sending a request; its terminal stream reports model/variant but not effort, so Agent Lord records effort as argument-enforced. Model evidence also differs by provider: for example, Codex CLI can enforce a requested model through arguments without reporting an actual model. See the [protocol](references/protocol.md#execution-contract) for verification and recovery rules.
 
 ## How it works
 

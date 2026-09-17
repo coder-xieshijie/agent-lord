@@ -101,9 +101,10 @@
       "same_session_continuations": 2,
       "binary_env": "AGENT_LORD_MCODE_BIN",
       "default_binary": "mcode",
-      "default_model": "custom_provider:mafia-claude/claude-opus-5#xhigh",
-      "default_effort": null,
+      "default_model": "custom_provider:mafia-claude/claude-opus-5",
+      "default_effort": "xhigh",
       "default_retry_attempts": 1,
+      "effort_validation": "provider",
       "efforts": [],
       "permissions": {
         "default": "dangerously_bypass",

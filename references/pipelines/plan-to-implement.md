@@ -12,11 +12,11 @@ The durable state lives in the runtime, not in the conversation. `plan-*` comman
 
 | Role | Provider | Model | Effort | Workspace |
 | --- | --- | --- | --- | --- |
-| Planner | `mcode-cli` | resolved provider default (`custom_provider:mafia-claude/claude-opus-5#xhigh`) | Omit `--effort` | `isolated`, declares the plan file with `--require-file` |
-| Module worker | `mcode-cli` | same resolved default | Omit `--effort` | `isolated`, one worktree and `--workspace-branch` each, `--require-commit` |
-| Final integrator | `mcode-cli` | same resolved default | Omit `--effort` | `isolated` on the primary repository, `--require-commit`; other repositories come from run-held claims |
+| Planner | `mcode-cli` | resolved provider default (`custom_provider:mafia-claude/claude-opus-5`) | resolved provider default (`xhigh`) | `isolated`, declares the plan file with `--require-file` |
+| Module worker | `mcode-cli` | same resolved default | same resolved default | `isolated`, one worktree and `--workspace-branch` each, `--require-commit` |
+| Final integrator | `mcode-cli` | same resolved default | same resolved default | `isolated` on the primary repository, `--require-commit`; other repositories come from run-held claims |
 
-Resolve and freeze the model from provider configuration at dispatch, then pass it explicitly so the whole run shares one verified literal. MCode carries `xhigh` inside the model literal and takes no separate effort argument. `codex-cli` and `claude-cli` are supported for any role through a global or per-role override; a Codex role needs its own explicit `--effort`. These pipeline choices change no ordinary provider default.
+Resolve and freeze model and effort independently from provider configuration at dispatch, then pass both explicitly so the whole run shares one execution contract. `codex-cli` and `claude-cli` are supported for any role through a global or per-role override; every provider-specific effort remains explicit. These pipeline choices change no ordinary provider default.
 
 Start every role in `dangerously_bypass` without `--read-only`, and put the task-level write boundary in the prompt.
 
@@ -45,7 +45,7 @@ node core/dist/cli.js plan-create --run-id feature-x \
 ```bash
 node core/dist/cli.js plan-status --run-id feature-x
 node core/dist/cli.js plan-dispatch --run-id feature-x --module-id auth-core \
-  --task-id feature-x-auth-core --provider mcode-cli --model "$MODEL"
+  --task-id feature-x-auth-core --provider mcode-cli --model "$MODEL" --effort "$EFFORT"
 ```
 
 先 `plan-dispatch`，再 `start`。Runtime 从已登记角色补齐 repository、source、workspace policy 和 commit requirement；显式参数与计划冲突会被拒绝，worker 仍须给出自己的 `--workspace-branch`。依赖屏障、任务绑定和 Observer 分组保持在这个 run 内。旧的先 start 后登记记录仍可读取，但完成时同样必须有有效的 commit delivery。

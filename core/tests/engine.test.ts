@@ -69,7 +69,8 @@ describe("local CLI lifecycle", () => {
       if (provider === "codex") expect(args).toContain("--strict-config");
       if (provider === "mcode") {
         expect(args).toContain("full");
-        expect(args).not.toContain("--effort");
+        expect(args).toContain("--effort");
+        expect(args).toContain("xhigh");
       }
     },
   );
@@ -102,8 +103,8 @@ describe("local CLI lifecycle", () => {
     ).rejects.toMatchObject({ code: "PERMISSION_UNSUPPORTED" });
     expect(h.calls()).toHaveLength(2);
   });
-  it.each([{ model: "bad" }, { model: "test/model", effort: "high" }])(
-    "MCode rejects unenforceable contracts before launch: %j",
+  it.each([{ model: "bad" }])(
+    "MCode rejects invalid contracts before launch: %j",
     async (opts) => {
       await expect(
         h.lord.start("task", "mcode", h.target, "work", opts),
@@ -111,22 +112,47 @@ describe("local CLI lifecycle", () => {
       expect(h.calls()).toHaveLength(0);
     },
   );
-  it("MCode starts with the configured default and freezes its variant on continuation", async () => {
+  it("MCode starts with independent defaults and freezes model and effort on continuation", async () => {
     const result = await h.lord.start("task", "mcode", h.target, "work");
     expect(result.status).toBe("SUCCEEDED");
     expect(object(result.observed)).toMatchObject({
       model: "custom_provider:mafia-claude/claude-opus-5",
-      variant: "xhigh",
-      variant_verification: "provider-metadata",
+      variant_verification: "not-requested",
+      effort: "xhigh",
+      effort_verification: "argument-enforced",
     });
     const file = path.join(h.base, "providers.json");
     const config = JSON.parse(readFileSync(file, "utf8"));
     config.providers["mcode-cli"].default_model = "test/other#low";
+    config.providers["mcode-cli"].default_effort = "high";
     writeFileSync(file, JSON.stringify(config));
     await h.lord.turn("task", "next");
     expect(h.calls()[1].args).toContain(
-      "custom_provider:mafia-claude/claude-opus-5#xhigh",
+      "custom_provider:mafia-claude/claude-opus-5",
     );
+    expect(h.calls()[1].args).toContain("--effort");
+    expect(h.calls()[1].args).toContain("xhigh");
+    expect(h.lord.store.task("task").contract.effort).toBe("xhigh");
+  });
+  it("MCode preserves an explicit effort independently from a model variant", async () => {
+    const result = await h.lord.start("task", "mcode", h.target, "work", {
+      model: "test/model#deep",
+      effort: "high",
+    });
+    expect(result.status).toBe("SUCCEEDED");
+    expect(h.calls()[0].args).toEqual(
+      expect.arrayContaining(["--model", "test/model#deep", "--effort", "high"]),
+    );
+    expect(h.lord.store.task("task").contract).toMatchObject({
+      model: "test/model#deep",
+      effort: "high",
+    });
+    expect(object(result.observed)).toMatchObject({
+      variant: "deep",
+      variant_verification: "provider-metadata",
+      effort: "high",
+      effort_verification: "argument-enforced",
+    });
   });
   it("Claude retry uses a continuation query after ambiguous delivery", async () => {
     h.options({ failAttempts: 1, silent: true });
@@ -209,6 +235,9 @@ describe("local CLI lifecycle", () => {
     expect(h.calls()[1].prompt).toContain("agent-lord-continuation:");
     expect(h.calls()[1].prompt).not.toContain("original\n");
     expect(h.calls()[1].prompt).not.toContain("consider smaller writes");
+    expect(h.calls()[1].args).toEqual(
+      expect.arrayContaining(["--effort", "xhigh"]),
+    );
     expect(await h.lord.recover("task", first.operation_id)).toEqual(next);
     expect(h.calls()).toHaveLength(2);
   });
