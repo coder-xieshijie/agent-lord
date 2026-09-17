@@ -95,22 +95,24 @@ describe("frozen configuration", () => {
       ["gpt-5.6-sol", "low"],
     );
   });
-  it("resolves a qualified MCode default and preserves explicit models and variants", () => {
+  it("resolves independent MCode model and effort defaults", () => {
     expect(resolveExecutionDefaults("mcode-cli")).toEqual([
-      "custom_provider:mafia-claude/claude-opus-5#xhigh",
-      null,
+      "custom_provider:mafia-claude/claude-opus-5",
+      "xhigh",
     ]);
     expect(resolveExecutionDefaults("mcode-cli", "test/model#deep")).toEqual([
       "test/model#deep",
-      null,
+      "xhigh",
     ]);
-    expect(resolveExecutionDefaults("mcode-cli", "test/model")).toEqual([
+    expect(resolveExecutionDefaults("mcode-cli", "test/model", "high")).toEqual([
       "test/model",
-      null,
+      "high",
     ]);
-    expect(() =>
-      resolveExecutionDefaults("mcode-cli", undefined, "xhigh"),
-    ).toThrow();
+    expect(resolveExecutionDefaults("mcode-cli", undefined, "high")).toEqual([
+      "custom_provider:mafia-claude/claude-opus-5",
+      "high",
+    ]);
+    expect(() => resolveExecutionDefaults("mcode-cli", "test/model", "   ")).toThrow();
     expect(() => resolveExecutionDefaults("mcode-cli", "")).toThrow();
     const file = path.join(h.base, "providers.json");
     const config = JSON.parse(readFileSync(file, "utf8"));

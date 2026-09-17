@@ -38,8 +38,12 @@ export function ExecutionDetails({ meta }: { meta: TaskMeta }) {
       <div className="mt-2 space-y-2">
         <Row name="请求模型" value={model?.requestedModel ?? meta.model} />
         <Row name="实际模型" value={model?.actualModel} missing="运行端未回报" note={verification(model?.modelVerification)} />
-        <Row name={mcode ? "请求推理档位" : "请求 Effort"} value={mcode ? model?.requestedVariant : model?.requestedEffort} missing="未指定" note={mcode ? "MCode variant" : undefined} />
-        <Row name={mcode ? "实际推理档位" : "执行 Effort"} value={mcode ? model?.actualVariant : model?.actualEffort} missing="未回报" note={verification(mcode ? model?.variantVerification : model?.effortVerification)} />
+        <Row name="请求 Effort" value={model?.requestedEffort} missing="未指定" />
+        <Row name="执行 Effort" value={model?.actualEffort} missing="未回报" note={verification(model?.effortVerification)} />
+        {mcode ? <>
+          <Row name="请求模型 Variant" value={model?.requestedVariant} missing="未指定" />
+          <Row name="实际模型 Variant" value={model?.actualVariant} missing="未回报" note={verification(model?.variantVerification)} />
+        </> : null}
         <Row name="最初调度 Session" value={meta.caller?.initial?.session_id} note={identitySource(meta.caller?.initial?.identity_source)} />
         <Row name="本轮调度 Session" value={meta.caller?.current?.session_id} note={identitySource(meta.caller?.current?.identity_source)} />
         <Row name="调度者" value={meta.caller?.current?.kind} />

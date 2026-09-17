@@ -7,9 +7,9 @@ import { ScheduledModel } from "../src/web/components/scheduled-model.js";
 
 const mcodeMeta = {
   provider: "mcode-cli",
-  model: "custom_provider:mafia-claude/claude-opus-5#xhigh",
-  effort: null,
-  execution: { requestedModel: "custom_provider:mafia-claude/claude-opus-5#xhigh", requestedVariant: "xhigh", requestedEffort: null, actualModel: null, actualVariant: null, actualEffort: null, modelVerification: null, variantVerification: null, effortVerification: null },
+  model: "custom_provider:mafia-claude/claude-opus-5",
+  effort: "xhigh",
+  execution: { requestedModel: "custom_provider:mafia-claude/claude-opus-5", requestedVariant: null, requestedEffort: "xhigh", actualModel: null, actualVariant: "thinking", actualEffort: "xhigh", modelVerification: null, variantVerification: "not-requested", effortVerification: "argument-enforced" },
 } as unknown as TaskMeta;
 
 describe("scheduled model header summary", () => {
@@ -21,13 +21,12 @@ describe("scheduled model header summary", () => {
     expect(parseModelRoute(null)).toEqual({ name: null, variant: null });
   });
 
-  it("reads the MCode strength from the requested variant and never from unverified runtime values", () => {
-    expect(summarizeScheduledModel(mcodeMeta)).toEqual({ name: "claude-opus-5", full: "custom_provider:mafia-claude/claude-opus-5#xhigh", strength: "xhigh", strengthSource: "variant" });
-    // Variant recorded only inside the route string is still surfaced.
-    const inline = { ...mcodeMeta, execution: { ...mcodeMeta.execution, requestedVariant: null } } as TaskMeta;
-    expect(summarizeScheduledModel(inline).strength).toBe("xhigh");
+  it("uses explicit MCode effort and keeps a legacy variant fallback", () => {
+    expect(summarizeScheduledModel(mcodeMeta)).toEqual({ name: "claude-opus-5", full: "custom_provider:mafia-claude/claude-opus-5", strength: "xhigh", strengthSource: "effort" });
+    const legacy = { ...mcodeMeta, model: "provider/fable#deep", effort: null, execution: { ...mcodeMeta.execution, requestedModel: "provider/fable#deep", requestedVariant: null, requestedEffort: null } } as TaskMeta;
+    expect(summarizeScheduledModel(legacy)).toMatchObject({ strength: "deep", strengthSource: "variant" });
     // An actual model reported by the runtime must not replace the scheduled one.
-    const reported = { ...mcodeMeta, execution: { ...mcodeMeta.execution, actualModel: "other-model", actualVariant: "low" } } as TaskMeta;
+    const reported = { ...mcodeMeta, execution: { ...mcodeMeta.execution, actualModel: "other-model", actualEffort: "high" } } as TaskMeta;
     expect(summarizeScheduledModel(reported)).toMatchObject({ name: "claude-opus-5", strength: "xhigh" });
   });
 
@@ -48,10 +47,10 @@ describe("scheduled model header summary", () => {
     const html = renderToStaticMarkup(createElement(ScheduledModel, { meta: mcodeMeta }));
     expect(html).toContain(">claude-opus-5<");
     expect(html).toContain(">xhigh<");
-    expect(html).toContain('title="custom_provider:mafia-claude/claude-opus-5#xhigh"');
-    expect(html).toContain("请求推理档位（MCode variant）");
+    expect(html).toContain('title="custom_provider:mafia-claude/claude-opus-5"');
+    expect(html).toContain("请求 Effort");
     // The raw route must not be rendered as visible header text.
-    expect(html).not.toContain(">custom_provider:mafia-claude/claude-opus-5#xhigh<");
+    expect(html).not.toContain(">custom_provider:mafia-claude/claude-opus-5<");
     expect(html).toContain("truncate");
     const codexHtml = renderToStaticMarkup(createElement(ScheduledModel, { meta: { provider: "codex-cli", model: "gpt-5-codex", effort: "high" } as unknown as TaskMeta }));
     expect(codexHtml).toContain("请求 Effort");

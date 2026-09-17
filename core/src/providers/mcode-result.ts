@@ -348,7 +348,7 @@ export function validateMcodeOutput(
     endpoint_id: identity[1],
     assistant_text: final,
     model: op.expected.model,
-    effort: null,
+    effort: op.expected.effort,
     observed: {
       models: [modelLiteral(observed!)],
       model: `${observed!.provider_id}/${observed!.model_id}`,
@@ -356,8 +356,10 @@ export function validateMcodeOutput(
       variant: observed!.variant,
       variant_verification:
         expected.variant !== null ? "provider-metadata" : "not-requested",
-      effort: null,
-      effort_verification: "not-supported",
+      effort: op.expected.effort,
+      effort_verification: op.expected.effort
+        ? "argument-enforced"
+        : "not-requested",
       permission_mode: permission.mode,
       permission_enforcement: permission.enforcement,
       run_id: identity[0],

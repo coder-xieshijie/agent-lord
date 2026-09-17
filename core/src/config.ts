@@ -120,12 +120,16 @@ export function controlConfig(): Control {
 }
 export function validateEffort(provider: string, effort: string): void {
   provider = normalizeProvider(provider);
-  if (provider === "mcode-cli" && effort)
-    throw usageError(
-      "mcode-cli has no independently enforceable --effort contract; omit --effort",
-      { provider, effort },
-    );
-  const allowed = strings(providerConfig(provider).efforts);
+  const config = providerConfig(provider);
+  if (provider === "mcode-cli" && config.effort_validation === "provider") {
+    if (!effort.trim())
+      throw usageError("effort must be a non-empty value", {
+        provider,
+        effort,
+      });
+    return;
+  }
+  const allowed = strings(config.efforts);
   if (effort && !allowed.includes(effort))
     throw usageError(
       "effort is not supported by the selected provider profile",
@@ -313,10 +317,13 @@ export function resolveExecutionDefaults(
 ): [string | null, string | null] {
   const config = providerConfig(provider);
   if (provider === "mcode-cli") {
-    if (effort) validateEffort(provider, effort);
     const resolvedModel = model ?? string(config.default_model);
+    const requestedEffort = effort ?? string(config.default_effort);
+    const resolvedEffort = requestedEffort?.trim() || null;
     parseMcodeModel(resolvedModel);
-    return [resolvedModel, null];
+    if (requestedEffort != null)
+      validateEffort(provider, resolvedEffort ?? "");
+    return [resolvedModel, resolvedEffort];
   }
   let settings: Data = {};
   let policy: Data = {};

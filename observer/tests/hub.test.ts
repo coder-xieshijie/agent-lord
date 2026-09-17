@@ -130,8 +130,8 @@ describe("Hub ordering and incremental refresh", () => {
     const write = (id: string, hour: string, caller: string, text: string, user_request: string | null) => {
       const stdout = writeOperation(root, taskId, id, "mcode-cli", {
         status: "succeeded", created_at: `2026-09-09T${hour}:00:00Z`, completed_at: `2026-09-09T${hour}:01:00Z`, message: text,
-        expected: { model: "test/fable#xhigh", effort: null },
-        observed: { model: "test/fable", variant: "xhigh", model_verification: "provider-metadata", variant_verification: "provider-metadata", effort_verification: "not-supported" },
+        expected: { model: "test/fable", effort: "xhigh" },
+        observed: { model: "test/fable", variant: "thinking", model_verification: "provider-metadata", variant_verification: "not-requested", effort: "xhigh", effort_verification: "argument-enforced" },
         invocation: { caller: { kind: "codex", session_id: caller, turn_id: null, identity_source: "caller-declared", data_root: "/private/not-for-web" }, trigger: user_request ? "user_request" : "caller_followup", user_request, reason: user_request ? null : "旧 deny 处理缺失" },
       });
       appendFileSync(stdout, j({ type: "item.completed", item: { id: "reply", type: "agent_message", content: `reply-${id}` } }) + "\n");
@@ -149,7 +149,7 @@ describe("Hub ordering and incremental refresh", () => {
     // session never moves it. Unverifiable metadata stays an honest null and
     // no data_root leaks.
     expect(snapshot.task.caller?.session).toEqual({ kind: "codex", sessionId: "caller-first", name: null, projectName: null });
-    expect(snapshot.task.execution).toMatchObject({ requestedModel: "test/fable#xhigh", actualModel: "test/fable", requestedVariant: "xhigh", actualVariant: "xhigh", actualEffort: null });
+    expect(snapshot.task.execution).toMatchObject({ requestedModel: "test/fable", actualModel: "test/fable", requestedEffort: "xhigh", requestedVariant: null, actualVariant: "thinking", actualEffort: "xhigh" });
     expect(JSON.stringify(snapshot)).not.toContain("/private/not-for-web");
     const ids = snapshot.items.map((item) => item.id);
     hub.refresh();

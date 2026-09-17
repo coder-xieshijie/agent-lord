@@ -24,10 +24,10 @@ describe("request and execution presentation", () => {
     expect(renderToStaticMarkup(createElement(RequestRow, { item: { ...item, role: "user" } }))).toContain("用户原始请求");
   });
 
-  it("displays requested and actual MCode variants, complete ids and explicit missing metadata", () => {
-    const meta = { provider: "mcode-cli", execution: { requestedModel: "provider/fable#xhigh", actualModel: "provider/fable", requestedVariant: "xhigh", actualVariant: "xhigh", modelVerification: "provider-metadata", variantVerification: "provider-metadata" }, caller: { initial: { session_id: "fixture-original-caller-full-id", identity_source: "caller-declared" }, current: { kind: "codex", session_id: "fixture-current-caller-full-id", identity_source: "runtime-env" }, lifecycle: { status: "unknown", turnId: null, note: "未找到记录" } } } as TaskMeta;
+  it("displays independent MCode effort and variants, complete ids and explicit missing metadata", () => {
+    const meta = { provider: "mcode-cli", execution: { requestedModel: "provider/fable", actualModel: "provider/fable", requestedEffort: "xhigh", actualEffort: "xhigh", requestedVariant: null, actualVariant: "thinking", modelVerification: "provider-metadata", effortVerification: "argument-enforced", variantVerification: "not-requested" }, caller: { initial: { session_id: "fixture-original-caller-full-id", identity_source: "caller-declared" }, current: { kind: "codex", session_id: "fixture-current-caller-full-id", identity_source: "runtime-env" }, lifecycle: { status: "unknown", turnId: null, note: "未找到记录" } } } as TaskMeta;
     const html = renderToStaticMarkup(createElement(ExecutionDetails, { meta }));
-    for (const text of ["请求模型", "实际模型", "provider/fable#xhigh", "xhigh", "fixture-original-caller-full-id", "fixture-current-caller-full-id", "主调度状态未知", "未观测"]) expect(html).toContain(text);
+    for (const text of ["请求模型", "实际模型", "请求 Effort", "执行 Effort", "请求模型 Variant", "实际模型 Variant", "provider/fable", "xhigh", "thinking", "由启动参数约束", "fixture-original-caller-full-id", "fixture-current-caller-full-id", "主调度状态未知", "未观测"]) expect(html).toContain(text);
     expect(callerStatus(undefined)).toBe("主调度状态未知");
     expect(elapsed(1000, 1240)).toBe("0.24 秒");
     expect(elapsed(null, 1240)).toBeNull();

@@ -70,12 +70,6 @@ export async function runMcode(
     );
   }
   parseMcodeModel(op.expected.model);
-  if (op.expected.effort)
-    throw new AgentLordError(
-      "CONFIG_INVALID",
-      "mcode-cli has no independently enforceable --effort contract; omit --effort",
-      { exit_code: 2 },
-    );
   if (op.resume && !op.endpoint_id)
     throw new AgentLordError(
       "STATE_CORRUPT",
@@ -107,12 +101,16 @@ export async function runMcode(
     op.target,
     "--model",
     op.expected.model!,
+  ];
+  if (op.expected.effort)
+    command.push("--effort", op.expected.effort);
+  command.push(
     ...permissionModePolicy("mcode-cli", op.expected.permission_mode).arguments,
     "--output-format",
     "stream-json",
     "--output-last-message",
     result,
-  ];
+  );
   if (op.resume) command.push("--session", op.endpoint_id!);
   store.updateOperation(op.operation_id, (value) => {
     value.provider_command = command;
