@@ -2,34 +2,87 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-Dispatch, follow, and continue coding agent tasks from one conversation.
+**Coordinate coding agents from one conversation, with repeatable pipelines and verifiable delivery.**
 
-Agent Lord lets your main Codex Desktop, Codex CLI, Claude Code, or MCode session delegate work to **Claude Code, Codex CLI, MCode CLI, or another Codex App task**. It saves each task's session, execution settings, and results so you can follow the work and continue the same task in a later turn.
+Use your Codex Desktop, Codex CLI, Claude Code, or MCode session to delegate work to **Claude Code, Codex CLI, MCode CLI, or Codex App tasks**. Agent Lord keeps the execution contract, session identity, progress, and artifacts so the main session can supervise work and continue it later.
 
-It combines an **Agent Skill** for the caller, a **CLI runtime** for task execution and supervision, and an **Observer** for viewing progress and explicitly opening a saved native CLI Session in Orca or iTerm.
+Start with a single task, or choose a built-in pipeline:
 
-## See it in use
+| You want to…                                  | Pipeline                                | What you get                                                              |
+| --------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------- |
+| Check a change from independent perspectives  | [Cross-review](#cross-review)           | Source-backed findings, mutual challenges, and an independent final audit |
+| Turn an implementation plan into code         | [Plan-to-implement](#plan-to-implement) | Parallel module delivery, one integrator, and one PR/MR per repository    |
+| Let a fresh CLI session continue ongoing work | [Handoff](#handoff)                     | A new endpoint with a sanitized context packet and recorded lineage       |
 
-Ask for two independent reviews:
+[Quick start](#quick-start) · [Observer](#observer) · [Execution endpoints](#execution-endpoints) · [Documentation](#documentation)
 
-> Use Agent Lord to have Claude Code and Codex CLI independently review the current branch against main. Keep the source unchanged and summarize both reviews with file and line references.
+## How the pieces fit
 
-The main session dispatches the reviews into separate worktrees, follows both tasks, and collects their results. You can then ask it to continue one of the saved review sessions with a follow-up question.
+Agent Lord combines a **Skill** that guides the main session, a **CLI runtime** that executes and records work, and an **Observer** that shows progress.
 
-![Agent Lord Observer showing example review tasks and an execution timeline](assets/observer-example.jpg)
+![Agent Lord architecture: caller, runtime, CLI endpoints, Codex App, persistent state, and Observer](assets/diagrams/overview.svg)
 
-_Observer with synthetic example data. The current interface uses Chinese labels._
+[Interactive HTML](assets/diagrams/overview.html) · [Diagram sources and validation](assets/diagrams/README.md)
 
-## What it handles
+The main session owns the graph: roles, dependencies, dispatch, artifact exchange, and acceptance. The runtime freezes execution settings, manages worktrees and leases, saves records, and validates execution and declared delivery. Executors receive concrete assignments; they may use their native tools and subagents but must not invoke Agent Lord recursively.
 
-- **Continue saved sessions.** Follow-up turns use the task's existing endpoint and saved execution contract.
-- **Supervise running work.** Checkpoints watch selected tasks for completion, actionable errors, and provider-specific recovery opportunities.
-- **Coordinate independent tasks.** The main session controls dependencies and dispatch order; concurrent CLI tasks use separate worktrees with workspace and branch leases.
-- **Persist task sets.** Register selected task IDs, resume supervision after a caller restart, and explicitly acknowledge received results. See [task sets](references/protocol.md#persistent-task-sets).
-- **Check declared inputs.** Optional local-file preflight catches missing material before provider launch, while the CLI keeps control of its approach.
-- **Keep pending instructions.** A passive request inbox records work that cannot run yet. The caller explicitly dispatches it when ready.
-- **Inspect execution evidence.** The Observer shows requests, tool activity, results, and available model evidence. Missing evidence stays unknown.
-- **Check declared deliverables.** Verify that requested files exist and are non-empty, or that a new commit exists with a clean worktree. Content correctness and test results still need actual acceptance.
+Codex App tasks use the host's task tools and expose task state to the Observer. Local CLI tasks run through Agent Lord's runtime and expose conversation and tool activity. The diagrams use Chinese labels; each pipeline is described in English below. Download or open the HTML locally to explore it—GitHub displays HTML files as source.
+
+## Pipelines
+
+A pipeline defines **who does the work, what can run in parallel, which evidence unlocks the next stage, and when to stop**. The originating main session advances it using the shared runtime; the workflow is not delegated to another coordinator. The [common contract](references/pipelines/common.md) governs source identity, isolated workspaces, supervision, recovery, and artifact checks.
+
+### Cross-review
+
+Use this when you want reviewers to challenge each other's findings before an independent session checks the result.
+
+> Use Agent Lord's cross-review pipeline to review the current branch against main. Keep the checkout and HEAD unchanged and return the verified findings with source locations.
+
+![Cross-review: independent reviews, mutual cross-examination, bounded convergence, and a fresh MCode checker](assets/diagrams/cross-review.svg)
+
+[Interactive HTML](assets/diagrams/cross-review.html) · [Full policy](references/pipelines/cross-review.md)
+
+1. Pin one repository and the same head/base SHAs for every role. Run the MCode and Codex initial reviews concurrently in separate worktrees; neither sees the other's output.
+2. Exchange their sanitized artifacts and run both cross-exams concurrently. Track agreement separately on evidence, severity, and the smallest complete fix.
+3. If needed, run one additional convergence pair on unresolved items only. If disagreements remain, preserve them as `UNRESOLVED` and stop before the checker.
+4. Once no items remain unresolved, start a **fresh MCode checker session**. It receives the source evidence and initial artifacts without consensus labels or final severity, and also inspects dropped candidates.
+
+Defaults: MCode reviewer and checker use **Opus 5 / xhigh**; Codex uses **GPT-6 Astra / max**. The normal path has five planned provider operations, or seven with the optional convergence pair. Recovery does not add semantic review rounds.
+
+The result separates **Pipeline Check** (whether the workflow and independent audit were verified) from **Review Result** (whether confirmed problems remain). A correctly completed pipeline can find bugs: `Pipeline Check: PASS`, `Review Result: FAIL`.
+
+### Plan-to-implement
+
+Use this when you already have an implementation plan and want module owners to work concurrently, followed by a single integration stage.
+
+> Use Agent Lord's plan-to-implement pipeline to implement this plan. Split it into complete modules, run all dependency-ready modules in parallel, then integrate and verify the result. Open one PR per repository; do not merge it.
+
+![Plan-to-implement: verified plan, dependency-ready workers, verified commits, one integrator, and repository PRs](assets/diagrams/plan-to-implement.svg)
+
+[Interactive HTML](assets/diagrams/plan-to-implement.html) · [Full policy](references/pipelines/plan-to-implement.md)
+
+1. A **planner** produces a module plan from your implementation plan. Each module has ownership, acceptance criteria, non-overlapping write paths, and explicit dependencies. The runtime accepts only a plan delivered by a verified successful planner.
+2. The main session dispatches **every ready module**, without a worker-count cap. Each worker uses its own worktree and branch, stays within its assigned paths, and commits locally. Verified upstream commits unlock dependent modules; the worker stage repeats as dependencies become ready.
+3. After **all modules are delivered**, one distinct **integrator** merges the branches, resolves conflicts, fixes integration problems, runs project verification, and opens or updates one PR/MR per repository. Workers do not push or open their own PRs.
+4. The runtime checks final branch heads, module history, structured verification records, and remote PR/MR identity. It persists the closing report before releasing workspace claims. Tests need actual evidence; user-accepted exceptions remain explicit.
+
+By default, planner, workers, and integrator use MCode's resolved model and effort, currently **Opus 5 / xhigh**. You can override the provider globally or per role with Codex CLI or Claude Code. `plan-status` retains the ready set, barriers, and run journal across caller restarts; integration recovery preserves existing work and records. **The pipeline publishes PRs/MRs; it does not merge them.**
+
+### Handoff
+
+Use this when ongoing work needs a fresh local CLI session with enough context to continue in the existing workspace.
+
+> Use Agent Lord's handoff pipeline to let MCode continue this task in the current workspace. Include the goal, completed work, remaining work, evidence, and acceptance criteria. Preserve the task's existing write boundaries.
+
+![Handoff: visible context, sanitized packet, pre-dispatch validation, new CLI endpoint, and lineage](assets/diagrams/handoff.svg)
+
+[Interactive HTML](assets/diagrams/handoff.html) · [Full policy](references/pipelines/handoff.md)
+
+The main session writes a sanitized `handoff-v1` packet from its visible context. Before launching, the runtime checks the packet and frozen contract, acquires workspace leases, and fingerprints HEAD plus changed-file contents. The new Claude Code, Codex CLI, or MCode endpoint continues in the **exact existing workspace**, including uncommitted work.
+
+Handoff starts **one continuation role**. The main session keeps scheduling authority. Replaying the identical request returns the existing operation; a conflicting packet or contract is rejected. Later turns use the saved endpoint through the ordinary `turn` / `checkpoint` / recovery loop.
+
+The deliverable includes a new task/endpoint identity and recorded lineage. This transfers context, **not a native session or transcript**; source-session identity is caller-declared or unavailable, never claimed as verified. Codex App is not a handoff destination.
 
 ## Quick start
 
@@ -71,7 +124,17 @@ For a follow-up, ask the main session to continue that same task. It reuses the 
 
 Prefer shell commands? The [CLI walkthrough](references/cli-quickstart.md) takes you through creating a file, checking delivery, continuing the task, and opening the Observer.
 
-## Supported execution endpoints
+## Observer
+
+The Observer shows task status, requests, tool activity, results, and available model evidence. It opens on a focused task or task set so you can follow concurrent work.
+
+![Agent Lord Observer with example review tasks and an execution timeline](assets/observer-example.jpg)
+
+_Synthetic example data; the current interface uses Chinese labels._
+
+It does not dispatch prompts or advance pipelines. At your explicit request, it can open an allow-listed saved CLI session in Orca or iTerm. This does not stop the original process; the provider may reject or queue a new prompt while busy. See the [Observer guide](observer/README.md).
+
+## Execution endpoints
 
 | Endpoint    | Provider ID  | Continuation      | Observer                       |
 | ----------- | ------------ | ----------------- | ------------------------------ |
@@ -80,47 +143,30 @@ Prefer shell commands? The [CLI walkthrough](references/cli-quickstart.md) takes
 | MCode CLI   | `mcode-cli`  | Saved CLI session | Conversation and tool activity |
 | Codex App   | `codex-app`  | Saved host task   | Task state only                |
 
-`codex` and `mcode` are aliases for `codex-cli` and `mcode-cli`. Defaults live in [config/providers.json](config/providers.json); explicit arguments override them when a task starts. Later turns keep the saved contract.
+`codex` and `mcode` alias `codex-cli` and `mcode-cli`. Defaults live in [config/providers.json](config/providers.json). Explicit start arguments override defaults; subsequent turns keep the saved contract. Named pipelines may specify their own role defaults.
 
-MCode 0.4.9 or newer is required. Model and effort are independent: use `--model provider/model[#variant]` for model identity and `--effort <level>` for one Run's reasoning strength. Agent Lord freezes both values and reapplies them on later turns. MCode validates effort against the selected model before sending a request; its terminal stream reports model/variant but not effort, so Agent Lord records effort as argument-enforced. Model evidence also differs by provider: for example, Codex CLI can enforce a requested model through arguments without reporting an actual model. See the [protocol](references/protocol.md#execution-contract) for verification and recovery rules.
+MCode requires version **0.4.9+**. `--model provider/model[#variant]` selects model identity; `--effort <level>` sets reasoning effort independently. Both are frozen across turns. Model evidence varies by provider; MCode effort is recorded as argument-enforced because its terminal stream does not report effort. See the [execution contract](references/protocol.md#execution-contract).
 
-## How it works
+## Persistence and boundaries
 
-```mermaid
-flowchart LR
-    A["Main session + Skill"] -->|Dispatch, continue, supervise| B["Agent Lord CLI"]
-    B --> C["Claude / Codex / MCode"]
-    C -->|Results and execution evidence| B
-    B --> D["Saved task records and artifacts"]
-    D -->|Read APIs + constrained terminal open| E["Observer"]
-    A -->|Open focused link| E
-```
+- **Continue across turns.** Each task saves one endpoint and allows one in-flight operation. Durable controllers keep CLI execution alive after a dispatch command returns; checkpoints collect progress and handle supported recovery.
+- **Resume supervision.** [Persistent task sets](references/protocol.md#persistent-task-sets) retain selected tasks and result acknowledgments. The [request inbox](references/scheduling-updates.md) retains deferred instructions; registering a request does not start or steer a running CLI.
+- **Protect concurrent work.** Repo-managed concurrent CLI tasks use isolated worktrees and exclusive workspace/branch leases. Plan integration adds durable claims; handoff uses a checked exact workspace.
+- **Distinguish execution from acceptance.** `SUCCEEDED`, verified file/commit delivery, test results, review findings, and publication are separate facts. Missing evidence stays unknown. Optional file preflight catches missing inputs before launch; it does not prove content correctness.
 
-The main session owns task decomposition, provider selection, and workflow progression. Each execution endpoint receives a concrete assignment. The runtime owns persistent records, contract validation, provider calls, recovery, and the constrained native-terminal launcher. The Observer reads and displays task state; its only execution-side action is an explicit user request to open an allow-listed saved CLI Session in Orca or iTerm.
-
-Execution CLIs may use native tools and subagents such as `task` / `Task` / `Agent` within their assigned scope, but must not invoke Agent Lord themselves or through a subagent. See [scheduling ownership](SKILL.md#scheduling-ownership) for the executor constraint and supervision rule.
-
-Task state lives in `~/.codex/state/agent-lord`. Set `AGENT_LORD_STATE_DIR` to use another location, or `AGENT_LORD_PROVIDER_CONFIG` to select another provider configuration.
-
-## Workflows and boundaries
-
-The Skill includes a [cross-review workflow](references/pipelines/cross-review.md), a [plan-to-implement workflow](references/pipelines/plan-to-implement.md), and a [handoff workflow](references/pipelines/handoff.md). Plan-to-implement turns one implementation plan into a validated module plan from a verified planner endpoint, dispatches every dependency-satisfied module concurrently with no worker cap, and closes with a single integration CLI that merges, verifies, and opens one MR per repository. Each barrier is checked against real endpoint results rather than reported success. A handoff transfers a sanitized context packet into a new CLI session and records its lineage; it does not migrate a native session. Both workflows share the bundled [explain-as-fool rules](references/explain-as-fool.md) for user-facing explanations and reports.
-
-A task has one saved endpoint and at most one in-flight operation. Pending requests do not steer a running CLI, and registering a request does not start it. Recovery follows the provider's documented rules and bounded budgets.
-
-The Observer does not dispatch prompts, checks, checkpoints, or recovery. It can explicitly open an allow-listed saved CLI Session in Orca or iTerm, including while the current operation is running; the original process continues and the provider may reject or queue a new prompt as busy. An execution marked `SUCCEEDED` and verified file or commit delivery are separate results. Neither establishes that the code works or that a review is complete.
-
-macOS is the local validation platform. The CI configuration covers macOS and Linux with Node 24; Windows is not claimed as end-to-end validated.
+Task state defaults to `~/.codex/state/agent-lord`. Override it with `AGENT_LORD_STATE_DIR`; use `AGENT_LORD_PROVIDER_CONFIG` for another provider configuration. macOS is the local validation platform, CI is configured for macOS and Linux with Node 24, and Windows is not claimed as end-to-end validated.
 
 ## Documentation
 
-| Guide                                                               | Contents                                                           |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| [Agent Skill](SKILL.md)                                             | Caller responsibilities, dispatch, supervision, and continuation   |
-| [CLI walkthrough](references/cli-quickstart.md)                     | A complete task lifecycle from the terminal                        |
-| [Runtime protocol](references/protocol.md)                          | Commands, state, execution contracts, request inbox, and recovery  |
-| [Observer guide](observer/README.md)                                | Setup, task binding, UI behavior, and privacy boundaries (Chinese) |
-| [Development guide](references/development.md)                      | Runtime structure, build, tests, and compatibility                 |
-| [Python → TypeScript migration](references/python-to-typescript.md) | Cutover, rollback, and shared-state precautions                    |
+| Guide                                                               | Contents                                                                |
+| ------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| [Agent Skill](SKILL.md)                                             | Caller responsibilities, dispatch, supervision, and continuation        |
+| [CLI walkthrough](references/cli-quickstart.md)                     | A complete task lifecycle from the terminal                             |
+| [Pipeline contracts](references/pipelines/common.md)                | Shared execution and acceptance rules; individual policies linked above |
+| [Runtime protocol](references/protocol.md)                          | Commands, state, execution contracts, request inbox, and recovery       |
+| [Observer guide](observer/README.md)                                | Setup, task binding, UI behavior, and privacy boundaries                |
+| [Development guide](references/development.md)                      | Runtime structure, build, tests, and compatibility                      |
+| [Diagram sources](assets/diagrams/README.md)                        | Archify specifications, interactive HTML, SVG exports, and validation   |
+| [Python → TypeScript migration](references/python-to-typescript.md) | Cutover, rollback, and shared-state precautions                         |
 
 When changing either README, update the other language in the same change.

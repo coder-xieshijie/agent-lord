@@ -1,0 +1,165 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "计划到实现 · Plan-to-Implement",
+    "locale": "zh-CN",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    {
+      "id": "plan",
+      "label": "规划与运行登记"
+    },
+    {
+      "id": "modules",
+      "label": "模块交付"
+    },
+    {
+      "id": "integration",
+      "label": "统一整合"
+    },
+    {
+      "id": "publication",
+      "label": "发布"
+    }
+  ],
+  "mainPath": [
+    "brief",
+    "planner",
+    "accept",
+    "workers",
+    "commits",
+    "integrator",
+    "publish"
+  ],
+  "nodes": [
+    {
+      "id": "brief",
+      "lane": "plan",
+      "col": 0,
+      "type": "frontend",
+      "label": "已有实现计划",
+      "sublabel": "目标、仓库与固定基线",
+      "width": 160
+    },
+    {
+      "id": "planner",
+      "lane": "plan",
+      "col": 1,
+      "type": "backend",
+      "label": "Planner",
+      "sublabel": "按完整模块拆分任务",
+      "width": 160
+    },
+    {
+      "id": "accept",
+      "lane": "plan",
+      "col": 2,
+      "type": "security",
+      "label": "接纳模块计划",
+      "sublabel": "结构校验 + 规划产物核验",
+      "width": 160
+    },
+    {
+      "id": "workers",
+      "lane": "modules",
+      "col": 2,
+      "type": "backend",
+      "label": "就绪模块并发执行",
+      "sublabel": "独立 worktree / owned_paths",
+      "width": 160
+    },
+    {
+      "id": "commits",
+      "lane": "modules",
+      "col": 3,
+      "type": "security",
+      "label": "核验模块提交",
+      "sublabel": "当前成功操作 + commit",
+      "width": 160
+    },
+    {
+      "id": "integrator",
+      "lane": "integration",
+      "col": 3,
+      "type": "backend",
+      "label": "唯一 Integrator",
+      "sublabel": "合并、修复、整体验证",
+      "width": 160
+    },
+    {
+      "id": "publish",
+      "lane": "publication",
+      "col": 3,
+      "type": "cloud",
+      "label": "发布与关闭 Run",
+      "sublabel": "每仓库一个 PR / MR + 报告",
+      "width": 160
+    }
+  ],
+  "edges": [
+    {
+      "id": "brief-planner",
+      "from": "brief",
+      "to": "planner",
+      "label": "交付目标"
+    },
+    {
+      "id": "planner-accept",
+      "from": "planner",
+      "to": "accept",
+      "label": "plan.json"
+    },
+    {
+      "id": "accept-workers",
+      "from": "accept",
+      "to": "workers",
+      "label": "依赖已交付"
+    },
+    {
+      "id": "workers-commits",
+      "from": "workers",
+      "to": "commits",
+      "label": "本地提交"
+    },
+    {
+      "id": "commits-integrator",
+      "from": "commits",
+      "to": "integrator",
+      "label": "全部模块 delivered"
+    },
+    {
+      "id": "integrator-publish",
+      "from": "integrator",
+      "to": "publish",
+      "label": "最终 SHA + 验证记录"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "模块粒度",
+      "items": [
+        "按完整模块或子系统拆分；写入路径不重叠",
+        "每批派发全部 ready 模块，不设 worker 数量上限"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "交付屏障",
+      "items": [
+        "已核验的上游提交才解锁下游模块",
+        "图中并发执行与提交核验按依赖分批推进"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "完成依据",
+      "items": [
+        "核对整合历史、最终 SHA、验证记录和远端 PR / MR",
+        "每仓库一个 PR / MR；报告落盘后释放 claims"
+      ]
+    }
+  ]
+}
