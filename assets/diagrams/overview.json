@@ -1,0 +1,165 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Agent Lord · 架构总览",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1100,
+      520
+    ]
+  },
+  "components": [
+    {
+      "id": "caller",
+      "type": "frontend",
+      "label": "主会话 + Skill",
+      "sublabel": "选择 pipeline，推进依赖与屏障",
+      "pos": [
+        50,
+        80
+      ],
+      "size": [
+        220,
+        78
+      ]
+    },
+    {
+      "id": "runtime",
+      "type": "backend",
+      "label": "Agent Lord Runtime",
+      "sublabel": "契约、工作区、派发与恢复",
+      "pos": [
+        440,
+        80
+      ],
+      "size": [
+        220,
+        78
+      ]
+    },
+    {
+      "id": "cli",
+      "type": "backend",
+      "label": "本地 CLI 执行端",
+      "sublabel": "Claude / Codex / MCode",
+      "pos": [
+        830,
+        80
+      ],
+      "size": [
+        220,
+        78
+      ]
+    },
+    {
+      "id": "app",
+      "type": "external",
+      "label": "Codex App 任务",
+      "sublabel": "由主会话通过宿主工具派发",
+      "pos": [
+        50,
+        360
+      ],
+      "size": [
+        220,
+        78
+      ]
+    },
+    {
+      "id": "state",
+      "type": "database",
+      "label": "持久化任务与产物",
+      "sublabel": "会话身份、运行记录、交付证据",
+      "pos": [
+        440,
+        360
+      ],
+      "size": [
+        220,
+        78
+      ]
+    },
+    {
+      "id": "observer",
+      "type": "frontend",
+      "label": "Observer",
+      "sublabel": "查看进展，显式打开原生终端",
+      "pos": [
+        830,
+        360
+      ],
+      "size": [
+        220,
+        78
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "caller-runtime",
+      "from": "caller",
+      "to": "runtime",
+      "label": "派发 / 续聊 / 监督"
+    },
+    {
+      "id": "runtime-cli",
+      "from": "runtime",
+      "to": "cli",
+      "label": "启动执行"
+    },
+    {
+      "id": "caller-app",
+      "from": "caller",
+      "to": "app",
+      "label": "宿主调用",
+      "labelDy": 110
+    },
+    {
+      "id": "runtime-state",
+      "from": "runtime",
+      "to": "state",
+      "label": "持久化记录",
+      "labelDy": 110
+    },
+    {
+      "id": "app-state",
+      "from": "app",
+      "to": "state",
+      "label": "任务状态登记"
+    },
+    {
+      "id": "state-observer",
+      "from": "state",
+      "to": "observer",
+      "label": "读取 API"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "主会话负责调度",
+      "items": [
+        "在 Codex Desktop / CLI、Claude Code 或 MCode 中发起",
+        "执行端完成具体任务，不递归调用 Agent Lord"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Runtime 负责证据",
+      "items": [
+        "固定执行契约，校验源代码与交付产物",
+        "控制器持续执行；checkpoint 收集状态并恢复"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Observer 负责呈现",
+      "items": [
+        "CLI 展示对话与工具活动；App 仅展示任务状态",
+        "终端打开由用户显式触发，不派发 pipeline"
+      ]
+    }
+  ]
+}
