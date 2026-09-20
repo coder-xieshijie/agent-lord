@@ -36,7 +36,7 @@ For ordinary task sets, persist these role sources with `run-create --nodes-file
 - For a pipeline, `checkpoint` is the liveness and recovery loop. Immediately after dispatch, select every active `task_id` with `--task-id` and every just-dispatched one with `--starting-task-id`, which tolerates a start that has not journaled its operation or task record yet and reports each such id in `starting[]`.
 - `check` is a full-detail inspection for one established task; it is not the pipeline liveness primitive and can correctly return `TASK_UNKNOWN` during the pre-task start window.
 - A brief `workspace-prepare` or parallel-group `STATE_BUSY` is retried inside the runtime. After the bounded budget is exhausted, evaluate the returned `safe_recovery` or the replacement policy; a lease conflict still requires resolving the existing writer before dispatch.
-- Treat `CHECKPOINT_QUIET` as healthy. Notify the user on meaningful transitions: dispatch, barrier completion, recovery, decision, terminal failure, or final convergence—not on every quiet poll.
+- Interpret `CHECKPOINT_QUIET` and report activity under the [waiting and reporting rules](../../SKILL.md#waiting-and-reporting). Notify the user on meaningful transitions: dispatch, barrier completion, recovery, decision, terminal failure, or final convergence—not on every quiet poll; honor required host heartbeats under those same rules.
 
 ## Validate artifacts and roles
 
