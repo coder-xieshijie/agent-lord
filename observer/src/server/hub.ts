@@ -287,9 +287,7 @@ export class Hub {
     return [...this.tasks.values()].map((state) => state.meta);
   }
 
-  snapshot(
-    taskId: string,
-  ): {
+  snapshot(taskId: string): {
     cursor: string;
     task: TaskMeta;
     items: ReturnType<Timeline["snapshotItems"]>;
