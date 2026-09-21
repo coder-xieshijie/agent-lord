@@ -28,17 +28,17 @@
 
 数据全部来自既有只读扫描循环，不新增全文流读取：
 
-| 字段 | 证据来源 |
-| --- | --- |
-| operation 派发时间 | operation 记录 `created_at` |
-| 执行端开始 | 控制平面 journal `operation-started` / `operation-continued` 的 `timestamp`（缺失时不显示，不用派发时间冒充） |
-| 执行结束 | operation 记录 `completed_at`（终态时）；`observed.provider_completed_at_ms` 单独保留 |
-| 产物可用 | journal `artifact-exported` 的 `timestamp`；缺失时回退 `completed_at` 并显式标记 `approx`（既有 `artifactReadyAtMs` 的口径即为该回退，本接口将两种口径区分开） |
-| 调度收到结构化回执 | 调度会话 rollout 日志中匹配 `operation_id` 的结构化回执（`SUCCEEDED` / `ERROR` / `NEEDS_DECISION`），记录**接收时的活动 Turn**，因此支持跨 Turn 接收 |
-| 主调度 Turn 开始/结束/中止 | 调度会话 rollout 日志 `task_started` / `task_complete` / `task_aborted`（session_meta 身份核验通过后才投影） |
-| 派发 Turn 绑定 | `invocation.caller.turn_id`（`recorded`）；缺失时按创建时间落入 Turn 窗口推断（`inferred-by-create-time`，界面标注）；无法绑定为 `none` |
-| 续做/重试 | `continuation.attempt`（既有 recovery 证据） |
-| 并行计划 | operation `parallel_plan`（worker → integrator 的 all-of 结构化依赖） |
+| 字段                       | 证据来源                                                                                                                                                       |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| operation 派发时间         | operation 记录 `created_at`                                                                                                                                    |
+| 执行端开始                 | 控制平面 journal `operation-started` / `operation-continued` 的 `timestamp`（缺失时不显示，不用派发时间冒充）                                                  |
+| 执行结束                   | operation 记录 `completed_at`（终态时）；`observed.provider_completed_at_ms` 单独保留                                                                          |
+| 产物可用                   | journal `artifact-exported` 的 `timestamp`；缺失时回退 `completed_at` 并显式标记 `approx`（既有 `artifactReadyAtMs` 的口径即为该回退，本接口将两种口径区分开） |
+| 调度收到结构化回执         | 调度会话 rollout 日志中匹配 `operation_id` 的结构化回执（`SUCCEEDED` / `ERROR` / `NEEDS_DECISION`），记录**接收时的活动 Turn**，因此支持跨 Turn 接收           |
+| 主调度 Turn 开始/结束/中止 | 调度会话 rollout 日志 `task_started` / `task_complete` / `task_aborted`（session_meta 身份核验通过后才投影）                                                   |
+| 派发 Turn 绑定             | `invocation.caller.turn_id`（`recorded`）；缺失时按创建时间落入 Turn 窗口推断（`inferred-by-create-time`，界面标注）；无法绑定为 `none`                        |
+| 续做/重试                  | `continuation.attempt`（既有 recovery 证据）                                                                                                                   |
+| 并行计划                   | operation `parallel_plan`（worker → integrator 的 all-of 结构化依赖）                                                                                          |
 
 既有 `TaskMeta.timing.callerReceivedAtMs` 的口径（仅创建 Turn、仅
 SUCCEEDED、且不早于产物就绪时间）保持不变以兼容现有页面；本接口的回执是

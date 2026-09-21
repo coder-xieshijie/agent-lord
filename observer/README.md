@@ -81,7 +81,7 @@ Codex Desktop、Codex CLI、Claude Code 与 MCode 的调用方均按 [Skill 主�
 也不以浏览器自动化作为失败后的兜底。
 
 1. 使用本次会话选定的端口、state-dir 运行 `pnpm --dir <agent-lord-root>/observer preview:attach --tasks <本次任务集合>
-   --focus-task <目标任务> --port <端口>`。默认端口为 `8791`；任务集合来自已授权派发，
+--focus-task <目标任务> --port <端口>`。默认端口为 `8791`；任务集合来自已授权派发，
    不扫描并公开其他任务。不传 focus-task 时选择本次列表排序后的首个任务。
 2. 命令复用或启动服务；只在新增绑定任务时合并 allowlist 并重启，保留原端口、令牌、
    web-root、refresh-ms 和 entrypoint。修改服务配置或升级运行代码使用显式 `preview:restart`。

@@ -5,7 +5,14 @@
  * aggregated_output + exit_code. Reasoning items are omitted with a marker.
  */
 
-import { clip, clipTitle, MESSAGE_CLIP, toolInputText, toolOutputText, TOOL_TEXT_CLIP } from "../sanitize.js";
+import {
+  clip,
+  clipTitle,
+  MESSAGE_CLIP,
+  toolInputText,
+  toolOutputText,
+  TOOL_TEXT_CLIP,
+} from "../sanitize.js";
 import { OpProjector } from "./common.js";
 
 const LIFECYCLE: Record<string, string> = {
@@ -16,7 +23,11 @@ const LIFECYCLE: Record<string, string> = {
 
 export class CodexProjector extends OpProjector {
   protected handleEvent(event: Record<string, unknown>): void {
-    if (event.type === "thread.started" && typeof event.thread_id === "string" && event.thread_id) {
+    if (
+      event.type === "thread.started" &&
+      typeof event.thread_id === "string" &&
+      event.thread_id
+    ) {
       this.observedSessionId = event.thread_id;
     }
     const type = typeof event.type === "string" ? event.type : "unknown";
@@ -33,11 +44,18 @@ export class CodexProjector extends OpProjector {
       this.upsertTool("provider-error/turn.failed", {
         name: "回合失败",
         state: "error",
-        errorText: typeof message === "string" ? clip(message, TOOL_TEXT_CLIP) : "turn.failed",
+        errorText:
+          typeof message === "string"
+            ? clip(message, TOOL_TEXT_CLIP)
+            : "turn.failed",
       });
       return;
     }
-    if (type !== "item.started" && type !== "item.updated" && type !== "item.completed") {
+    if (
+      type !== "item.started" &&
+      type !== "item.updated" &&
+      type !== "item.completed"
+    ) {
       this.omitted(type);
       return;
     }
@@ -50,7 +68,11 @@ export class CodexProjector extends OpProjector {
     const itemType = typeof record.type === "string" ? record.type : "unknown";
     const itemId = typeof record.id === "string" ? record.id : itemType;
     if (itemType === "agent_message") {
-      if (type === "item.completed" && typeof record.text === "string" && record.text) {
+      if (
+        type === "item.completed" &&
+        typeof record.text === "string" &&
+        record.text
+      ) {
         this.finishMessage(itemId, record.text);
       }
       return;
@@ -61,7 +83,8 @@ export class CodexProjector extends OpProjector {
     }
     if (itemType === "command_execution") {
       const command = typeof record.command === "string" ? record.command : "";
-      const exitCode = typeof record.exit_code === "number" ? record.exit_code : undefined;
+      const exitCode =
+        typeof record.exit_code === "number" ? record.exit_code : undefined;
       const done = type === "item.completed";
       const failed = done && exitCode !== undefined && exitCode !== 0;
       this.upsertTool(itemId, {
@@ -76,7 +99,8 @@ export class CodexProjector extends OpProjector {
       return;
     }
     if (itemType === "error") {
-      const message = typeof record.message === "string" ? record.message : "error";
+      const message =
+        typeof record.message === "string" ? record.message : "error";
       // Codex exec also encodes this non-fatal configuration warning as an error item.
       const warning = message.startsWith("Under-development features enabled:");
       this.upsertTool(`provider-error/${itemId}`, {
@@ -86,9 +110,14 @@ export class CodexProjector extends OpProjector {
       });
       return;
     }
-    if (itemType === "mcp_tool_call" || itemType === "web_search" || itemType === "file_change") {
+    if (
+      itemType === "mcp_tool_call" ||
+      itemType === "web_search" ||
+      itemType === "file_change"
+    ) {
       const done = type === "item.completed";
-      const status = typeof record.status === "string" ? record.status : undefined;
+      const status =
+        typeof record.status === "string" ? record.status : undefined;
       const failed = done && status === "failed";
       this.upsertTool(itemId, {
         name:
@@ -103,8 +132,12 @@ export class CodexProjector extends OpProjector {
           typeof record.query === "string"
             ? clipTitle(String(record.query))
             : undefined,
-        inputText: toolInputText(record.arguments ?? record.changes ?? record.query),
-        outputText: done ? toolOutputText(record.result ?? record.results) : undefined,
+        inputText: toolInputText(
+          record.arguments ?? record.changes ?? record.query,
+        ),
+        outputText: done
+          ? toolOutputText(record.result ?? record.results)
+          : undefined,
         state: done ? (failed ? "error" : "completed") : "running",
         errorText: failed ? (status ?? "failed") : undefined,
       });
@@ -118,7 +151,11 @@ export class CodexProjector extends OpProjector {
     this.omitted(`${type}:${itemType}`);
   }
 
-  protected override finishMessage(messageId: string, fullText: string | undefined, tsMs?: number): void {
+  protected override finishMessage(
+    messageId: string,
+    fullText: string | undefined,
+    tsMs?: number,
+  ): void {
     if (fullText === undefined) return;
     super.finishMessage(messageId, clip(fullText, MESSAGE_CLIP), tsMs);
   }

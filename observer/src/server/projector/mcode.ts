@@ -26,9 +26,16 @@ export class McodeProjector extends OpProjector {
       this.observedSessionId = event.sessionId;
     }
     const type = typeof event.type === "string" ? event.type : "unknown";
-    const tsMs = typeof event.timestampMs === "number" ? event.timestampMs : undefined;
-    if (type === "exec.completed" && tsMs !== undefined && Number.isFinite(tsMs)) this.completedAtMs = tsMs;
-    if (type === "exec.completed" || type === "turn.failed") this.finishPending();
+    const tsMs =
+      typeof event.timestampMs === "number" ? event.timestampMs : undefined;
+    if (
+      type === "exec.completed" &&
+      tsMs !== undefined &&
+      Number.isFinite(tsMs)
+    )
+      this.completedAtMs = tsMs;
+    if (type === "exec.completed" || type === "turn.failed")
+      this.finishPending();
     if (LIFECYCLE[type]) {
       this.lifecycle(type, LIFECYCLE[type], tsMs);
       return;
@@ -43,7 +50,11 @@ export class McodeProjector extends OpProjector {
       });
       return;
     }
-    if (type !== "item.started" && type !== "item.updated" && type !== "item.completed") {
+    if (
+      type !== "item.started" &&
+      type !== "item.updated" &&
+      type !== "item.completed"
+    ) {
       this.omitted(type);
       return;
     }
@@ -61,7 +72,10 @@ export class McodeProjector extends OpProjector {
         this.appendMessage(messageId, delta, tsMs);
       }
       if (type === "item.completed") {
-        const full = typeof record.content === "string" && record.content ? record.content : undefined;
+        const full =
+          typeof record.content === "string" && record.content
+            ? record.content
+            : undefined;
         this.finishMessage(messageId, full, tsMs);
       }
       return;
@@ -78,7 +92,11 @@ export class McodeProjector extends OpProjector {
       }
       const callRecord = call as Record<string, unknown>;
       const toolId =
-        typeof callRecord.id === "string" ? callRecord.id : typeof record.id === "string" ? record.id : "tool";
+        typeof callRecord.id === "string"
+          ? callRecord.id
+          : typeof record.id === "string"
+            ? record.id
+            : "tool";
       const phase = mcodeToolPhase(callRecord.status, type, callRecord.error);
       const failed = phase === "failed";
       const unrecognized = type === "item.completed" && phase === "unknown";
@@ -91,10 +109,17 @@ export class McodeProjector extends OpProjector {
         outputText: toolOutputText(callRecord.output),
         errorText: failed
           ? (toolOutputText(callRecord.error) ?? "工具失败")
-          : unrecognized ? "工具已结束，结果状态未识别" : null,
+          : unrecognized
+            ? "工具已结束，结果状态未识别"
+            : null,
         phase,
         ...timing.observe(phase, tsMs),
-        state: failed || unrecognized ? "error" : phase === "completed" ? "completed" : "running",
+        state:
+          failed || unrecognized
+            ? "error"
+            : phase === "completed"
+              ? "completed"
+              : "running",
         tsMs,
       });
       return;

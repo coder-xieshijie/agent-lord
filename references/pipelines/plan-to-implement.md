@@ -10,11 +10,11 @@ The durable state lives in the runtime, not in the conversation. `plan-*` comman
 
 ## Roles and defaults
 
-| Role | Provider | Model | Effort | Workspace |
-| --- | --- | --- | --- | --- |
-| Planner | `mcode-cli` | resolved provider default (`custom_provider:mafia-claude/claude-opus-5`) | resolved provider default (`xhigh`) | `isolated`, declares the plan file with `--require-file` |
-| Module worker | `mcode-cli` | same resolved default | same resolved default | `isolated`, one worktree and `--workspace-branch` each, `--require-commit` |
-| Final integrator | `mcode-cli` | same resolved default | same resolved default | `isolated` on the primary repository, `--require-commit`; other repositories come from run-held claims |
+| Role             | Provider    | Model                                                                    | Effort                              | Workspace                                                                                              |
+| ---------------- | ----------- | ------------------------------------------------------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Planner          | `mcode-cli` | resolved provider default (`custom_provider:mafia-claude/claude-opus-5`) | resolved provider default (`xhigh`) | `isolated`, declares the plan file with `--require-file`                                               |
+| Module worker    | `mcode-cli` | same resolved default                                                    | same resolved default               | `isolated`, one worktree and `--workspace-branch` each, `--require-commit`                             |
+| Final integrator | `mcode-cli` | same resolved default                                                    | same resolved default               | `isolated` on the primary repository, `--require-commit`; other repositories come from run-held claims |
 
 Resolve and freeze model and effort independently from provider configuration at dispatch, then pass both explicitly so the whole run shares one execution contract. `codex-cli` and `claude-cli` are supported for any role through a global or per-role override; every provider-specific effort remains explicit. These pipeline choices change no ordinary provider default.
 
@@ -93,8 +93,17 @@ node core/dist/cli.js plan-report --run-id feature-x --report-file /tmp/run/repo
 {
   "head_sha": "<40-hex final SHA>",
   "checks": [
-    {"name": "pnpm test", "status": "passed", "evidence": "测试日志路径或链接"},
-    {"name": "ci", "status": "accepted_failure", "evidence": "pipeline/job 链接", "reason": "用户明确接受的已知问题及授权依据"}
+    {
+      "name": "pnpm test",
+      "status": "passed",
+      "evidence": "测试日志路径或链接"
+    },
+    {
+      "name": "ci",
+      "status": "accepted_failure",
+      "evidence": "pipeline/job 链接",
+      "reason": "用户明确接受的已知问题及授权依据"
+    }
   ]
 }
 ```

@@ -39,7 +39,10 @@ export interface CallerGroup {
   tasks: TaskMeta[];
 }
 
-function byActivityDesc(a: { lastActivityMs: number | null }, b: { lastActivityMs: number | null }): number {
+function byActivityDesc(
+  a: { lastActivityMs: number | null },
+  b: { lastActivityMs: number | null },
+): number {
   const av = a.lastActivityMs ?? Number.NEGATIVE_INFINITY;
   const bv = b.lastActivityMs ?? Number.NEGATIVE_INFINITY;
   if (av !== bv) return av < bv ? 1 : -1;
@@ -48,7 +51,9 @@ function byActivityDesc(a: { lastActivityMs: number | null }, b: { lastActivityM
 
 /** Newest activity first; missing timestamps last; deterministic ties. */
 export function sortTasksByActivity(tasks: TaskMeta[]): TaskMeta[] {
-  return [...tasks].sort((a, b) => byActivityDesc(a, b) || a.taskId.localeCompare(b.taskId));
+  return [...tasks].sort(
+    (a, b) => byActivityDesc(a, b) || a.taskId.localeCompare(b.taskId),
+  );
 }
 
 /** Group tasks by their attributed scheduling session. Tasks without one stay
@@ -58,25 +63,47 @@ export function groupTasksByCaller(tasks: TaskMeta[]): CallerGroup[] {
   const groups = new Map<string, CallerGroup>();
   for (const task of sortTasksByActivity(tasks)) {
     const session = task.caller?.session ?? null;
-    const key = session ? `caller:${session.kind && session.kind !== "codex" ? `${session.kind}:` : ""}${session.sessionId}` : UNATTRIBUTED_GROUP_KEY;
+    const key = session
+      ? `caller:${session.kind && session.kind !== "codex" ? `${session.kind}:` : ""}${session.sessionId}`
+      : UNATTRIBUTED_GROUP_KEY;
     let group = groups.get(key);
     if (!group) {
-      group = { key, kind: session?.kind, sessionId: session?.sessionId ?? null, name: null, projectName: null, lastActivityMs: null, tasks: [] };
+      group = {
+        key,
+        kind: session?.kind,
+        sessionId: session?.sessionId ?? null,
+        name: null,
+        projectName: null,
+        lastActivityMs: null,
+        tasks: [],
+      };
       groups.set(key, group);
     }
     // Children are newest first, so the first task that knows a name/project
     // supplies the freshest metadata; later (older) tasks only fill gaps.
     group.name ??= session?.name ?? null;
     group.projectName ??= session?.projectName ?? null;
-    if (task.lastActivityMs !== null && (group.lastActivityMs === null || task.lastActivityMs > group.lastActivityMs))
+    if (
+      task.lastActivityMs !== null &&
+      (group.lastActivityMs === null ||
+        task.lastActivityMs > group.lastActivityMs)
+    )
       group.lastActivityMs = task.lastActivityMs;
     group.tasks.push(task);
   }
-  return [...groups.values()].sort((a, b) => byActivityDesc(a, b) || a.key.localeCompare(b.key));
+  return [...groups.values()].sort(
+    (a, b) => byActivityDesc(a, b) || a.key.localeCompare(b.key),
+  );
 }
 
 /** The group that should open when entering the caller view with a selection. */
-export function groupKeyForTask(groups: CallerGroup[], taskId: string | null): string | null {
+export function groupKeyForTask(
+  groups: CallerGroup[],
+  taskId: string | null,
+): string | null {
   if (!taskId) return null;
-  return groups.find((group) => group.tasks.some((task) => task.taskId === taskId))?.key ?? null;
+  return (
+    groups.find((group) => group.tasks.some((task) => task.taskId === taskId))
+      ?.key ?? null
+  );
 }

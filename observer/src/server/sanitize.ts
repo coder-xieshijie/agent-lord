@@ -35,13 +35,17 @@ export function toolTitle(input: unknown): string | undefined {
     if (typeof value === "string" && value) return clipTitle(value);
   }
   const keys = Object.keys(record);
-  return keys.length ? clipTitle(keys.map((k) => `${k}=${previewValue(record[k])}`).join(" ")) : undefined;
+  return keys.length
+    ? clipTitle(keys.map((k) => `${k}=${previewValue(record[k])}`).join(" "))
+    : undefined;
 }
 
 function previewValue(value: unknown): string {
-  if (typeof value === "string") return value.length > 40 ? `${value.slice(0, 40)}…` : value;
+  if (typeof value === "string")
+    return value.length > 40 ? `${value.slice(0, 40)}…` : value;
   if (value === null || value === undefined) return String(value);
-  if (typeof value === "object") return Array.isArray(value) ? `[${value.length}]` : "{…}";
+  if (typeof value === "object")
+    return Array.isArray(value) ? `[${value.length}]` : "{…}";
   return String(value);
 }
 
@@ -63,10 +67,14 @@ export function toolOutputText(output: unknown): string | undefined {
   if (typeof output === "string") return clip(output, TOOL_TEXT_CLIP);
   if (Array.isArray(output)) {
     const text = output
-      .map((entry) => (typeof entry === "string" ? entry : extractContentText(entry)))
+      .map((entry) =>
+        typeof entry === "string" ? entry : extractContentText(entry),
+      )
       .filter((part): part is string => Boolean(part))
       .join("\n");
-    return text ? clip(text, TOOL_TEXT_CLIP) : `（结构化结果，共 ${output.length} 项）`;
+    return text
+      ? clip(text, TOOL_TEXT_CLIP)
+      : `（结构化结果，共 ${output.length} 项）`;
   }
   if (typeof output === "object") {
     const record = output as Record<string, unknown>;
@@ -74,10 +82,13 @@ export function toolOutputText(output: unknown): string | undefined {
     if (fromContent) return clip(fromContent, TOOL_TEXT_CLIP);
     for (const key of ["stdout", "text", "message", "result", "output"]) {
       const value = record[key];
-      if (typeof value === "string" && value) return clip(value, TOOL_TEXT_CLIP);
+      if (typeof value === "string" && value)
+        return clip(value, TOOL_TEXT_CLIP);
     }
     const keys = Object.keys(record);
-    return keys.length ? `（结构化结果：${keys.slice(0, 8).join(", ")}）` : undefined;
+    return keys.length
+      ? `（结构化结果：${keys.slice(0, 8).join(", ")}）`
+      : undefined;
   }
   return String(output);
 }
@@ -91,7 +102,9 @@ function extractContentText(value: unknown): string | undefined {
   if (Array.isArray(content)) {
     const parts = content
       .map((block) =>
-        block && typeof block === "object" && typeof (block as Record<string, unknown>).text === "string"
+        block &&
+        typeof block === "object" &&
+        typeof (block as Record<string, unknown>).text === "string"
           ? ((block as Record<string, unknown>).text as string)
           : undefined,
       )

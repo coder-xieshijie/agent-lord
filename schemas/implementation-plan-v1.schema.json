@@ -6,21 +6,37 @@
   "type": "object",
   "required": ["version", "plan_id", "goal", "repositories", "modules"],
   "properties": {
-    "version": {"const": 1},
-    "plan_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$"},
-    "goal": {"type": "string", "minLength": 1},
+    "version": { "const": 1 },
+    "plan_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$"
+    },
+    "goal": { "type": "string", "minLength": 1 },
     "repositories": {
       "type": "array",
       "minItems": 1,
       "description": "One entry per repository. Each has exactly one delivery branch and one MR, created by the final integrator.",
       "items": {
         "type": "object",
-        "required": ["repository", "source_branch", "head_sha", "delivery_branch"],
+        "required": [
+          "repository",
+          "source_branch",
+          "head_sha",
+          "delivery_branch"
+        ],
         "properties": {
-          "repository": {"type": "string", "pattern": "^/", "description": "Absolute repository path."},
-          "source_branch": {"type": "string", "minLength": 1},
-          "head_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$", "description": "Fixed full source head; a branch name is rejected."},
-          "delivery_branch": {"type": "string", "minLength": 1}
+          "repository": {
+            "type": "string",
+            "pattern": "^/",
+            "description": "Absolute repository path."
+          },
+          "source_branch": { "type": "string", "minLength": 1 },
+          "head_sha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$",
+            "description": "Fixed full source head; a branch name is rejected."
+          },
+          "delivery_branch": { "type": "string", "minLength": 1 }
         },
         "additionalProperties": false
       }
@@ -39,29 +55,35 @@
           "owned_paths"
         ],
         "properties": {
-          "module_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$"},
-          "repository": {"type": "string", "description": "Must match a declared repositories[].repository."},
-          "responsibility": {"type": "string", "minLength": 1},
+          "module_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$"
+          },
+          "repository": {
+            "type": "string",
+            "description": "Must match a declared repositories[].repository."
+          },
+          "responsibility": { "type": "string", "minLength": 1 },
           "acceptance": {
             "type": "array",
             "minItems": 1,
-            "items": {"type": "string", "minLength": 1}
+            "items": { "type": "string", "minLength": 1 }
           },
           "depends_on": {
             "type": "array",
             "description": "Declared module_ids only; the graph must be acyclic.",
-            "items": {"type": "string"}
+            "items": { "type": "string" }
           },
           "owned_paths": {
             "type": "array",
             "minItems": 1,
             "description": "Exclusive write boundary; two modules in one repository cannot own overlapping paths.",
-            "items": {"type": "string", "minLength": 1}
+            "items": { "type": "string", "minLength": 1 }
           },
           "verification": {
             "type": "array",
             "description": "Module-level checks the worker runs before reporting delivery.",
-            "items": {"type": "string", "minLength": 1}
+            "items": { "type": "string", "minLength": 1 }
           }
         },
         "additionalProperties": false

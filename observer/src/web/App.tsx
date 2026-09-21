@@ -21,7 +21,12 @@ import type {
   TaskMeta,
   TimelineItem,
 } from "../shared/types";
-import { applyItem, openNativeTerminal, token, type NativeTerminal } from "@/lib/api";
+import {
+  applyItem,
+  openNativeTerminal,
+  token,
+  type NativeTerminal,
+} from "@/lib/api";
 import {
   createHttpTransport,
   SerialPoller,
@@ -46,14 +51,23 @@ import { ScheduleTimelinePanel } from "@/components/schedule-timeline";
 import { ExecutionDetails, callerStatus } from "@/components/execution-details";
 import { AppearanceControls } from "@/components/appearance-controls";
 import { ScheduledModel } from "@/components/scheduled-model";
-import { ToolRow, CompletedToolGroup, type Expansion, type SetExpanded } from "@/components/tool-row";
+import {
+  ToolRow,
+  CompletedToolGroup,
+  type Expansion,
+  type SetExpanded,
+} from "@/components/tool-row";
 import {
   Conversation,
   ConversationContent,
   ConversationEmptyState,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
-import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
+import {
+  Message,
+  MessageContent,
+  MessageResponse,
+} from "@/components/ai-elements/message";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -76,14 +90,18 @@ function relativeTime(ms: number | null): string {
 
 function StatusDot({ meta }: { meta: TaskMeta }) {
   if (meta.statusKind === "running")
-    return <span className="inline-block size-2 animate-pulse rounded-full bg-emerald-500" />;
+    return (
+      <span className="inline-block size-2 animate-pulse rounded-full bg-emerald-500" />
+    );
   if (meta.statusKind === "succeeded")
     return <span className="inline-block size-2 rounded-full bg-emerald-600" />;
   if (meta.statusKind === "failed")
     return <span className="inline-block size-2 rounded-full bg-red-500" />;
   if (meta.statusKind === "needs_decision")
     return <span className="inline-block size-2 rounded-full bg-amber-500" />;
-  return <span className="inline-block size-2 rounded-full bg-muted-foreground/50" />;
+  return (
+    <span className="inline-block size-2 rounded-full bg-muted-foreground/50" />
+  );
 }
 
 /** Truthful polling status: the page keeps current via short incremental
@@ -91,7 +109,13 @@ function StatusDot({ meta }: { meta: TaskMeta }) {
  * visibility — the badge reflects exactly that. */
 function ConnBadge({ state }: { state: SyncState }) {
   const label =
-    state === "live" ? "增量轮询中" : state === "loading" ? "同步中" : state === "retrying" ? "重试中" : "后台已暂停";
+    state === "live"
+      ? "增量轮询中"
+      : state === "loading"
+        ? "同步中"
+        : state === "retrying"
+          ? "重试中"
+          : "后台已暂停";
   return (
     <Badge
       className={cn(
@@ -116,12 +140,24 @@ function ConnBadge({ state }: { state: SyncState }) {
   );
 }
 
-function DetailRow({ name, value, mono = true }: { name: string; value: string | null; mono?: boolean }) {
+function DetailRow({
+  name,
+  value,
+  mono = true,
+}: {
+  name: string;
+  value: string | null;
+  mono?: boolean;
+}) {
   if (!value) return null;
   return (
     <div className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2">
-      <span className="shrink-0 text-muted-foreground text-xs sm:w-24">{name}</span>
-      <span className={cn("min-w-0 break-all text-xs", mono && "font-mono")}>{value}</span>
+      <span className="shrink-0 text-muted-foreground text-xs sm:w-24">
+        {name}
+      </span>
+      <span className={cn("min-w-0 break-all text-xs", mono && "font-mono")}>
+        {value}
+      </span>
     </div>
   );
 }
@@ -135,7 +171,9 @@ function OpenTerminalButton({
   terminal: NativeTerminal;
   running: boolean;
 }) {
-  const [state, setState] = useState<"idle" | "opening" | "opened" | "error">("idle");
+  const [state, setState] = useState<"idle" | "opening" | "opened" | "error">(
+    "idle",
+  );
   const [error, setError] = useState<string | null>(null);
   const label = terminal === "orca" ? "Orca" : "iTerm";
   const open = async () => {
@@ -151,11 +189,25 @@ function OpenTerminalButton({
   };
   return (
     <div className="flex flex-col gap-1">
-      <Button className="h-7 gap-1.5 px-2 text-xs" disabled={state === "opening"} onClick={() => void open()} size="sm" variant="outline">
-        {state === "opening" ? <Loader2 className="size-3 animate-spin" /> : <SquareTerminal className="size-3" />}
-        {state === "opened" ? `已打开 ${label}` : `${running ? "在" : "用"} ${label} ${running ? "中查看" : "继续"}`}
+      <Button
+        className="h-7 gap-1.5 px-2 text-xs"
+        disabled={state === "opening"}
+        onClick={() => void open()}
+        size="sm"
+        variant="outline"
+      >
+        {state === "opening" ? (
+          <Loader2 className="size-3 animate-spin" />
+        ) : (
+          <SquareTerminal className="size-3" />
+        )}
+        {state === "opened"
+          ? `已打开 ${label}`
+          : `${running ? "在" : "用"} ${label} ${running ? "中查看" : "继续"}`}
       </Button>
-      {state === "error" ? <span className="max-w-64 text-destructive text-xs">{error}</span> : null}
+      {state === "error" ? (
+        <span className="max-w-64 text-destructive text-xs">{error}</span>
+      ) : null}
     </div>
   );
 }
@@ -166,13 +218,19 @@ function MarkerRow({ item }: { item: LifecycleItem | JournalItem }) {
     <div
       className={cn(
         "flex items-center gap-2 text-xs",
-        level === "error" ? "text-destructive" : level === "success" ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground",
+        level === "error"
+          ? "text-destructive"
+          : level === "success"
+            ? "text-emerald-600 dark:text-emerald-400"
+            : "text-muted-foreground",
       )}
     >
       <Circle className="size-1.5 fill-current" />
       <span>{item.label}</span>
       {item.kind === "journal" && item.detail ? (
-        <span className="min-w-0 truncate text-muted-foreground">· {item.detail}</span>
+        <span className="min-w-0 truncate text-muted-foreground">
+          · {item.detail}
+        </span>
       ) : null}
     </div>
   );
@@ -204,34 +262,69 @@ function FinalRow({ item }: { item: FinalItem }) {
           : "border-red-300/50 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-950/40 dark:text-red-300",
       )}
     >
-      {item.ok ? <CheckCircle2 className="mt-0.5 size-4 shrink-0" /> : <XCircle className="mt-0.5 size-4 shrink-0" />}
+      {item.ok ? (
+        <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+      ) : (
+        <XCircle className="mt-0.5 size-4 shrink-0" />
+      )}
       <div className="min-w-0">
         <span>
           {item.ok ? "本轮执行结束" : "本轮执行失败"}
-          {item.durationMs ? `（耗时 ${(item.durationMs / 1000).toFixed(1)} 秒）` : ""}
+          {item.durationMs
+            ? `（耗时 ${(item.durationMs / 1000).toFixed(1)} 秒）`
+            : ""}
         </span>
-        {item.summary ? <p className="mt-1 whitespace-pre-wrap break-words text-xs">{item.summary}</p> : null}
+        {item.summary ? (
+          <p className="mt-1 whitespace-pre-wrap break-words text-xs">
+            {item.summary}
+          </p>
+        ) : null}
       </div>
     </div>
   );
 }
 
-function TimelineRow({ item, expanded, setExpanded }: { item: TimelineItem; expanded: Expansion; setExpanded: SetExpanded }) {
+function TimelineRow({
+  item,
+  expanded,
+  setExpanded,
+}: {
+  item: TimelineItem;
+  expanded: Expansion;
+  setExpanded: SetExpanded;
+}) {
   switch (item.kind) {
     case "request":
-      return <RequestRow item={item} open={expanded[item.id] ?? false} onOpenChange={(value) => setExpanded(item.id, value)} />;
+      return (
+        <RequestRow
+          item={item}
+          open={expanded[item.id] ?? false}
+          onOpenChange={(value) => setExpanded(item.id, value)}
+        />
+      );
     case "message": {
       const message = item as MessageItem;
       return (
         <Message className="observer-message max-w-full py-3" from="assistant">
           <MessageContent>
-            <MessageResponse className="text-sm leading-7" isAnimating={message.streaming}>{message.text}</MessageResponse>
+            <MessageResponse
+              className="text-sm leading-7"
+              isAnimating={message.streaming}
+            >
+              {message.text}
+            </MessageResponse>
           </MessageContent>
         </Message>
       );
     }
     case "tool":
-      return <ToolRow item={item} onOpenChange={(value) => setExpanded(item.id, value)} open={expanded[item.id] ?? false} />;
+      return (
+        <ToolRow
+          item={item}
+          onOpenChange={(value) => setExpanded(item.id, value)}
+          open={expanded[item.id] ?? false}
+        />
+      );
     case "lifecycle":
     case "journal":
       return <MarkerRow item={item as LifecycleItem | JournalItem} />;
@@ -246,19 +339,31 @@ function TimelineRow({ item, expanded, setExpanded }: { item: TimelineItem; expa
   }
 }
 
-function TaskListEntry({ meta, selected, onSelect }: { meta: TaskMeta; selected: boolean; onSelect: () => void }) {
+function TaskListEntry({
+  meta,
+  selected,
+  onSelect,
+}: {
+  meta: TaskMeta;
+  selected: boolean;
+  onSelect: () => void;
+}) {
   return (
     <button
       className={cn(
         "w-full rounded-lg border px-3 py-2.5 text-left transition-colors",
-        selected ? "border-primary/40 bg-accent" : "border-transparent hover:bg-accent/60",
+        selected
+          ? "border-primary/40 bg-accent"
+          : "border-transparent hover:bg-accent/60",
       )}
       onClick={onSelect}
       type="button"
     >
       <div className="flex items-center gap-2">
         <StatusDot meta={meta} />
-        <span className="min-w-0 truncate font-medium text-sm">{meta.title}</span>
+        <span className="min-w-0 truncate font-medium text-sm">
+          {meta.title}
+        </span>
       </div>
       <div className="mt-1 flex items-center gap-2 text-muted-foreground text-xs">
         <span>{meta.providerLabel}</span>
@@ -287,14 +392,17 @@ function CallerGroupEntry({
   onSelect: (taskId: string) => void;
   onOpenTimeline: () => void;
 }) {
-  const label = group.name ?? (group.sessionId ? "未命名调度会话" : "未记录调度会话");
+  const label =
+    group.name ?? (group.sessionId ? "未命名调度会话" : "未记录调度会话");
   return (
     <div className="relative rounded-lg">
       <button
         aria-pressed={timelineOpen}
         className={cn(
           "absolute top-1.5 right-1.5 z-10 rounded-md border px-1.5 py-0.5 text-[10px] transition-colors",
-          timelineOpen ? "border-primary/40 bg-accent font-medium" : "border-transparent text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+          timelineOpen
+            ? "border-primary/40 bg-accent font-medium"
+            : "border-transparent text-muted-foreground hover:bg-accent/60 hover:text-foreground",
         )}
         onClick={onOpenTimeline}
         title="打开该调度会话的时间线"
@@ -305,24 +413,37 @@ function CallerGroupEntry({
       <button
         className={cn(
           "w-full rounded-lg border border-transparent px-3 py-2 text-left transition-colors hover:bg-accent/60",
-          !open && group.tasks.some((task) => task.taskId === selectedId) && "bg-accent/40",
+          !open &&
+            group.tasks.some((task) => task.taskId === selectedId) &&
+            "bg-accent/40",
         )}
         onClick={onToggle}
         title={group.sessionId ?? undefined}
         type="button"
       >
         <div className="flex items-center gap-1.5 pr-12">
-          <ChevronRight className={cn("size-3 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
+          <ChevronRight
+            className={cn(
+              "size-3 shrink-0 text-muted-foreground transition-transform",
+              open && "rotate-90",
+            )}
+          />
           <span className="min-w-0 truncate font-medium text-sm">{label}</span>
         </div>
         <div className="mt-1 flex items-center gap-1.5 pl-[18px] text-muted-foreground text-xs">
           <Folder className="size-3 shrink-0" />
-          <span className={cn("min-w-0 truncate", !group.projectName && "italic")}>
+          <span
+            className={cn("min-w-0 truncate", !group.projectName && "italic")}
+          >
             {group.projectName ?? "项目未记录"}
           </span>
-          <span className="ml-auto shrink-0">{relativeTime(group.lastActivityMs)}</span>
+          <span className="ml-auto shrink-0">
+            {relativeTime(group.lastActivityMs)}
+          </span>
         </div>
-        <p className="mt-0.5 pl-[18px] text-muted-foreground text-xs">{group.tasks.length} 个执行会话</p>
+        <p className="mt-0.5 pl-[18px] text-muted-foreground text-xs">
+          {group.tasks.length} 个执行会话
+        </p>
       </button>
       {open ? (
         <div className="mt-0.5 space-y-1 border-muted-foreground/20 border-l pl-2 ml-3">
@@ -349,12 +470,16 @@ export default function App() {
   const [truncated, setTruncated] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [view, setView] = useState<SidebarView>(DEFAULT_SIDEBAR_VIEW);
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(
+    {},
+  );
   // Which caller group's scheduling timeline is open (group key), if any.
   const [timelineKey, setTimelineKey] = useState<string | null>(null);
   // Operation the user asked to locate from the timeline; consumed once the
   // matching [data-opid] anchor exists in the rendered task timeline.
-  const pendingScroll = useRef<{ taskId: string; operationId: string } | null>(null);
+  const pendingScroll = useRef<{ taskId: string; operationId: string } | null>(
+    null,
+  );
   const taskSync = useRef<TaskSyncController | null>(null);
   const overviewSync = useRef<SerialPoller | null>(null);
   const sortedTasks = useMemo(() => sortTasksByActivity(tasks), [tasks]);
@@ -362,7 +487,8 @@ export default function App() {
   // Keep the current selection visible when entering the caller view: the
   // group holding the selected task opens unless the user closed it manually.
   const isGroupOpen = (group: CallerGroup): boolean =>
-    expandedGroups[group.key] ?? groupKeyForTask(callerGroups, selectedId) === group.key;
+    expandedGroups[group.key] ??
+    groupKeyForTask(callerGroups, selectedId) === group.key;
 
   // Overview poll (2.5s, serial with backoff, paused while hidden) keeps the
   // task list & statuses fresh.
@@ -373,10 +499,15 @@ export default function App() {
           const overview = await transport.overview(signal);
           if (signal.aborted) return;
           setTasks(overview.tasks);
-          setSelectedId((current) => selectTask(overview.tasks, current, window.location.search));
+          setSelectedId((current) =>
+            selectTask(overview.tasks, current, window.location.search),
+          );
           setLoadError(null);
         } catch (error) {
-          if (!signal.aborted) setLoadError(String(error instanceof Error ? error.message : error));
+          if (!signal.aborted)
+            setLoadError(
+              String(error instanceof Error ? error.message : error),
+            );
           throw error;
         }
       },
@@ -404,7 +535,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const navigate = () => setSelectedId(selectTask(tasks, null, window.location.search));
+    const navigate = () =>
+      setSelectedId(selectTask(tasks, null, window.location.search));
     window.addEventListener("popstate", navigate);
     return () => window.removeEventListener("popstate", navigate);
   }, [tasks]);
@@ -452,9 +584,17 @@ export default function App() {
     };
   }, [selectedId]);
 
-  const activeMeta = (meta?.taskId === selectedId ? meta : null) ?? tasks.find((task) => task.taskId === selectedId) ?? null;
-  const { rows: visibleItems, details: executionDetails } = useMemo(() => presentTimeline(items), [items]);
-  const timelineGroup = timelineKey ? callerGroups.find((group) => group.key === timelineKey) ?? null : null;
+  const activeMeta =
+    (meta?.taskId === selectedId ? meta : null) ??
+    tasks.find((task) => task.taskId === selectedId) ??
+    null;
+  const { rows: visibleItems, details: executionDetails } = useMemo(
+    () => presentTimeline(items),
+    [items],
+  );
+  const timelineGroup = timelineKey
+    ? (callerGroups.find((group) => group.key === timelineKey) ?? null)
+    : null;
   const [locateTick, setLocateTick] = useState(0);
   const locateOperation = useCallback((taskId: string, operationId: string) => {
     pendingScroll.current = { taskId, operationId };
@@ -466,7 +606,9 @@ export default function App() {
   useEffect(() => {
     const pending = pendingScroll.current;
     if (!pending || pending.taskId !== selectedId) return;
-    const anchor = document.querySelector(`[data-opid="${CSS.escape(pending.operationId)}"]`);
+    const anchor = document.querySelector(
+      `[data-opid="${CSS.escape(pending.operationId)}"]`,
+    );
     if (anchor) {
       pendingScroll.current = null;
       anchor.scrollIntoView({ block: "center", behavior: "smooth" });
@@ -476,7 +618,10 @@ export default function App() {
   const expanded = expansion[selectedId ?? ""] ?? {};
   const setExpanded: SetExpanded = (id, open) => {
     const taskId = selectedId ?? "";
-    setExpansion((current) => ({ ...current, [taskId]: { ...current[taskId], [id]: open } }));
+    setExpansion((current) => ({
+      ...current,
+      [taskId]: { ...current[taskId], [id]: open },
+    }));
   };
 
   return (
@@ -486,15 +631,23 @@ export default function App() {
         <div className="px-4 pt-5 pb-3">
           <h1 className="font-semibold text-sm">任务</h1>
           <p className="mt-1 text-xs text-muted-foreground">
-            {view === "caller" ? `${callerGroups.length} 个调度会话 · ${tasks.length} 个会话` : `${tasks.length} 个会话`}
+            {view === "caller"
+              ? `${callerGroups.length} 个调度会话 · ${tasks.length} 个会话`
+              : `${tasks.length} 个会话`}
           </p>
-          <div className="mt-2 grid grid-cols-2 gap-0.5 rounded-lg bg-muted/70 p-0.5" role="group" aria-label="任务列表视图">
+          <div
+            className="mt-2 grid grid-cols-2 gap-0.5 rounded-lg bg-muted/70 p-0.5"
+            role="group"
+            aria-label="任务列表视图"
+          >
             {SIDEBAR_VIEWS.map(([id, label]) => (
               <button
                 aria-pressed={view === id}
                 className={cn(
                   "rounded-md px-2 py-1 text-xs transition-colors",
-                  view === id ? "bg-background font-medium shadow-sm" : "text-muted-foreground hover:text-foreground",
+                  view === id
+                    ? "bg-background font-medium shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
                 )}
                 key={id}
                 onClick={() => setView(id)}
@@ -520,8 +673,17 @@ export default function App() {
                   group={group}
                   key={group.key}
                   onSelect={setSelectedId}
-                  onToggle={() => setExpandedGroups((current) => ({ ...current, [group.key]: !isGroupOpen(group) }))}
-                  onOpenTimeline={() => setTimelineKey((current) => (current === group.key ? null : group.key))}
+                  onToggle={() =>
+                    setExpandedGroups((current) => ({
+                      ...current,
+                      [group.key]: !isGroupOpen(group),
+                    }))
+                  }
+                  onOpenTimeline={() =>
+                    setTimelineKey((current) =>
+                      current === group.key ? null : group.key,
+                    )
+                  }
                   open={isGroupOpen(group)}
                   selectedId={selectedId}
                   timelineOpen={timelineKey === group.key}
@@ -553,7 +715,10 @@ export default function App() {
 
         {timelineGroup ? (
           <ScheduleTimelinePanel
-            groupLabel={timelineGroup.name ?? (timelineGroup.sessionId ? "未命名调度会话" : "未记录调度会话")}
+            groupLabel={
+              timelineGroup.name ??
+              (timelineGroup.sessionId ? "未命名调度会话" : "未记录调度会话")
+            }
             onClose={() => setTimelineKey(null)}
             onLocateOperation={locateOperation}
             sessionId={timelineGroup.sessionId}
@@ -565,24 +730,58 @@ export default function App() {
           <header className="max-h-[45vh] shrink-0 overflow-y-auto border-b px-4 py-4 sm:px-6">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
               <StatusDot meta={activeMeta} />
-              <h2 className="min-w-0 truncate font-semibold text-base">{activeMeta.title}</h2>
-              <Badge className="rounded-full font-normal text-xs" variant="secondary">
+              <h2 className="min-w-0 truncate font-semibold text-base">
+                {activeMeta.title}
+              </h2>
+              <Badge
+                className="rounded-full font-normal text-xs"
+                variant="secondary"
+              >
                 {activeMeta.providerLabel}
               </Badge>
               <ScheduledModel meta={activeMeta} />
-              <span className="text-muted-foreground text-xs">{activeMeta.status}</span>
-              <span className="text-muted-foreground text-xs">{callerStatus(activeMeta.caller?.lifecycle)}</span>
-              {activeMeta.artifact && <a className="text-xs underline" href={`/api/tasks/${encodeURIComponent(activeMeta.taskId)}/artifact?operation_id=${encodeURIComponent(activeMeta.artifact.operationId)}&token=${encodeURIComponent(new URLSearchParams(window.location.search).get("token") ?? "")}`}>下载最终产物</a>}
+              <span className="text-muted-foreground text-xs">
+                {activeMeta.status}
+              </span>
+              <span className="text-muted-foreground text-xs">
+                {callerStatus(activeMeta.caller?.lifecycle)}
+              </span>
+              {activeMeta.artifact && (
+                <a
+                  className="text-xs underline"
+                  href={`/api/tasks/${encodeURIComponent(activeMeta.taskId)}/artifact?operation_id=${encodeURIComponent(activeMeta.artifact.operationId)}&token=${encodeURIComponent(new URLSearchParams(window.location.search).get("token") ?? "")}`}
+                >
+                  下载最终产物
+                </a>
+              )}
               {activeMeta.delivery ? (
-                <Badge className={cn("rounded-full font-normal text-xs", activeMeta.delivery.status === "incomplete" && "text-amber-600 dark:text-amber-400")} variant="outline">
-                  {activeMeta.delivery.status === "verified" ? "文件/提交检查通过" : activeMeta.delivery.status === "incomplete" ? "交付项未齐" : "交付未核验"}
+                <Badge
+                  className={cn(
+                    "rounded-full font-normal text-xs",
+                    activeMeta.delivery.status === "incomplete" &&
+                      "text-amber-600 dark:text-amber-400",
+                  )}
+                  variant="outline"
+                >
+                  {activeMeta.delivery.status === "verified"
+                    ? "文件/提交检查通过"
+                    : activeMeta.delivery.status === "incomplete"
+                      ? "交付项未齐"
+                      : "交付未核验"}
                 </Badge>
               ) : null}
               {activeMeta.recovery ? (
-                <span className="text-muted-foreground text-xs">同会话续做 {activeMeta.recovery.attempt}/{activeMeta.recovery.limit}{activeMeta.recovery.available ? " · 可继续" : ""}</span>
+                <span className="text-muted-foreground text-xs">
+                  同会话续做 {activeMeta.recovery.attempt}/
+                  {activeMeta.recovery.limit}
+                  {activeMeta.recovery.available ? " · 可继续" : ""}
+                </span>
               ) : null}
               {activeMeta.provisional ? (
-                <Badge className="rounded-full font-normal text-xs" variant="outline">
+                <Badge
+                  className="rounded-full font-normal text-xs"
+                  variant="outline"
+                >
                   任务记录尚未建立（据操作记录观察）
                 </Badge>
               ) : null}
@@ -591,16 +790,27 @@ export default function App() {
               </div>
             </div>
             {activeMeta.error ? (
-              <p className="mt-1.5 break-words text-destructive text-xs">{activeMeta.error}</p>
+              <p className="mt-1.5 break-words text-destructive text-xs">
+                {activeMeta.error}
+              </p>
             ) : null}
             {activeMeta.running && activeMeta.activity ? (
-              <p className="mt-2 text-muted-foreground text-xs" aria-live="polite">
-                <span className={conn === "live" ? "activity-shimmer" : undefined}>
-                {activeMeta.activity.activeToolCount > 0
-                  ? `正在执行 ${activeMeta.activity.activeTools.join("、") || "工具"}（${activeMeta.activity.activeToolCount} 项）`
-                  : activeMeta.activity.lastTool ? `${activeMeta.activity.lastTool} 已结束，等待后续事件` : "等待输出"}
+              <p
+                className="mt-2 text-muted-foreground text-xs"
+                aria-live="polite"
+              >
+                <span
+                  className={conn === "live" ? "activity-shimmer" : undefined}
+                >
+                  {activeMeta.activity.activeToolCount > 0
+                    ? `正在执行 ${activeMeta.activity.activeTools.join("、") || "工具"}（${activeMeta.activity.activeToolCount} 项）`
+                    : activeMeta.activity.lastTool
+                      ? `${activeMeta.activity.lastTool} 已结束，等待后续事件`
+                      : "等待输出"}
                 </span>
-                {activeMeta.activity.lastProgressMs ? ` · 最近事件 ${relativeTime(activeMeta.activity.lastProgressMs)}` : ""}
+                {activeMeta.activity.lastProgressMs
+                  ? ` · 最近事件 ${relativeTime(activeMeta.activity.lastProgressMs)}`
+                  : ""}
               </p>
             ) : null}
             <Collapsible key={activeMeta.taskId}>
@@ -614,43 +824,92 @@ export default function App() {
                 <ExecutionDetails meta={activeMeta} />
                 {activeMeta.delivery ? (
                   <div className="space-y-1 border-b pb-2">
-                    <p className="text-muted-foreground text-xs">此状态仅确认声明的文件非空及提交条件。测试通过需引用执行端报告；独立复核仅在实际执行后标记。</p>
+                    <p className="text-muted-foreground text-xs">
+                      此状态仅确认声明的文件非空及提交条件。测试通过需引用执行端报告；独立复核仅在实际执行后标记。
+                    </p>
                     {activeMeta.delivery.checks.map((check, index) => (
-                      <p className={cn("break-all text-xs", !check.ok && "text-amber-600 dark:text-amber-400")} key={index}>
+                      <p
+                        className={cn(
+                          "break-all text-xs",
+                          !check.ok && "text-amber-600 dark:text-amber-400",
+                        )}
+                        key={index}
+                      >
                         {check.ok ? "✓" : "待完成"} {check.label}
                       </p>
                     ))}
-                    <DetailRow name="交付提交" value={activeMeta.delivery.commitSha} />
+                    <DetailRow
+                      name="交付提交"
+                      value={activeMeta.delivery.commitSha}
+                    />
                   </div>
                 ) : null}
                 <DetailRow name="工作目录" value={activeMeta.target} />
                 <DetailRow name="Session" value={activeMeta.resume.sessionId} />
-                <DetailRow mono={false} name="ID 来源" value={activeMeta.resume.sessionSource} />
-                <DetailRow mono={false} name="能力" value={activeMeta.capability} />
-                <DetailRow mono={false} name="事件粒度" value={activeMeta.granularity} />
-                <DetailRow mono={false} name="数据根" value={activeMeta.resume.dataRootNote} />
+                <DetailRow
+                  mono={false}
+                  name="ID 来源"
+                  value={activeMeta.resume.sessionSource}
+                />
+                <DetailRow
+                  mono={false}
+                  name="能力"
+                  value={activeMeta.capability}
+                />
+                <DetailRow
+                  mono={false}
+                  name="事件粒度"
+                  value={activeMeta.granularity}
+                />
+                <DetailRow
+                  mono={false}
+                  name="数据根"
+                  value={activeMeta.resume.dataRootNote}
+                />
                 {activeMeta.permissionMode ? (
-                  <DetailRow mono={false} name="权限模式" value={activeMeta.permissionMode} />
+                  <DetailRow
+                    mono={false}
+                    name="权限模式"
+                    value={activeMeta.permissionMode}
+                  />
                 ) : null}
                 {activeMeta.resume.command ? (
                   <div className="flex flex-col gap-1.5 pt-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-muted-foreground text-xs">原生续聊命令</span>
-                      <CopyButton label="复制命令" text={activeMeta.resume.command} />
-                      {activeMeta.resume.resumable && !activeMeta.provisional ? (
+                      <span className="text-muted-foreground text-xs">
+                        原生续聊命令
+                      </span>
+                      <CopyButton
+                        label="复制命令"
+                        text={activeMeta.resume.command}
+                      />
+                      {activeMeta.resume.resumable &&
+                      !activeMeta.provisional ? (
                         <>
-                          <OpenTerminalButton taskId={activeMeta.taskId} terminal="orca" running={activeMeta.running} />
-                          <OpenTerminalButton taskId={activeMeta.taskId} terminal="iterm" running={activeMeta.running} />
+                          <OpenTerminalButton
+                            taskId={activeMeta.taskId}
+                            terminal="orca"
+                            running={activeMeta.running}
+                          />
+                          <OpenTerminalButton
+                            taskId={activeMeta.taskId}
+                            terminal="iterm"
+                            running={activeMeta.running}
+                          />
                         </>
                       ) : null}
                     </div>
                     <code className="observer-code break-all rounded bg-background px-2 py-1.5 font-mono text-xs">
                       {activeMeta.resume.command}
                     </code>
-                    <p className="text-muted-foreground text-xs">{activeMeta.resume.note}</p>
+                    <p className="text-muted-foreground text-xs">
+                      {activeMeta.resume.note}
+                    </p>
                   </div>
                 ) : (
-                  <p className="pt-1 text-muted-foreground text-xs">{activeMeta.resume.note}</p>
+                  <p className="pt-1 text-muted-foreground text-xs">
+                    {activeMeta.resume.note}
+                  </p>
                 )}
               </CollapsibleContent>
             </Collapsible>
@@ -667,17 +926,37 @@ export default function App() {
             较早的时间线条目已超出保留窗口，仅显示最近部分
           </div>
         ) : null}
-        {!selectedId && tasks.length > 0 && new URLSearchParams(window.location.search).has("task") && (
-          <p role="status" className="border-b px-4 py-3 text-sm">链接指定的任务不在观察列表中，请从列表选择任务。</p>
-        )}
+        {!selectedId &&
+          tasks.length > 0 &&
+          new URLSearchParams(window.location.search).has("task") && (
+            <p role="status" className="border-b px-4 py-3 text-sm">
+              链接指定的任务不在观察列表中，请从列表选择任务。
+            </p>
+          )}
 
-        <Conversation className="min-h-0 flex-1" key={selectedId} initial="instant">
+        <Conversation
+          className="min-h-0 flex-1"
+          key={selectedId}
+          initial="instant"
+        >
           <ConversationContent className="mx-auto w-full max-w-3xl gap-1 px-4 pt-5 pb-12 sm:px-8">
-            {visibleItems.map((item) => (
-              item.kind === "tool-group"
-                ? <CompletedToolGroup expanded={expanded} group={item} key={item.id} setExpanded={setExpanded} />
-                : <TimelineRow expanded={expanded} item={item} key={item.id} setExpanded={setExpanded} />
-            ))}
+            {visibleItems.map((item) =>
+              item.kind === "tool-group" ? (
+                <CompletedToolGroup
+                  expanded={expanded}
+                  group={item}
+                  key={item.id}
+                  setExpanded={setExpanded}
+                />
+              ) : (
+                <TimelineRow
+                  expanded={expanded}
+                  item={item}
+                  key={item.id}
+                  setExpanded={setExpanded}
+                />
+              ),
+            )}
             {executionDetails.length ? (
               <Collapsible className="mt-6 border-t pt-3">
                 <CollapsibleTrigger className="group flex items-center gap-1.5 py-1 text-xs text-muted-foreground hover:text-foreground">
@@ -685,7 +964,14 @@ export default function App() {
                   执行记录 · {executionDetails.length} 条
                 </CollapsibleTrigger>
                 <CollapsibleContent className="mt-3 space-y-3">
-                  {executionDetails.map((item) => <TimelineRow expanded={expanded} item={item} key={item.id} setExpanded={setExpanded} />)}
+                  {executionDetails.map((item) => (
+                    <TimelineRow
+                      expanded={expanded}
+                      item={item}
+                      key={item.id}
+                      setExpanded={setExpanded}
+                    />
+                  ))}
                 </CollapsibleContent>
               </Collapsible>
             ) : null}

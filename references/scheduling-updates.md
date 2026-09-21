@@ -10,11 +10,17 @@ The nodes file maps every registered task ID to a role and a source:
 {
   "replica-a": {
     "role": "implementation",
-    "source": { "kind": "user_request", "reference": "Try different implementations in parallel and show the results." }
+    "source": {
+      "kind": "user_request",
+      "reference": "Try different implementations in parallel and show the results."
+    }
   },
   "replica-b": {
     "role": "implementation",
-    "source": { "kind": "user_request", "reference": "Try different implementations in parallel and show the results." }
+    "source": {
+      "kind": "user_request",
+      "reference": "Try different implementations in parallel and show the results."
+    }
   }
 }
 ```

@@ -321,8 +321,7 @@ export function resolveExecutionDefaults(
     const requestedEffort = effort ?? string(config.default_effort);
     const resolvedEffort = requestedEffort?.trim() || null;
     parseMcodeModel(resolvedModel);
-    if (requestedEffort != null)
-      validateEffort(provider, resolvedEffort ?? "");
+    if (requestedEffort != null) validateEffort(provider, resolvedEffort ?? "");
     return [resolvedModel, resolvedEffort];
   }
   let settings: Data = {};

@@ -17,15 +17,15 @@
 
 ## 文件对应
 
-| 本仓库路径 | 上游路径 |
-| --- | --- |
-| `ai-elements/message.tsx` | `packages/elements/src/message.tsx` |
-| `ai-elements/tool.tsx` | `packages/elements/src/tool.tsx` |
-| `ai-elements/conversation.tsx` | `packages/elements/src/conversation.tsx` |
-| `ai-elements/code-block.tsx` | `packages/elements/src/code-block.tsx` |
-| `ai-elements/terminal.tsx` | `packages/elements/src/terminal.tsx` |
+| 本仓库路径                                                                                                       | 上游路径                                 |
+| ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `ai-elements/message.tsx`                                                                                        | `packages/elements/src/message.tsx`      |
+| `ai-elements/tool.tsx`                                                                                           | `packages/elements/src/tool.tsx`         |
+| `ai-elements/conversation.tsx`                                                                                   | `packages/elements/src/conversation.tsx` |
+| `ai-elements/code-block.tsx`                                                                                     | `packages/elements/src/code-block.tsx`   |
+| `ai-elements/terminal.tsx`                                                                                       | `packages/elements/src/terminal.tsx`     |
 | `ui/button.tsx` 等 shadcn 基础组件（button / button-group / tooltip / badge / collapsible / separator / select） | `packages/shadcn-ui/components/ui/*.tsx` |
-| `../lib/utils.ts` | `packages/shadcn-ui/lib/utils.ts` |
+| `../lib/utils.ts`                                                                                                | `packages/shadcn-ui/lib/utils.ts`        |
 
 ## 本地改动（相对上游）
 

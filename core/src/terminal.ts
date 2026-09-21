@@ -189,8 +189,7 @@ export function openTaskTerminal(
         repository,
         "--json",
       ]);
-      repositoryRegistered =
-        registration.status === 0 && !registration.error;
+      repositoryRegistered = registration.status === 0 && !registration.error;
       result = run(orca, args);
     }
     if (result.status !== 0 || result.error)
@@ -218,12 +217,7 @@ export function openTaskTerminal(
     // new window selected inside iTerm, then activate the application so the
     // profile is not rendered with iTerm's background-window dimming.
     checkedRun(run, iterm, ["window", "focus", windowId], terminal);
-    checkedRun(
-      run,
-      "/usr/bin/open",
-      ["-b", "com.googlecode.iterm2"],
-      terminal,
-    );
+    checkedRun(run, "/usr/bin/open", ["-b", "com.googlecode.iterm2"], terminal);
     checkedRun(
       run,
       iterm,

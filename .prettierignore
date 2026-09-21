@@ -1,0 +1,16 @@
+# Build outputs and dependencies
+dist/
+node_modules/
+coverage/
+pnpm-lock.yaml
+
+# Generated diagram sources and exports: bytes are digest-tracked, never reformat
+assets/diagrams/
+
+# Golden provider reference fixtures: byte-exact captured output
+core/tests/fixtures/
+
+# Vendored third-party components: keep diffs against upstream minimal
+observer/src/web/components/ai-elements/
+observer/src/web/components/ui/
+observer/third-party-licenses/

@@ -24,7 +24,10 @@ import type {
   TaskMeta,
 } from "../shared/types.js";
 import type { OperationRecord } from "./scan.js";
-import type { CallerLifecycleReader, SessionTimeline } from "./caller-lifecycle.js";
+import type {
+  CallerLifecycleReader,
+  SessionTimeline,
+} from "./caller-lifecycle.js";
 import type { CallerSessionReader } from "./caller-session.js";
 
 /** Journal-observed per-operation timestamps (control-plane evidence). */
@@ -51,12 +54,21 @@ function bindDispatchTurn(
   createdAtMs: number | null,
   turns: ScheduleTurn[],
 ): Pick<ScheduleOperation, "dispatchTurnId" | "dispatchBinding"> {
-  if (recordedTurnId) return { dispatchTurnId: recordedTurnId, dispatchBinding: "recorded" };
+  if (recordedTurnId)
+    return { dispatchTurnId: recordedTurnId, dispatchBinding: "recorded" };
   if (createdAtMs !== null) {
     const candidate = turns
-      .filter((turn) => turn.startedAtMs <= createdAtMs && (turn.completedAtMs === null || createdAtMs <= turn.completedAtMs))
+      .filter(
+        (turn) =>
+          turn.startedAtMs <= createdAtMs &&
+          (turn.completedAtMs === null || createdAtMs <= turn.completedAtMs),
+      )
       .at(-1);
-    if (candidate) return { dispatchTurnId: candidate.turnId, dispatchBinding: "inferred-by-create-time" };
+    if (candidate)
+      return {
+        dispatchTurnId: candidate.turnId,
+        dispatchBinding: "inferred-by-create-time",
+      };
   }
   return { dispatchTurnId: null, dispatchBinding: "none" };
 }
@@ -76,7 +88,11 @@ function projectOperation(
     status: operation.status,
     trigger: operation.invocation?.trigger ?? "unspecified",
     callerSessionId: operation.invocation?.caller.session_id ?? null,
-    ...bindDispatchTurn(operation.invocation?.caller.turn_id ?? null, createdAtMs, session.turns),
+    ...bindDispatchTurn(
+      operation.invocation?.caller.turn_id ?? null,
+      createdAtMs,
+      session.turns,
+    ),
     createdAtMs,
     executorStartedAtMs: times?.startedAtMs ?? null,
     completedAtMs,
@@ -88,12 +104,19 @@ function projectOperation(
     deliveryStatus: operation.delivery?.status ?? null,
     attempt: operation.recovery?.attempt ?? null,
     errorCode: operation.errorCode,
-    clockAnomaly: createdAtMs !== null && completedAtMs !== null && completedAtMs < createdAtMs,
+    clockAnomaly:
+      createdAtMs !== null &&
+      completedAtMs !== null &&
+      completedAtMs < createdAtMs,
     running: !TERMINAL.has(operation.status ?? ""),
   };
 }
 
-const EMPTY_SESSION: SessionTimeline = { turns: [], receipts: new Map(), note: "该分组没有记录调度会话，无 Turn 证据" };
+const EMPTY_SESSION: SessionTimeline = {
+  turns: [],
+  receipts: new Map(),
+  note: "该分组没有记录调度会话，无 Turn 证据",
+};
 
 export function buildSchedule(args: {
   generation: string;
@@ -112,27 +135,43 @@ export function buildSchedule(args: {
   for (const input of args.tasks) {
     const first = input.operations[0]?.invocation?.caller;
     const sessionId = first?.session_id ?? null;
-    const key = sessionId ? `${first?.kind ?? "unknown"}\0${sessionId}` : "\0unattributed";
+    const key = sessionId
+      ? `${first?.kind ?? "unknown"}\0${sessionId}`
+      : "\0unattributed";
     let group = groups.get(key);
     if (!group) {
       group = { sessionId, identity: undefined, inputs: [] };
       groups.set(key, group);
     }
     // The lifecycle read needs a data_root; take it from any attributed task.
-    if (sessionId && !group.identity?.data_root && first) group.identity = first;
+    if (sessionId && !group.identity?.data_root && first)
+      group.identity = first;
     group.inputs.push(input);
   }
 
   const built: ScheduleGroup[] = [];
   for (const group of groups.values()) {
-    const session = group.sessionId ? args.lifecycle.sessionTimeline(group.identity) : EMPTY_SESSION;
-    const namemeta = group.sessionId ? args.sessions.read(group.identity) : { name: null, projectName: null };
+    const session = group.sessionId
+      ? args.lifecycle.sessionTimeline(group.identity)
+      : EMPTY_SESSION;
+    const namemeta = group.sessionId
+      ? args.sessions.read(group.identity)
+      : { name: null, projectName: null };
     const tasks: ScheduleTask[] = group.inputs.map((input) => {
       const operations = input.operations.map((operation) =>
-        projectOperation(operation, input.opTimes.get(operation.operationId), session));
-      const dispatches = operations.map((operation) => operation.createdAtMs).filter((value): value is number => value !== null);
+        projectOperation(
+          operation,
+          input.opTimes.get(operation.operationId),
+          session,
+        ),
+      );
+      const dispatches = operations
+        .map((operation) => operation.createdAtMs)
+        .filter((value): value is number => value !== null);
       // Latest recorded plan wins; contracts may be refined across rounds.
-      const parallel = [...input.operations].reverse().find((operation) => operation.parallel)?.parallel ?? null;
+      const parallel =
+        [...input.operations].reverse().find((operation) => operation.parallel)
+          ?.parallel ?? null;
       return {
         taskId: input.meta.taskId,
         title: input.meta.title,
@@ -161,10 +200,21 @@ export function buildSchedule(args: {
   }
   // Deterministic group order: earliest first dispatch, unattributed last.
   built.sort((a, b) => {
-    if ((a.sessionId === null) !== (b.sessionId === null)) return a.sessionId === null ? 1 : -1;
-    const av = Math.min(...a.tasks.map((task) => task.firstDispatchMs ?? Number.POSITIVE_INFINITY));
-    const bv = Math.min(...b.tasks.map((task) => task.firstDispatchMs ?? Number.POSITIVE_INFINITY));
-    return av !== bv ? av - bv : String(a.sessionId).localeCompare(String(b.sessionId));
+    if ((a.sessionId === null) !== (b.sessionId === null))
+      return a.sessionId === null ? 1 : -1;
+    const av = Math.min(
+      ...a.tasks.map(
+        (task) => task.firstDispatchMs ?? Number.POSITIVE_INFINITY,
+      ),
+    );
+    const bv = Math.min(
+      ...b.tasks.map(
+        (task) => task.firstDispatchMs ?? Number.POSITIVE_INFINITY,
+      ),
+    );
+    return av !== bv
+      ? av - bv
+      : String(a.sessionId).localeCompare(String(b.sessionId));
   });
   return { generation: args.generation, now: args.now, groups: built };
 }

@@ -6,18 +6,18 @@ Read this reference when supervising multiple tasks, diagnosing stalls, errors, 
 
 Every command prints one JSON object. `schemas/result-v1.schema.json` is the maintained shape.
 
-| Status | Meaning | Caller action |
-|---|---|---|
-| `ACTION_REQUIRED` | A Codex App host-tool action is durably pending | Invoke the exact tool and arguments, then `accept` its raw result |
-| `RUNNING` | The provider operation is preparing, progressing, waiting, stalled, or recovering | Continue bounded `checkpoint` supervision; use `check` for full-state diagnosis or the next App read |
-| `SUCCEEDED` | Endpoint, execution contract, and final artifact passed the available checks | Consume the artifact; assess `delivery` separately |
-| `ERROR` | Deterministic validation or provider execution failed | Evaluate emitted safe recovery, the caller-owned replacement policy, or Claude `RESULT_INVALID` retry in `SKILL.md` |
-| `NEEDS_DECISION` | Recovery changes identity, authority, source, or delivery semantics | Resolve from existing authorization and Skill policy; ask only for missing authority |
-| `CHECKPOINT_ACTIONABLE` | One or more selected tasks have durable actionable state | Process every envelope in `actionable` |
-| `CHECKPOINT_QUIET` | No actionable state change occurred in the bounded interval | Exit `124`; resume the foreground checkpoint loop later |
-| `REQUEST_RECORD` | One registered inbox request, after `request-add`, `request-get`, or `request-cancel` | Report it as pending, dispatched, or cancelled; registration alone dispatched nothing |
-| `REQUEST_LIST` | Compact discovery of registered requests with per-status counts | Read the full instruction of a specific one with `request-get` |
-| `REQUEST_PENDING` | A consumed request could not be dispatched because its target is busy | Keep it pending and retry after the current operation is terminal |
+| Status                  | Meaning                                                                               | Caller action                                                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `ACTION_REQUIRED`       | A Codex App host-tool action is durably pending                                       | Invoke the exact tool and arguments, then `accept` its raw result                                                   |
+| `RUNNING`               | The provider operation is preparing, progressing, waiting, stalled, or recovering     | Continue bounded `checkpoint` supervision; use `check` for full-state diagnosis or the next App read                |
+| `SUCCEEDED`             | Endpoint, execution contract, and final artifact passed the available checks          | Consume the artifact; assess `delivery` separately                                                                  |
+| `ERROR`                 | Deterministic validation or provider execution failed                                 | Evaluate emitted safe recovery, the caller-owned replacement policy, or Claude `RESULT_INVALID` retry in `SKILL.md` |
+| `NEEDS_DECISION`        | Recovery changes identity, authority, source, or delivery semantics                   | Resolve from existing authorization and Skill policy; ask only for missing authority                                |
+| `CHECKPOINT_ACTIONABLE` | One or more selected tasks have durable actionable state                              | Process every envelope in `actionable`                                                                              |
+| `CHECKPOINT_QUIET`      | No actionable state change occurred in the bounded interval                           | Exit `124`; resume the foreground checkpoint loop later                                                             |
+| `REQUEST_RECORD`        | One registered inbox request, after `request-add`, `request-get`, or `request-cancel` | Report it as pending, dispatched, or cancelled; registration alone dispatched nothing                               |
+| `REQUEST_LIST`          | Compact discovery of registered requests with per-status counts                       | Read the full instruction of a specific one with `request-get`                                                      |
+| `REQUEST_PENDING`       | A consumed request could not be dispatched because its target is busy                 | Keep it pending and retry after the current operation is terminal                                                   |
 
 An `ACTION_REQUIRED` record is idempotent. Re-running the same `start`, `turn`, or checkpoint returns the already-pending action instead of creating a second provider operation.
 
@@ -36,12 +36,12 @@ Dispatch is serialized by a per-task filesystem lock. The journal is written bef
 
 `--message-file` 仍是实际交给执行端的任务正文。`user_request` 是另存的用户原话；二者不相互推断或替代。调度方自行补充的后续轮次使用 `trigger: "caller_followup"` 和 `reason`，不伪装成用户新消息；`recover` 强制记为 `recovery`。没有来源信息时使用 `unspecified`。输入文件由调用者在结果收取后清理；durable operation 保留请求用于只读回放。
 
-| 输入字段 | 约束与来源 |
-|---|---|
-| `user_request` | 可省略或为 null；非空字符串，最多 1,000,000 字符，逐字保存 |
-| `reason` | 可省略或为 null；补充或恢复的原因，最多 16,000 字符 |
-| `trigger` | `user_request` / `caller_followup` / `recovery` / `unspecified` |
-| `caller` | 可选对象；显式填写时必须含 `kind`，可含 `session_id`、`turn_id`、`data_root` |
+| 输入字段       | 约束与来源                                                                   |
+| -------------- | ---------------------------------------------------------------------------- |
+| `user_request` | 可省略或为 null；非空字符串，最多 1,000,000 字符，逐字保存                   |
+| `reason`       | 可省略或为 null；补充或恢复的原因，最多 16,000 字符                          |
+| `trigger`      | `user_request` / `caller_followup` / `recovery` / `unspecified`              |
+| `caller`       | 可选对象；显式填写时必须含 `kind`，可含 `session_id`、`turn_id`、`data_root` |
 
 省略 `caller` 时，脚本从宿主的 `CODEX_THREAD_ID`（兼容 `CODEX_SESSION_ID`）、可选 `CODEX_TURN_ID` 和 `CODEX_HOME` 捕获来源；数据根默认 `~/.codex`。`identity_source: "runtime-env"` 表示宿主环境来源，不是密码学身份验证。显式 caller 标记为 `caller-declared`，不会借用当前宿主的 Session、Turn 或数据根；没有 Session 则标为 `unavailable`。不要从 prompt 或最近活跃会话猜测身份。
 
@@ -140,7 +140,7 @@ node core/dist/cli.js plan-report --run-id feature-x --report-file /tmp/run/repo
 
 `plan-validate` checks an [implementation-plan-v1](../schemas/implementation-plan-v1.schema.json) document and returns `PLAN_INVALID` with the offending detail. It is a pre-check and creates nothing.
 
-**Completion is verified against endpoint records.** `plan-create` requires a successful planner task whose verified delivery files include the plan file, so a run cannot start from an arbitrary JSON document. `plan-deliver --state delivered` requires the module's task to exist, its current operation to have succeeded, and its declared delivery to be verified with a commit; that verified commit is adopted, and a disagreeing `--commit-sha` is rejected. Because the task's *current* operation is used, an older success never covers a failed retry. `plan-merge-request` and `plan-report` require the integrator's current operation to have succeeded. Failures return `ENDPOINT_UNVERIFIED` with the task, operation, and observed status.
+**Completion is verified against endpoint records.** `plan-create` requires a successful planner task whose verified delivery files include the plan file, so a run cannot start from an arbitrary JSON document. `plan-deliver --state delivered` requires the module's task to exist, its current operation to have succeeded, and its declared delivery to be verified with a commit; that verified commit is adopted, and a disagreeing `--commit-sha` is rejected. Because the task's _current_ operation is used, an older success never covers a failed retry. `plan-merge-request` and `plan-report` require the integrator's current operation to have succeeded. Failures return `ENDPOINT_UNVERIFIED` with the task, operation, and observed status.
 
 `plan-status` returns every module's state, the complete `ready` set, remaining blockers, integration state with its claimed workspaces, the stored report, live claims, and the journal. The ready set has no concurrency cap — it lists every pending module whose dependencies are all delivered, and workspace leases remain the only limit.
 
@@ -158,7 +158,7 @@ The journal records shareable decisions, actions, and results — planner identi
 
 A workspace claim is a durable reservation of one repository checkout branch by one task, stored in the state directory's `workspace-claims/`. Per-operation leases and the unfenced-operation scan already exclude a second writer, but both are bound to a single `op.target`. A claim expresses the same exclusion independently of any one operation, so one task can own the delivery worktree of several repositories at once — which is what lets the plan-to-implement pipeline run a single integrator across repositories without giving it unleased write access.
 
-Claims are created by `plan-integrate` and released by `plan-report` or `plan-integration-reset`. Any writable `start`, `turn`, `handoff`, or recovery whose worktree identity, or whose repository and checkout branch, matches a claim held by a *different* task fails with a retryable `WORKSPACE_CLAIM_CONFLICT` naming the owning task and run. The claim owner is never blocked by its own claim, and read-only operations are unaffected. No other start/turn behavior changes: a run with no claims behaves exactly as before.
+Claims are created by `plan-integrate` and released by `plan-report` or `plan-integration-reset`. Any writable `start`, `turn`, `handoff`, or recovery whose worktree identity, or whose repository and checkout branch, matches a claim held by a _different_ task fails with a retryable `WORKSPACE_CLAIM_CONFLICT` naming the owning task and run. The claim owner is never blocked by its own claim, and read-only operations are unaffected. No other start/turn behavior changes: a run with no claims behaves exactly as before.
 
 Claim acquisition, checking, and release are atomic against both another plan run and an ordinary writer, because they use the same per-resource locks in the same order rather than a separate lock domain. Acquiring a claim holds `workspace-prepare`, then the target's `workspace-write` lease, then the repository branch's `branch-write` lease, and checks for an existing claim inside that innermost section before preparing the worktree and writing the record. A writable operation checks the worktree dimension only after it owns that worktree's `workspace-write` lease and the branch dimension only after it owns `branch-write`, so no writer can observe an empty result and then be overtaken. Release re-reads each claim under its `branch-write` lock and removes it only while it still belongs to the releasing run, so a replacement owner's claim on the same deterministic path survives a late cleanup. Repositories are claimed in a deterministic identity order and a failure releases the run's claims, so a multi-repository acquisition is all-or-cleanup. Contention surfaces as a retryable `STATE_BUSY` instead of a silent overwrite.
 
@@ -181,11 +181,11 @@ Repeat `--task-id` to supervise a caller-selected set in one checkpoint; omit it
 
 Every return that used `--starting-task-id` carries `starting[]`, one entry per declared id, so a starting task is never silently pending:
 
-| `phase` | Meaning |
-|---|---|
-| `not_observed` | Neither an operation nor a task record exists. Worktree preparation runs before the operation record is created, so this window is real. |
-| `operation_recorded` | The operation record exists; the provider endpoint identity is not durable yet. |
-| `task_established` | A task record exists, so the endpoint identity was persisted (MCode at its first session event, Claude and Codex CLI at publication). |
+| `phase`              | Meaning                                                                                                                                  |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `not_observed`       | Neither an operation nor a task record exists. Worktree preparation runs before the operation record is created, so this window is real. |
+| `operation_recorded` | The operation record exists; the provider endpoint identity is not durable yet.                                                          |
+| `task_established`   | A task record exists, so the endpoint identity was persisted (MCode at its first session event, Claude and Codex CLI at publication).    |
 
 `not_observed` reports only what the state directory shows. It is not evidence that the dispatch process died, never started, or failed; a `task_id` cannot carry that information. The dispatch command's own exit status and error envelope remain the authority on dispatch failure, and checkpoint never fabricates one.
 
@@ -351,32 +351,32 @@ Missing, inconsistent, premature, or target-branch parallel metadata returns `PA
 
 ## Error taxonomy
 
-| Code | Meaning | Default disposition |
-|---|---|---|
-| `CONFIG_INVALID` | Invalid task input or unsupported configured value | Correct input |
-| `TASK_EXISTS` / `TASK_UNKNOWN` | Logical identity conflict or missing task | Correct identity; do not guess |
-| `EXECUTION_CONTRACT_REQUIRED` | A legacy handle lacks model, effort, permission, or source truth | Explicitly upgrade the same handle before continuing |
-| `OPERATION_IN_FLIGHT` | Previous turn is not terminal | Check the same operation |
-| `SOURCE_MISMATCH` / `SOURCE_UNVERIFIED` | Fixed source cannot be proven | Correct the checkout or obtain a decision |
-| `WORKSPACE_WRITE_CONFLICT` / `BRANCH_WRITE_CONFLICT` | Another live or unfenced writable local task owns the worktree or checkout branch | Wait for it, run `checkpoint` to fence it, or use an isolated worktree for the authorized task |
-| `PARALLEL_WRITE_PLAN_INCOMPLETE` | Same-MR parallel write metadata, barrier, or order is incomplete or not unique | `NEEDS_DECISION`; correct the caller-owned plan |
-| `HANDOFF_PACKET_INVALID` | Handoff packet fails schema, bounds, sanitization, integrity, or secret checks | Fix the packet; nothing was dispatched |
-| `HANDOFF_CONFLICT` | Handoff arguments, packet binding, or an existing continuation task disagree | Fail closed; a different continuation needs a new `task_id` or corrected inputs |
-| `MODEL_UNRECOGNIZED` | Provider did not recognize the requested main model and no valid matching main result exists | Retry the same endpoint with the saved contract |
-| `MODEL_MISMATCH` / `MODEL_UNVERIFIED` | Observed result does not prove the requested model | Invalidate a non-terminal operation; retry the same endpoint |
-| `EFFORT_MISMATCH` / `EFFORT_UNVERIFIED` | Provider log contradicts saved effort, or a format that could prove it did not | Invalidate a non-terminal operation and retry the same endpoint |
-| `ENDPOINT_ROUTE_STALE` | Codex host routing changed | Resolve the same `threadId`, update route history, retry once |
-| `ENDPOINT_GONE` | Same endpoint cannot be rediscovered | `NEEDS_DECISION`; the caller may resolve it under the Skill replacement policy with a new identity and context handoff |
-| `DELIVERY_UNKNOWN` | Send lacks a trustworthy receipt or durable exit status | Preserve the endpoint; do not resend without provider-specific proof or an explicit decision |
-| `ENDPOINT_MISMATCH` | Provider result belongs to another endpoint | Fail closed |
-| `RESULT_INVALID` | Provider output lacks the required result shape | Fail closed and preserve private logs; a terminal `claude-cli` one additionally allows the caller-owned bounded retry in `SKILL.md` |
-| `PROCESS_EXITED_WITHOUT_RESULT` | Local provider process disappeared before terminal publication | Inspect private logs, then retry the same endpoint if safe |
-| `PROVIDER_STALLED` | Claude stayed alive but produced no stream progress before the saved control deadline | Fence the old process group, then resume the same session with a continuation query |
-| `IDENTITY_CONFLICT` / `STATE_CONFLICT` | Durable records disagree about endpoint or terminal identity | Stop and repair explicitly |
-| `REQUEST_UNKNOWN` | No request is registered under that `request_id` | Correct the identity; do not guess |
-| `REQUEST_CONFLICT` | The same `request_id` was registered with a different intent, or a dispatched request cannot be cancelled | Use a new `request_id`, or accept the existing operation |
-| `REQUEST_CANCELLED` | The request was cancelled before it was dispatched | Register a new request if the work is still wanted |
-| `STATE_BUSY` / `STATE_CORRUPT` | Concurrent writer or invalid durable state | Retry the same command or repair state explicitly |
+| Code                                                 | Meaning                                                                                                   | Default disposition                                                                                                                 |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `CONFIG_INVALID`                                     | Invalid task input or unsupported configured value                                                        | Correct input                                                                                                                       |
+| `TASK_EXISTS` / `TASK_UNKNOWN`                       | Logical identity conflict or missing task                                                                 | Correct identity; do not guess                                                                                                      |
+| `EXECUTION_CONTRACT_REQUIRED`                        | A legacy handle lacks model, effort, permission, or source truth                                          | Explicitly upgrade the same handle before continuing                                                                                |
+| `OPERATION_IN_FLIGHT`                                | Previous turn is not terminal                                                                             | Check the same operation                                                                                                            |
+| `SOURCE_MISMATCH` / `SOURCE_UNVERIFIED`              | Fixed source cannot be proven                                                                             | Correct the checkout or obtain a decision                                                                                           |
+| `WORKSPACE_WRITE_CONFLICT` / `BRANCH_WRITE_CONFLICT` | Another live or unfenced writable local task owns the worktree or checkout branch                         | Wait for it, run `checkpoint` to fence it, or use an isolated worktree for the authorized task                                      |
+| `PARALLEL_WRITE_PLAN_INCOMPLETE`                     | Same-MR parallel write metadata, barrier, or order is incomplete or not unique                            | `NEEDS_DECISION`; correct the caller-owned plan                                                                                     |
+| `HANDOFF_PACKET_INVALID`                             | Handoff packet fails schema, bounds, sanitization, integrity, or secret checks                            | Fix the packet; nothing was dispatched                                                                                              |
+| `HANDOFF_CONFLICT`                                   | Handoff arguments, packet binding, or an existing continuation task disagree                              | Fail closed; a different continuation needs a new `task_id` or corrected inputs                                                     |
+| `MODEL_UNRECOGNIZED`                                 | Provider did not recognize the requested main model and no valid matching main result exists              | Retry the same endpoint with the saved contract                                                                                     |
+| `MODEL_MISMATCH` / `MODEL_UNVERIFIED`                | Observed result does not prove the requested model                                                        | Invalidate a non-terminal operation; retry the same endpoint                                                                        |
+| `EFFORT_MISMATCH` / `EFFORT_UNVERIFIED`              | Provider log contradicts saved effort, or a format that could prove it did not                            | Invalidate a non-terminal operation and retry the same endpoint                                                                     |
+| `ENDPOINT_ROUTE_STALE`                               | Codex host routing changed                                                                                | Resolve the same `threadId`, update route history, retry once                                                                       |
+| `ENDPOINT_GONE`                                      | Same endpoint cannot be rediscovered                                                                      | `NEEDS_DECISION`; the caller may resolve it under the Skill replacement policy with a new identity and context handoff              |
+| `DELIVERY_UNKNOWN`                                   | Send lacks a trustworthy receipt or durable exit status                                                   | Preserve the endpoint; do not resend without provider-specific proof or an explicit decision                                        |
+| `ENDPOINT_MISMATCH`                                  | Provider result belongs to another endpoint                                                               | Fail closed                                                                                                                         |
+| `RESULT_INVALID`                                     | Provider output lacks the required result shape                                                           | Fail closed and preserve private logs; a terminal `claude-cli` one additionally allows the caller-owned bounded retry in `SKILL.md` |
+| `PROCESS_EXITED_WITHOUT_RESULT`                      | Local provider process disappeared before terminal publication                                            | Inspect private logs, then retry the same endpoint if safe                                                                          |
+| `PROVIDER_STALLED`                                   | Claude stayed alive but produced no stream progress before the saved control deadline                     | Fence the old process group, then resume the same session with a continuation query                                                 |
+| `IDENTITY_CONFLICT` / `STATE_CONFLICT`               | Durable records disagree about endpoint or terminal identity                                              | Stop and repair explicitly                                                                                                          |
+| `REQUEST_UNKNOWN`                                    | No request is registered under that `request_id`                                                          | Correct the identity; do not guess                                                                                                  |
+| `REQUEST_CONFLICT`                                   | The same `request_id` was registered with a different intent, or a dispatched request cannot be cancelled | Use a new `request_id`, or accept the existing operation                                                                            |
+| `REQUEST_CANCELLED`                                  | The request was cancelled before it was dispatched                                                        | Register a new request if the work is still wanted                                                                                  |
+| `STATE_BUSY` / `STATE_CORRUPT`                       | Concurrent writer or invalid durable state                                                                | Retry the same command or repair state explicitly                                                                                   |
 
 ## Safe recovery line
 

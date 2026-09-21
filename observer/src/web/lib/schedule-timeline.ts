@@ -81,7 +81,8 @@ export interface Edge {
 const HOUR = 3_600_000;
 
 function opEndMs(op: ScheduleOperation, nowMs: number): number {
-  if (op.completedAtMs !== null) return Math.max(op.completedAtMs, op.createdAtMs ?? op.completedAtMs);
+  if (op.completedAtMs !== null)
+    return Math.max(op.completedAtMs, op.createdAtMs ?? op.completedAtMs);
   if (op.running) return nowMs;
   // Terminal-but-unrecorded end: fall back to the latest recorded evidence.
   return Math.max(
@@ -92,13 +93,17 @@ function opEndMs(op: ScheduleOperation, nowMs: number): number {
   );
 }
 
-function opsOfTurn(group: ScheduleGroup, turn: ScheduleTurn): ScheduleOperation[] {
+function opsOfTurn(
+  group: ScheduleGroup,
+  turn: ScheduleTurn,
+): ScheduleOperation[] {
   const result: ScheduleOperation[] = [];
   for (const task of group.tasks) {
     for (const op of task.operations) {
-      const inWindow = op.createdAtMs !== null
-        && op.createdAtMs >= turn.startedAtMs
-        && (turn.completedAtMs === null || op.createdAtMs <= turn.completedAtMs);
+      const inWindow =
+        op.createdAtMs !== null &&
+        op.createdAtMs >= turn.startedAtMs &&
+        (turn.completedAtMs === null || op.createdAtMs <= turn.completedAtMs);
       if (op.dispatchTurnId === turn.turnId || inWindow) result.push(op);
     }
   }
@@ -108,11 +113,15 @@ function opsOfTurn(group: ScheduleGroup, turn: ScheduleTurn): ScheduleOperation[
 /** Range options: one per verified Turn (oldest first) plus the whole session.
  * A Turn range extends past the Turn's end to cover children it dispatched
  * that are still running or finished later. */
-export function rangeOptions(group: ScheduleGroup, nowMs: number): TimelineRange[] {
+export function rangeOptions(
+  group: ScheduleGroup,
+  nowMs: number,
+): TimelineRange[] {
   const options: TimelineRange[] = [];
   group.turns.forEach((turn, index) => {
     let end = turn.completedAtMs ?? nowMs;
-    for (const op of opsOfTurn(group, turn)) end = Math.max(end, opEndMs(op, nowMs));
+    for (const op of opsOfTurn(group, turn))
+      end = Math.max(end, opEndMs(op, nowMs));
     options.push({
       key: `turn:${turn.turnId}`,
       label: `Turn ${index + 1}${turn.completedAtMs === null ? "（进行中）" : turn.aborted ? "（已中止）" : ""}`,
@@ -136,7 +145,8 @@ export function rangeOptions(group: ScheduleGroup, nowMs: number): TimelineRange
       if (op.running) running = true;
     }
   }
-  if (running || group.turns.some((turn) => turn.completedAtMs === null)) points.push(nowMs);
+  if (running || group.turns.some((turn) => turn.completedAtMs === null))
+    points.push(nowMs);
   if (points.length) {
     const start = Math.min(...points);
     options.push({
@@ -165,20 +175,34 @@ function clamp01(value: number): number {
   return value < 0 ? 0 : value > 1 ? 1 : value;
 }
 
-function segmentFor(taskId: string, op: ScheduleOperation, range: TimelineRange, nowMs: number): LayoutSegment | null {
+function segmentFor(
+  taskId: string,
+  op: ScheduleOperation,
+  range: TimelineRange,
+  nowMs: number,
+): LayoutSegment | null {
   const startMs = op.createdAtMs;
   if (startMs === null) return null; // no dispatch evidence → no position on the axis
   const endMs = Math.max(opEndMs(op, nowMs), startMs);
   if (endMs < range.startMs || startMs > range.endMs) return null;
   const markers: SegmentMarker[] = [];
-  const push = (kind: SegmentMarker["kind"], atMs: number | null, approx = false): void => {
+  const push = (
+    kind: SegmentMarker["kind"],
+    atMs: number | null,
+    approx = false,
+  ): void => {
     if (atMs === null || atMs < range.startMs || atMs > range.endMs) return;
     markers.push({ kind, atMs, frac: clamp01(frac(range, atMs)), approx });
   };
   push("dispatch", startMs);
   push("executor-start", op.executorStartedAtMs);
   push("completed", op.completedAtMs);
-  if (op.hasArtifact) push("artifact", op.artifactExportedAtMs ?? op.completedAtMs, op.artifactReadyApprox);
+  if (op.hasArtifact)
+    push(
+      "artifact",
+      op.artifactExportedAtMs ?? op.completedAtMs,
+      op.artifactReadyApprox,
+    );
   push("receipt", op.receipt?.atMs ?? null);
   return {
     taskId,
@@ -195,7 +219,11 @@ function segmentFor(taskId: string, op: ScheduleOperation, range: TimelineRange,
 
 /** Lanes keep the group's stable order (first dispatch, then taskId, computed
  * server-side); a lane appears when at least one segment overlaps the range. */
-export function layoutSchedule(group: ScheduleGroup, range: TimelineRange, nowMs: number): ScheduleLayout {
+export function layoutSchedule(
+  group: ScheduleGroup,
+  range: TimelineRange,
+  nowMs: number,
+): ScheduleLayout {
   const turnSegments: MainSegment[] = [];
   for (const turn of group.turns) {
     const endMs = turn.completedAtMs ?? Math.max(nowMs, turn.startedAtMs);
@@ -228,9 +256,13 @@ export function edgesForSelection(
   selection: { taskId: string; operationId: string } | null,
 ): Edge[] {
   if (!selection) return [];
-  const laneIndex = layout.lanes.findIndex((lane) => lane.task.taskId === selection.taskId);
+  const laneIndex = layout.lanes.findIndex(
+    (lane) => lane.task.taskId === selection.taskId,
+  );
   if (laneIndex < 0) return [];
-  const segment = layout.lanes[laneIndex].segments.find((item) => item.operationId === selection.operationId);
+  const segment = layout.lanes[laneIndex].segments.find(
+    (item) => item.operationId === selection.operationId,
+  );
   if (!segment) return [];
   const edges: Edge[] = [];
   const { op } = segment;
@@ -240,7 +272,9 @@ export function edgesForSelection(
       mainFrac: clamp01(frac(layout.range, op.createdAtMs)),
       laneFrac: segment.startFrac,
       laneIndex,
-      outOfRange: op.createdAtMs < layout.range.startMs || op.createdAtMs > layout.range.endMs,
+      outOfRange:
+        op.createdAtMs < layout.range.startMs ||
+        op.createdAtMs > layout.range.endMs,
     });
   }
   if (op.receipt) {
@@ -249,7 +283,9 @@ export function edgesForSelection(
       mainFrac: clamp01(frac(layout.range, op.receipt.atMs)),
       laneFrac: segment.clippedEnd ? 1 : segment.endFrac,
       laneIndex,
-      outOfRange: op.receipt.atMs < layout.range.startMs || op.receipt.atMs > layout.range.endMs,
+      outOfRange:
+        op.receipt.atMs < layout.range.startMs ||
+        op.receipt.atMs > layout.range.endMs,
     });
   }
   return edges;
@@ -257,7 +293,8 @@ export function edgesForSelection(
 
 /** Human timestamp for the crosshair; shows date only when the range is long. */
 export function crosshairLabel(range: TimelineRange, fraction: number): string {
-  const atMs = range.startMs + clamp01(fraction) * (range.endMs - range.startMs);
+  const atMs =
+    range.startMs + clamp01(fraction) * (range.endMs - range.startMs);
   const date = new Date(atMs);
   const time = date.toLocaleTimeString("zh-CN", { hour12: false });
   return range.endMs - range.startMs > 24 * HOUR

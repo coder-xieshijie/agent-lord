@@ -52,7 +52,8 @@ const DEFAULT_BACKOFF_MAX_MS = 15_000;
 
 const realTimers: PollerTimers = {
   setTimeout: (fn, ms) => setTimeout(fn, ms),
-  clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+  clearTimeout: (handle) =>
+    clearTimeout(handle as ReturnType<typeof setTimeout>),
 };
 
 /** Runs one async tick at a time: the next tick is scheduled only after the
@@ -80,8 +81,10 @@ export class SerialPoller {
   ) {
     this.timers = options.timers ?? realTimers;
     this.intervalMs = options.intervalMs;
-    this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
-    this.backoffInitialMs = options.backoffInitialMs ?? Math.max(options.intervalMs, 1000);
+    this.requestTimeoutMs =
+      options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    this.backoffInitialMs =
+      options.backoffInitialMs ?? Math.max(options.intervalMs, 1000);
     this.backoffMaxMs = options.backoffMaxMs ?? DEFAULT_BACKOFF_MAX_MS;
     this.onState = options.onState;
   }
@@ -101,7 +104,13 @@ export class SerialPoller {
       this.setState("paused");
       return;
     }
-    this.setState(this.everSucceeded && !this.failures ? "live" : this.failures ? "retrying" : "loading");
+    this.setState(
+      this.everSucceeded && !this.failures
+        ? "live"
+        : this.failures
+          ? "retrying"
+          : "loading",
+    );
     this.runNow();
   }
 
@@ -141,7 +150,10 @@ export class SerialPoller {
     this.running = true;
     const controller = new AbortController();
     this.inflight = controller;
-    const timeout = this.timers.setTimeout(() => controller.abort(), this.requestTimeoutMs);
+    const timeout = this.timers.setTimeout(
+      () => controller.abort(),
+      this.requestTimeoutMs,
+    );
     void this.tick(controller.signal)
       .then(() => {
         if (this.disposed) return;
@@ -155,7 +167,10 @@ export class SerialPoller {
         this.failures += 1;
         if (this.visible) this.setState("retrying");
         this.schedule(
-          Math.min(this.backoffInitialMs * 2 ** (this.failures - 1), this.backoffMaxMs),
+          Math.min(
+            this.backoffInitialMs * 2 ** (this.failures - 1),
+            this.backoffMaxMs,
+          ),
         );
       })
       .finally(() => {
@@ -168,7 +183,11 @@ export class SerialPoller {
 
 export interface TaskTransport {
   snapshot(taskId: string, signal: AbortSignal): Promise<SnapshotResponse>;
-  delta(taskId: string, cursor: string, signal: AbortSignal): Promise<DeltaResponse | ResetResponse>;
+  delta(
+    taskId: string,
+    cursor: string,
+    signal: AbortSignal,
+  ): Promise<DeltaResponse | ResetResponse>;
 }
 
 export interface ObserverTransport extends TaskTransport {
@@ -205,7 +224,10 @@ export class TaskSyncController {
     handlers: TaskSyncHandlers,
     options: TaskSyncOptions = {},
   ) {
-    const applySnapshot = (snapshot: SnapshotResponse, signal: AbortSignal): void => {
+    const applySnapshot = (
+      snapshot: SnapshotResponse,
+      signal: AbortSignal,
+    ): void => {
       // A disposed controller must never touch handlers again: results that
       // arrive after a task switch would pollute the newly selected task.
       if (signal.aborted) return;
@@ -227,7 +249,9 @@ export class TaskSyncController {
           return;
         }
         this.cursor = result.cursor;
-        const metaJson = result.task ? JSON.stringify(result.task) : this.lastMetaJson;
+        const metaJson = result.task
+          ? JSON.stringify(result.task)
+          : this.lastMetaJson;
         const metaChanged = metaJson !== this.lastMetaJson;
         this.lastMetaJson = metaJson;
         if (result.patches.length || metaChanged) {
@@ -271,16 +295,22 @@ export function createHttpTransport(
 ): ObserverTransport {
   const getJson = async <T>(path: string, signal: AbortSignal): Promise<T> => {
     const sep = path.includes("?") ? "&" : "?";
-    const res = await fetchImpl(`${baseUrl}${path}${sep}token=${encodeURIComponent(token)}`, {
-      signal,
-    });
+    const res = await fetchImpl(
+      `${baseUrl}${path}${sep}token=${encodeURIComponent(token)}`,
+      {
+        signal,
+      },
+    );
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return (await res.json()) as T;
   };
   return {
     overview: (signal) => getJson<OverviewResponse>("/api/overview", signal),
     snapshot: (taskId, signal) =>
-      getJson<SnapshotResponse>(`/api/tasks/${encodeURIComponent(taskId)}/snapshot`, signal),
+      getJson<SnapshotResponse>(
+        `/api/tasks/${encodeURIComponent(taskId)}/snapshot`,
+        signal,
+      ),
     delta: (taskId, cursor, signal) =>
       getJson<DeltaResponse | ResetResponse>(
         `/api/tasks/${encodeURIComponent(taskId)}/delta?cursor=${encodeURIComponent(cursor)}`,

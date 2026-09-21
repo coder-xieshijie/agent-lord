@@ -9,7 +9,12 @@
  *   must stay inside it.
  */
 
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from "node:http";
 import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { randomUUID, timingSafeEqual } from "node:crypto";
@@ -43,7 +48,10 @@ export interface ObserverServerOptions {
   webRoot: string | null;
   port: number;
   instanceId?: string;
-  launchTerminal?: (taskId: string, terminal: NativeTerminal) => TerminalOpenResult;
+  launchTerminal?: (
+    taskId: string,
+    terminal: NativeTerminal,
+  ) => TerminalOpenResult;
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -67,7 +75,11 @@ function cookieToken(req: IncomingMessage): string | null {
   for (const part of header.split(";")) {
     const [name, ...rest] = part.trim().split("=");
     if (name === "observer_token") {
-      try { return decodeURIComponent(rest.join("=")); } catch { return null; }
+      try {
+        return decodeURIComponent(rest.join("="));
+      } catch {
+        return null;
+      }
     }
   }
   return null;
@@ -79,17 +91,25 @@ function cookieToken(req: IncomingMessage): string | null {
 function tokenOk(req: IncomingMessage, url: URL, expected: string): boolean {
   const header = req.headers.authorization;
   const candidates = [
-    header && header.startsWith("Bearer ") ? header.slice("Bearer ".length) : null,
+    header && header.startsWith("Bearer ")
+      ? header.slice("Bearer ".length)
+      : null,
     url.searchParams.get("token"),
     cookieToken(req),
   ];
-  return candidates.some((candidate) => candidate !== null && safeEqual(candidate, expected));
+  return candidates.some(
+    (candidate) => candidate !== null && safeEqual(candidate, expected),
+  );
 }
 
 export function createObserverServer(options: ObserverServerOptions): Server {
   const { hub, token, webRoot } = options;
-  const launchTerminal = options.launchTerminal ?? ((taskId: string, terminal: NativeTerminal) =>
-    openTaskTerminal(taskId, terminal, { store: new StateStore(hub.stateDir) }));
+  const launchTerminal =
+    options.launchTerminal ??
+    ((taskId: string, terminal: NativeTerminal) =>
+      openTaskTerminal(taskId, terminal, {
+        store: new StateStore(hub.stateDir),
+      }));
   const instanceId = options.instanceId ?? randomUUID();
   const fonts = createFontCatalog();
 
@@ -101,10 +121,14 @@ export function createObserverServer(options: ObserverServerOptions): Server {
       sendJson(res, 400, { error: "bad request" });
       return;
     }
-    const terminalMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)\/terminal-open$/);
+    const terminalMatch = url.pathname.match(
+      /^\/api\/tasks\/([^/]+)\/terminal-open$/,
+    );
     const terminalPost = req.method === "POST" && terminalMatch !== null;
     if (req.method !== "GET" && req.method !== "HEAD" && !terminalPost) {
-      sendJson(res, 405, { error: "observer 仅支持读取和受约束的终端打开操作" });
+      sendJson(res, 405, {
+        error: "observer 仅支持读取和受约束的终端打开操作",
+      });
       return;
     }
     if (!tokenOk(req, url, token)) {
@@ -130,14 +154,19 @@ export function createObserverServer(options: ObserverServerOptions): Server {
       }
       const terminal = url.searchParams.get("terminal");
       if (!NATIVE_TERMINALS.includes(terminal as NativeTerminal)) {
-        sendJson(res, 400, { error: `terminal must be one of: ${NATIVE_TERMINALS.join(", ")}` });
+        sendJson(res, 400, {
+          error: `terminal must be one of: ${NATIVE_TERMINALS.join(", ")}`,
+        });
         return;
       }
       try {
         sendJson(res, 200, launchTerminal(taskId, terminal as NativeTerminal));
       } catch (error) {
         if (error instanceof AgentLordError) {
-          sendJson(res, error.exit_code === 2 ? 400 : 409, { error: error.message, code: error.code });
+          sendJson(res, error.exit_code === 2 ? 400 : 409, {
+            error: error.message,
+            code: error.code,
+          });
         } else {
           sendJson(res, 500, { error: "无法打开终端" });
         }
@@ -146,13 +175,22 @@ export function createObserverServer(options: ObserverServerOptions): Server {
     }
 
     if (url.pathname === "/api/health") {
-      sendJson(res, 200, { service: "agent-lord-observer", instanceId, pid: process.pid });
+      sendJson(res, 200, {
+        service: "agent-lord-observer",
+        instanceId,
+        pid: process.pid,
+      });
       return;
     }
     if (url.pathname === "/api/binding") {
       hub.refresh();
-      sendJson(res, 200, { instanceId, pid: process.pid, run_ids: hub.runIds,
-        task_ids: hub.taskIds(), errors: hub.bindingErrors });
+      sendJson(res, 200, {
+        instanceId,
+        pid: process.pid,
+        run_ids: hub.runIds,
+        task_ids: hub.taskIds(),
+        errors: hub.bindingErrors,
+      });
       return;
     }
     if (url.pathname === "/api/overview") {
@@ -172,7 +210,9 @@ export function createObserverServer(options: ObserverServerOptions): Server {
       return;
     }
 
-    const taskMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)\/(snapshot|delta|stream|artifact)$/);
+    const taskMatch = url.pathname.match(
+      /^\/api\/tasks\/([^/]+)\/(snapshot|delta|stream|artifact)$/,
+    );
     if (taskMatch) {
       let taskId: string;
       try {
@@ -189,8 +229,15 @@ export function createObserverServer(options: ObserverServerOptions): Server {
       if (action === "artifact") {
         const opId = url.searchParams.get("operation_id") ?? "";
         const bytes = hub.artifact(taskId, opId);
-        if (!bytes) { sendJson(res, 404, { error: "最终产物不可用或完整性核验失败" }); return; }
-        res.writeHead(200, { "content-type": "text/markdown; charset=utf-8", "cache-control": "no-store", "content-disposition": `attachment; filename="${opId}.md"` });
+        if (!bytes) {
+          sendJson(res, 404, { error: "最终产物不可用或完整性核验失败" });
+          return;
+        }
+        res.writeHead(200, {
+          "content-type": "text/markdown; charset=utf-8",
+          "cache-control": "no-store",
+          "content-disposition": `attachment; filename="${opId}.md"`,
+        });
         res.end(bytes);
         return;
       }
@@ -212,12 +259,18 @@ export function createObserverServer(options: ObserverServerOptions): Server {
       if (action === "delta") {
         const afterSeq = hub.parseCursor(url.searchParams.get("cursor"));
         if (afterSeq === null) {
-          sendJson(res, 200, { reset: true, reason: "cursor 缺失或属于其他服务实例，请重新获取快照" });
+          sendJson(res, 200, {
+            reset: true,
+            reason: "cursor 缺失或属于其他服务实例，请重新获取快照",
+          });
           return;
         }
         const delta = hub.delta(taskId, afterSeq);
         if (!delta) {
-          sendJson(res, 200, { reset: true, reason: "cursor 已超出保留窗口，请重新获取快照" });
+          sendJson(res, 200, {
+            reset: true,
+            reason: "cursor 已超出保留窗口，请重新获取快照",
+          });
           return;
         }
         sendJson(res, 200, delta);
@@ -236,13 +289,19 @@ export function createObserverServer(options: ObserverServerOptions): Server {
         res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
       };
       if (afterSeq === null) {
-        write("reset", { reset: true, reason: "cursor 缺失或属于其他服务实例，请重新获取快照" });
+        write("reset", {
+          reset: true,
+          reason: "cursor 缺失或属于其他服务实例，请重新获取快照",
+        });
         res.end();
         return;
       }
       const initial = hub.delta(taskId, afterSeq);
       if (!initial) {
-        write("reset", { reset: true, reason: "cursor 已超出保留窗口，请重新获取快照" });
+        write("reset", {
+          reset: true,
+          reason: "cursor 已超出保留窗口，请重新获取快照",
+        });
         res.end();
         return;
       }
@@ -292,8 +351,12 @@ export function createObserverServer(options: ObserverServerOptions): Server {
           return;
         }
       }
-      const type = CONTENT_TYPES[path.extname(file)] ?? "application/octet-stream";
-      const headers: Record<string, string> = { "content-type": type, "cache-control": "no-store" };
+      const type =
+        CONTENT_TYPES[path.extname(file)] ?? "application/octet-stream";
+      const headers: Record<string, string> = {
+        "content-type": type,
+        "cache-control": "no-store",
+      };
       if (url.searchParams.get("token")) {
         // Tokenized page load: set the cookie so the app's static assets and
         // EventSource requests pass the same gate without URL rewriting.
