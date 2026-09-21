@@ -5,6 +5,7 @@ import { resolvePath } from "./paths.js";
 
 export interface CommandSpec {
   description: string;
+  details?: string;
   strings?: string[];
   booleans?: string[];
   multiple?: string[];
@@ -80,7 +81,7 @@ export function helpFor(
       .map(([name, value]) => `  ${name.padEnd(18)}${value.description}`)
       .join("\n")}\n\nUse <command> --help for its options.\n`;
   const required = new Set(spec.required ?? []);
-  return `Usage: ${binary} ${argv[0]} [options]\n${spec.description}\n\n${[...(spec.strings ?? []), ...(spec.integers ?? []), ...(spec.multiple ?? []), ...(spec.booleans ?? [])].map((name) => `  --${name}${spec.booleans?.includes(name) ? "" : " <value>"}${required.has(name) ? " (required)" : ""}${spec.multiple?.includes(name) ? " (repeatable)" : ""}${spec.choices?.[name] ? `: ${spec.choices[name].join(", ")}` : ""}`).join("\n")}\n`;
+  return `Usage: ${binary} ${argv[0]} [options]\n${spec.description}\n\n${[...(spec.strings ?? []), ...(spec.integers ?? []), ...(spec.multiple ?? []), ...(spec.booleans ?? [])].map((name) => `  --${name}${spec.booleans?.includes(name) ? "" : " <value>"}${required.has(name) ? " (required)" : ""}${spec.multiple?.includes(name) ? " (repeatable)" : ""}${spec.choices?.[name] ? `: ${spec.choices[name].join(", ")}` : ""}`).join("\n")}\n${spec.details ? `\n${spec.details}\n` : ""}`;
 }
 export function inputText(file: string): string {
   try {

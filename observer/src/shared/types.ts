@@ -51,7 +51,7 @@ export interface RequestItem {
   tsMs?: number;
 }
 
-export type ToolState = "running" | "completed" | "error";
+export type ToolState = "running" | "completed" | "warning" | "error";
 
 export interface FontCatalog {
   families: string[];

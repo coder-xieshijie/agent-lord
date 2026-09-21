@@ -98,6 +98,29 @@ describe("McodeProjector (fixture stream)", () => {
 });
 
 describe("CodexProjector (fixture stream)", () => {
+  it("keeps the unstable-feature startup warning visible without treating it as a provider failure", () => {
+    const timeline = new Timeline();
+    const projector = new CodexProjector(timeline, "fixture-codex-warning");
+    const message = "Under-development features enabled: respect_system_proxy. Under-development features are incomplete and may behave unpredictably.";
+    projector.handleLine(j({ type: "item.completed", item: { id: "warning", type: "error", message } }));
+    projector.handleLine(j({ type: "turn.completed" }));
+    expect(timeline.snapshotItems().find((item) => item.kind === "tool")).toMatchObject({
+      name: "配置警告", state: "warning", errorText: message,
+    });
+  });
+
+  it("preserves unknown item errors and turn failures even when they mention the warning", () => {
+    const timeline = new Timeline();
+    const projector = new CodexProjector(timeline, "fixture-codex-errors");
+    const message = "Request failed after Under-development features enabled: respect_system_proxy.";
+    projector.handleLine(j({ type: "item.completed", item: { id: "failure", type: "error", message } }));
+    projector.handleLine(j({ type: "turn.failed", error: { message: "Under-development features enabled: respect_system_proxy." } }));
+    const tools = timeline.snapshotItems().filter((item) => item.kind === "tool");
+    expect(tools).toHaveLength(2);
+    expect(tools.every((item) => item.state === "error")).toBe(true);
+    expect(tools[0]).toMatchObject({ name: "provider 错误", errorText: message });
+  });
+
   it("renders completed messages and command executions at real granularity", () => {
     const timeline = new Timeline();
     const projector = new CodexProjector(timeline, "fixture-op-codex");

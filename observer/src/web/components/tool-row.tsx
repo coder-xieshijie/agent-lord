@@ -1,4 +1,4 @@
-import { Check, ChevronRight, Loader2, X } from "lucide-react";
+import { Check, ChevronRight, Loader2, TriangleAlert, X } from "lucide-react";
 import { useState } from "react";
 import type { ToolItem } from "../../shared/types";
 import { cn } from "@/lib/utils";
@@ -53,7 +53,7 @@ function ToolDetails({ item }: { item: ToolItem }) {
           }} />
         </Terminal>
       ) : null}
-      {item.errorText ? <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md bg-destructive/10 p-3 font-mono text-xs text-destructive">{item.errorText}</pre> : null}
+      {item.errorText ? <pre className={cn("max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md p-3 font-mono text-xs", item.state === "warning" ? "bg-amber-500/10 text-amber-700 dark:text-amber-400" : "bg-destructive/10 text-destructive")}>{item.errorText}</pre> : null}
       {item.exitCode !== undefined ? <p className={cn("text-xs text-muted-foreground", item.exitCode !== 0 && "text-destructive")}>退出码 {item.exitCode}</p> : null}
       {!item.inputText && item.outputText === undefined && !item.errorText && item.state !== "running" ? <p className="text-xs text-muted-foreground">此工具未提供更多详情。</p> : null}
     </div>
@@ -62,7 +62,7 @@ function ToolDetails({ item }: { item: ToolItem }) {
 
 export function ToolRow({ item, open, onOpenChange }: { item: ToolItem; open: boolean; onOpenChange: (open: boolean) => void }) {
   const runningStatus = item.phase === "preparing" ? "准备参数" : item.phase === "ready" ? "等待执行" : "运行中";
-  const status = item.state === "running" ? runningStatus : item.state === "error" ? "执行失败" : "已完成";
+  const status = item.state === "running" ? runningStatus : item.state === "error" ? "执行失败" : item.state === "warning" ? "警告" : "已完成";
   const timing = [
     item.preparationMs !== undefined ? `参数准备 ${(item.preparationMs / 1000).toFixed(2)}s` : null,
     item.executionMs !== undefined ? `执行 ${(item.executionMs / 1000).toFixed(2)}s` : null,
@@ -73,11 +73,13 @@ export function ToolRow({ item, open, onOpenChange }: { item: ToolItem; open: bo
         <ChevronRight className="size-3 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
         {item.state === "running" ? <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
           : item.state === "error" ? <X className="size-3.5 shrink-0 text-destructive" />
+          : item.state === "warning" ? <TriangleAlert className="size-3.5 shrink-0 text-amber-700 dark:text-amber-400" />
           : <Check className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />}
         <span className="truncate font-medium">{item.name}</span>
         {item.state === "running" ? <span className="shrink-0">{status}</span> : null}
         {timing ? <span className="ml-auto shrink-0 text-[0.6875rem]">{timing}</span> : null}
         {item.state === "error" ? <span className="shrink-0 text-destructive">执行失败</span> : null}
+        {item.state === "warning" ? <span className="shrink-0 text-amber-700 dark:text-amber-400">警告</span> : null}
       </CollapsibleTrigger>
       <ToolContent className="ml-7 space-y-0 border-l py-2 pr-0 pl-3">
         {open ? <ToolDetails item={item} /> : null}

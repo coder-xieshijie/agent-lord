@@ -76,10 +76,13 @@ export class CodexProjector extends OpProjector {
       return;
     }
     if (itemType === "error") {
+      const message = typeof record.message === "string" ? record.message : "error";
+      // Codex exec also encodes this non-fatal configuration warning as an error item.
+      const warning = message.startsWith("Under-development features enabled:");
       this.upsertTool(`provider-error/${itemId}`, {
-        name: "provider 错误",
-        state: "error",
-        errorText: typeof record.message === "string" ? clip(record.message, TOOL_TEXT_CLIP) : "error",
+        name: warning ? "配置警告" : "provider 错误",
+        state: warning ? "warning" : "error",
+        errorText: clip(message, TOOL_TEXT_CLIP),
       });
       return;
     }
