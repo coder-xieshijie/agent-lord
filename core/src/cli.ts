@@ -210,6 +210,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
   },
   checkpoint: {
     description: "Bounded foreground supervision; quiet output exits 124",
+    details: "Select each id exactly once: --task-id for a confirmed existing record, or --starting-task-id for a just-dispatched task whose record may not exist yet. Different ids may use different flags. Starting selections keep supervising records once they appear; never put the same id in both lists. Use --run-id alone for a registered task set.",
     strings: ["run-id"],
     multiple: ["task-id", "starting-task-id"],
     integers: ["seconds"],

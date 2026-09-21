@@ -31,6 +31,8 @@ Codex App 的状态观察。前端为 React + vendored Vercel AI Elements 组件
 
 ## 命令
 
+下文 `<agent-lord-root>` 替换为实际 Agent Lord 仓库的绝对路径；`preview:*` 命令通过 `--dir` 指定子包，可从任意工作目录调用。
+
 ```bash
 # 从仓库根目录安装并构建共享 core：
 pnpm install --frozen-lockfile
@@ -39,11 +41,11 @@ cd observer
 pnpm typecheck      # server + web 两份 tsconfig
 pnpm test           # vitest（fixtures 全部显式标记为 fixture-*）
 pnpm build          # tsc → dist/server + vite → dist/web
-pnpm preview:start --tasks task-a,task-b --port 8791
-pnpm preview:attach --tasks task-a,task-b --focus-task task-b --port 8791
-pnpm preview:status --port 8791
-pnpm preview:restart --port 8791
-pnpm preview:stop --port 8791
+pnpm --dir <agent-lord-root>/observer preview:start --tasks task-a,task-b --port 8791
+pnpm --dir <agent-lord-root>/observer preview:attach --tasks task-a,task-b --focus-task task-b --port 8791
+pnpm --dir <agent-lord-root>/observer preview:status --port 8791
+pnpm --dir <agent-lord-root>/observer preview:restart --port 8791
+pnpm --dir <agent-lord-root>/observer preview:stop --port 8791
 # 可选参数：--token T --state-dir DIR --web-root DIR --refresh-ms 1000
 # 前台运行：pnpm start --tasks task-a,task-b --port 8791
 # 开发：pnpm dev:server --tasks task-a,task-b + pnpm dev:web（vite 代理 /api）
@@ -68,7 +70,7 @@ allowlist，显式传入时替换整个观察列表。使用自定义 state-dir 
 
 ## 派发后的任务绑定
 
-多节点任务优先绑定整个 run：`pnpm preview:attach --run-id <run-id> --port 8791`。run 必须已通过 `run-create` 登记，可以包含尚未启动的节点。绑定一次后，`run-add` 新增成员会自动进入 Observer，无需再次 attach 或重启；CLI 返回 `observer.status` 和各实例的 `binding_verified`。`run-status` 可重新核验。只有显式订阅的 run 会扩展可见范围。
+多节点任务优先绑定整个 run：`pnpm --dir <agent-lord-root>/observer preview:attach --run-id <run-id> --port 8791`。run 必须已通过 `run-create` 登记，可以包含尚未启动的节点。绑定一次后，`run-add` 新增成员会自动进入 Observer，无需再次 attach 或重启；CLI 返回 `observer.status` 和各实例的 `binding_verified`。`run-status` 可重新核验。只有显式订阅的 run 会扩展可见范围。
 
 `observer.status: unverified` 表示观察绑定未确认，成员登记仍然有效；修复观察服务后用 `run-status` 复核，不能因此重复派发任务。`not_attached` 表示尚无订阅该 run 的实例，需要首次 attach（用户要求后台运行时除外）。任务本身是否存在与绑定是否成功是两回事。
 
@@ -78,7 +80,7 @@ Codex Desktop、Codex CLI、Claude Code 与 MCode 的调用方均按 [Skill 主�
 绑定沿用已派发的 `task_id`，使用 CLI 和认证 HTTP；不使用或依赖 Computer Use / CUA，
 也不以浏览器自动化作为失败后的兜底。
 
-1. 使用本次会话选定的端口、state-dir 运行 `pnpm preview:attach --tasks <本次任务集合>
+1. 使用本次会话选定的端口、state-dir 运行 `pnpm --dir <agent-lord-root>/observer preview:attach --tasks <本次任务集合>
    --focus-task <目标任务> --port <端口>`。默认端口为 `8791`；任务集合来自已授权派发，
    不扫描并公开其他任务。不传 focus-task 时选择本次列表排序后的首个任务。
 2. 命令复用或启动服务；只在新增绑定任务时合并 allowlist 并重启，保留原端口、令牌、
