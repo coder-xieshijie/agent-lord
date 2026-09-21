@@ -158,12 +158,13 @@
       "then": {
         "properties": {
           "contract": {
+            "type": "object",
             "properties": {
               "model": {
                 "type": "string",
                 "pattern": "^[^\\s/#]+/[^\\s#]+(?:#[^\\s#]+)?$"
               },
-              "effort": { "const": null },
+              "effort": { "type": ["string", "null"] },
               "read_only": { "const": false },
               "permission_mode": { "const": "dangerously_bypass" }
             }

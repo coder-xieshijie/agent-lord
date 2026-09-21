@@ -19,7 +19,9 @@
         "RUN_RECORD",
         "REQUEST_RECORD",
         "REQUEST_LIST",
-        "REQUEST_PENDING"
+        "REQUEST_PENDING",
+        "PLAN_VALID",
+        "PLAN_RECORD"
       ]
     },
     "task_id": { "type": "string" },
