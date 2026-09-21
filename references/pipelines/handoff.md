@@ -1,6 +1,6 @@
 # Handoff Pipeline
 
-Load this reference when the user asks to hand the current session's work off to a new local CLI endpoint. Handoff is one Agent Lord pipeline branch, and this file is its complete authoring and execution contract. `node core/dist/cli.js handoff` remains the durable runtime, while [common.md](common.md) and [../protocol.md](../protocol.md) keep owning supervision, envelope, and recovery semantics.
+Load this reference when the user asks to hand the current session's work off to a new local CLI endpoint. Handoff is one Agent Lord pipeline branch, and this file is its complete authoring and execution contract. `node core/dist/cli.js handoff` remains the durable runtime, while [common.md](common.md), [../protocol.md](../protocol.md), and [../supervision.md](../supervision.md) keep owning supervision, envelope, and recovery semantics.
 
 ## Selection and authorization
 

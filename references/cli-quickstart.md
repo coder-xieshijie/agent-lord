@@ -91,6 +91,6 @@ Use `node core/dist/cli.js --help` to inspect the command surface.
 - `request-add`, `request-get`, `request-list`, `request-cancel`, and `request-dispatch` manage the passive request inbox. Registration starts nothing; explicit dispatch returns `REQUEST_PENDING` while the target task is busy.
 - `--require-commit` checks for a new descendant of the dispatch-time HEAD and a clean worktree. It requires an existing Git commit.
 - Revision-sensitive work can use `--repo`, `--source-branch`, a workspace policy, and `--head-sha` to bind execution to a known checkout.
-- Codex App uses host-tool actions and receipts. Follow the [transport protocol](protocol.md#codex-transports) for that path.
+- Codex App uses host-tool actions and receipts. Follow the [transport protocol](transports.md#codex-transports) for that path.
 
 Task records, logs, and canonical artifacts stay in the configured state directory. The temporary workspace and prompt files in this example are caller-owned; remove them when you no longer need them.

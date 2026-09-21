@@ -150,7 +150,7 @@ MCode requires version **0.4.9+**. `--model provider/model[#variant]` selects mo
 ## Persistence and boundaries
 
 - **Continue across turns.** Each task saves one endpoint and allows one in-flight operation. Durable controllers keep CLI execution alive after a dispatch command returns; checkpoints collect progress and handle supported recovery.
-- **Resume supervision.** [Persistent task sets](references/protocol.md#persistent-task-sets) retain selected tasks and result acknowledgments. The [request inbox](references/scheduling-updates.md) retains deferred instructions; registering a request does not start or steer a running CLI.
+- **Resume supervision.** [Persistent task sets](references/supervision.md#persistent-task-sets) retain selected tasks and result acknowledgments. The [request inbox](references/scheduling-updates.md) retains deferred instructions; registering a request does not start or steer a running CLI.
 - **Protect concurrent work.** Repo-managed concurrent CLI tasks use isolated worktrees and exclusive workspace/branch leases. Plan integration adds durable claims; handoff uses a checked exact workspace.
 - **Distinguish execution from acceptance.** `SUCCEEDED`, verified file/commit delivery, test results, review findings, and publication are separate facts. Missing evidence stays unknown. Optional file preflight catches missing inputs before launch; it does not prove content correctness.
 
@@ -158,15 +158,17 @@ Task state defaults to `~/.codex/state/agent-lord`. Override it with `AGENT_LORD
 
 ## Documentation
 
-| Guide                                                               | Contents                                                                |
-| ------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| [Agent Skill](SKILL.md)                                             | Caller responsibilities, dispatch, supervision, and continuation        |
-| [CLI walkthrough](references/cli-quickstart.md)                     | A complete task lifecycle from the terminal                             |
-| [Pipeline contracts](references/pipelines/common.md)                | Shared execution and acceptance rules; individual policies linked above |
-| [Runtime protocol](references/protocol.md)                          | Commands, state, execution contracts, request inbox, and recovery       |
-| [Observer guide](observer/README.md)                                | Setup, task binding, UI behavior, and privacy boundaries                |
-| [Development guide](references/development.md)                      | Runtime structure, build, tests, and compatibility                      |
+| Guide                                                               | Contents                                                                       |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| [Agent Skill](SKILL.md)                                             | Caller responsibilities, dispatch, supervision, and continuation               |
+| [CLI walkthrough](references/cli-quickstart.md)                     | A complete task lifecycle from the terminal                                    |
+| [Pipeline contracts](references/pipelines/common.md)                | Shared execution and acceptance rules; individual policies linked above        |
+| [Runtime protocol](references/protocol.md)                          | Result envelope, commands, state, execution contracts, and recovery            |
+| [Supervision reference](references/supervision.md)                  | Persistent task sets, plan runs, workspace claims, and the request inbox       |
+| [Provider transports](references/transports.md)                     | Codex CLI/App and MCode transport seams and configuration ownership            |
+| [Observer guide](observer/README.md)                                | Setup, task binding, UI behavior, and privacy boundaries                       |
+| [Development guide](references/development.md)                      | Runtime structure, build, tests, and compatibility                             |
 | [Diagram sources](assets/diagrams/README.md)                        | Archify specifications, SVG exports, validation, and local viewer regeneration |
-| [Python → TypeScript migration](references/python-to-typescript.md) | Cutover, rollback, and shared-state precautions                         |
+| [Python → TypeScript migration](references/python-to-typescript.md) | Cutover, rollback, and shared-state precautions                                |
 
 When changing either README, update the other language in the same change.

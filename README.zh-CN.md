@@ -150,7 +150,7 @@ MCode 要求 **0.4.9+**。`--model provider/model[#variant]` 选择模型身份�
 ## 持久化与能力边界
 
 - **跨轮次继续。** 每个任务保存一个执行端，同一时刻最多有一个操作在执行。派发命令返回后，持久化控制器继续运行 CLI；checkpoint 收集进展并处理支持的恢复。
-- **恢复监督。** [持久化任务集合](references/protocol.md#persistent-task-sets)保存选中的任务和结果确认状态。[请求收件箱](references/scheduling-updates.md)保存暂时不能执行的指令；登记请求不会启动任务，也不会向运行中的 CLI 插入指令。
+- **恢复监督。** [持久化任务集合](references/supervision.md#persistent-task-sets)保存选中的任务和结果确认状态。[请求收件箱](references/scheduling-updates.md)保存暂时不能执行的指令；登记请求不会启动任务，也不会向运行中的 CLI 插入指令。
 - **保护并行工作。** 仓库管理模式下，并发 CLI 使用隔离 worktree 与独占工作区/分支租约。计划整合另有持久化 claims；handoff 则校验精确的现有工作区。
 - **区分执行与验收。** `SUCCEEDED`、文件/提交交付已核验、测试结果、审查结论和发布状态是不同事实。缺失证据保持未知。可选的输入文件预检能在启动前发现材料缺失，但不能证明内容正确。
 
@@ -158,15 +158,17 @@ MCode 要求 **0.4.9+**。`--model provider/model[#variant]` 选择模型身份�
 
 ## 文档导航
 
-| 文档                                                           | 内容                                        |
-| -------------------------------------------------------------- | ------------------------------------------- |
-| [Agent Skill](SKILL.md)                                        | 主会话职责、派发、监督与续聊                |
-| [CLI 上手示例](references/cli-quickstart.md)                   | 从命令行走通完整任务生命周期                |
-| [Pipeline 公共契约](references/pipelines/common.md)            | 共享执行和验收规则，各 pipeline 规则见上文  |
-| [Runtime 协议](references/protocol.md)                         | 命令、状态、执行契约、请求收件箱与恢复      |
-| [Observer 指南](observer/README.md)                            | 启动、任务绑定、界面行为与隐私边界          |
-| [开发指南](references/development.md)                          | Runtime 结构、构建、测试与兼容性            |
-| [架构图源文件](assets/diagrams/README.md)                      | Archify JSON、SVG 导出、验证记录与本地再生成 |
-| [Python → TypeScript 迁移](references/python-to-typescript.md) | 切换、回滚与共享状态注意事项                |
+| 文档                                                           | 内容                                             |
+| -------------------------------------------------------------- | ------------------------------------------------ |
+| [Agent Skill](SKILL.md)                                        | 主会话职责、派发、监督与续聊                     |
+| [CLI 上手示例](references/cli-quickstart.md)                   | 从命令行走通完整任务生命周期                     |
+| [Pipeline 公共契约](references/pipelines/common.md)            | 共享执行和验收规则，各 pipeline 规则见上文       |
+| [Runtime 协议](references/protocol.md)                         | 结果信封、命令、状态、执行契约与恢复             |
+| [监督参考](references/supervision.md)                          | 持久化任务集合、plan run、工作区占用与请求收件箱 |
+| [Provider 传输层](references/transports.md)                    | Codex CLI/App 与 MCode 的传输行为与配置归属      |
+| [Observer 指南](observer/README.md)                            | 启动、任务绑定、界面行为与隐私边界               |
+| [开发指南](references/development.md)                          | Runtime 结构、构建、测试与兼容性                 |
+| [架构图源文件](assets/diagrams/README.md)                      | Archify JSON、SVG 导出、验证记录与本地再生成     |
+| [Python → TypeScript 迁移](references/python-to-typescript.md) | 切换、回滚与共享状态注意事项                     |
 
 修改任一语言的 README 时，请同步更新另一份。
