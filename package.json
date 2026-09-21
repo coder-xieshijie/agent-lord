@@ -10,6 +10,8 @@
     "build": "pnpm --filter @agent-lord/core build && pnpm --filter agent-lord-observer build",
     "typecheck": "pnpm --filter @agent-lord/core typecheck && pnpm --filter agent-lord-observer typecheck",
     "test": "pnpm --filter @agent-lord/core test && pnpm --filter agent-lord-observer test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "agent-lord": "node core/dist/cli.js",
     "task-store": "node core/dist/task-store.js"
   },
