@@ -132,7 +132,7 @@ Observer 展示任务状态、请求、工具活动、结果和可用的模型�
 
 _截图使用合成的示例数据，当前界面使用中文标签。_
 
-Observer 不派发 prompt，也不推进 pipeline。你显式要求时，它可以在 Orca 或 iTerm 中打开 allowlist 内保存的 CLI 会话。原执行进程会继续运行，执行端可能拒绝或排队处理忙碌期间的新 prompt。详见 [Observer 指南](observer/README.md)。
+Observer 不派发 prompt，也不推进 pipeline。你显式要求时，它可以在 Orca 或 iTerm 中打开 allowlist 内保存的 CLI 会话。原执行进程会继续运行，执行端可能拒绝或排队处理忙碌期间的新 prompt。详见 [Observer 指南](observer/README.zh-CN.md)。
 
 ## 支持的执行端
 
@@ -166,7 +166,7 @@ MCode 要求 **0.4.9+**。`--model provider/model[#variant]` 选择模型身份�
 | [Runtime 协议](references/protocol.md)                         | 结果信封、命令、状态、执行契约与恢复             |
 | [监督参考](references/supervision.md)                          | 持久化任务集合、plan run、工作区占用与请求收件箱 |
 | [Provider 传输层](references/transports.md)                    | Codex CLI/App 与 MCode 的传输行为与配置归属      |
-| [Observer 指南](observer/README.md)                            | 启动、任务绑定、界面行为与隐私边界               |
+| [Observer 指南](observer/README.zh-CN.md)                      | 启动、任务绑定、界面行为与隐私边界               |
 | [开发指南](references/development.md)                          | Runtime 结构、构建、测试与兼容性                 |
 | [架构图源文件](assets/diagrams/README.md)                      | Archify JSON、SVG 导出、验证记录与本地再生成     |
 | [Python → TypeScript 迁移](references/python-to-typescript.md) | 切换、回滚与共享状态注意事项                     |
