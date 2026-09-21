@@ -12,6 +12,7 @@
     "test": "pnpm --filter @agent-lord/core test && pnpm --filter agent-lord-observer test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "docs:check": "node scripts/check-docs.mjs",
     "agent-lord": "node core/dist/cli.js",
     "task-store": "node core/dist/task-store.js"
   },
