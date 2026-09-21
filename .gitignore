@@ -5,3 +5,6 @@ worktrees/
 node_modules/
 dist/
 coverage/
+
+# Locally regenerated diagram viewers are not committed
+assets/diagrams/*.html

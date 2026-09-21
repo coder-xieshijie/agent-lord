@@ -22,11 +22,11 @@ Agent Lord combines a **Skill** that guides the main session, a **CLI runtime** 
 
 ![Agent Lord architecture: caller, runtime, CLI endpoints, Codex App, persistent state, and Observer](assets/diagrams/overview.svg)
 
-[Interactive HTML](assets/diagrams/overview.html) · [Diagram sources and validation](assets/diagrams/README.md)
+[Diagram sources and validation](assets/diagrams/README.md)
 
 The main session owns the graph: roles, dependencies, dispatch, artifact exchange, and acceptance. The runtime freezes execution settings, manages worktrees and leases, saves records, and validates execution and declared delivery. Executors receive concrete assignments; they may use their native tools and subagents but must not invoke Agent Lord recursively.
 
-Codex App tasks use the host's task tools and expose task state to the Observer. Local CLI tasks run through Agent Lord's runtime and expose conversation and tool activity. The diagrams use Chinese labels; each pipeline is described in English below. Download or open the HTML locally to explore it—GitHub displays HTML files as source.
+Codex App tasks use the host's task tools and expose task state to the Observer. Local CLI tasks run through Agent Lord's runtime and expose conversation and tool activity. The diagrams use Chinese labels; each pipeline is described in English below. Interactive HTML viewers can be regenerated locally from the JSON sources — see the [diagram README](assets/diagrams/README.md); they are not committed to the repository.
 
 ## Pipelines
 
@@ -40,7 +40,7 @@ Use this when you want reviewers to challenge each other's findings before an in
 
 ![Cross-review: independent reviews, mutual cross-examination, bounded convergence, and a fresh MCode checker](assets/diagrams/cross-review.svg)
 
-[Interactive HTML](assets/diagrams/cross-review.html) · [Full policy](references/pipelines/cross-review.md)
+[Full policy](references/pipelines/cross-review.md)
 
 1. Pin one repository and the same head/base SHAs for every role. Run the MCode and Codex initial reviews concurrently in separate worktrees; neither sees the other's output.
 2. Exchange their sanitized artifacts and run both cross-exams concurrently. Track agreement separately on evidence, severity, and the smallest complete fix.
@@ -59,7 +59,7 @@ Use this when you already have an implementation plan and want module owners to 
 
 ![Plan-to-implement: verified plan, dependency-ready workers, verified commits, one integrator, and repository PRs](assets/diagrams/plan-to-implement.svg)
 
-[Interactive HTML](assets/diagrams/plan-to-implement.html) · [Full policy](references/pipelines/plan-to-implement.md)
+[Full policy](references/pipelines/plan-to-implement.md)
 
 1. A **planner** produces a module plan from your implementation plan. Each module has ownership, acceptance criteria, non-overlapping write paths, and explicit dependencies. The runtime accepts only a plan delivered by a verified successful planner.
 2. The main session dispatches **every ready module**, without a worker-count cap. Each worker uses its own worktree and branch, stays within its assigned paths, and commits locally. Verified upstream commits unlock dependent modules; the worker stage repeats as dependencies become ready.
@@ -76,7 +76,7 @@ Use this when ongoing work needs a fresh local CLI session with enough context t
 
 ![Handoff: visible context, sanitized packet, pre-dispatch validation, new CLI endpoint, and lineage](assets/diagrams/handoff.svg)
 
-[Interactive HTML](assets/diagrams/handoff.html) · [Full policy](references/pipelines/handoff.md)
+[Full policy](references/pipelines/handoff.md)
 
 The main session writes a sanitized `handoff-v1` packet from its visible context. Before launching, the runtime checks the packet and frozen contract, acquires workspace leases, and fingerprints HEAD plus changed-file contents. The new Claude Code, Codex CLI, or MCode endpoint continues in the **exact existing workspace**, including uncommitted work.
 
@@ -166,7 +166,7 @@ Task state defaults to `~/.codex/state/agent-lord`. Override it with `AGENT_LORD
 | [Runtime protocol](references/protocol.md)                          | Commands, state, execution contracts, request inbox, and recovery       |
 | [Observer guide](observer/README.md)                                | Setup, task binding, UI behavior, and privacy boundaries                |
 | [Development guide](references/development.md)                      | Runtime structure, build, tests, and compatibility                      |
-| [Diagram sources](assets/diagrams/README.md)                        | Archify specifications, interactive HTML, SVG exports, and validation   |
+| [Diagram sources](assets/diagrams/README.md)                        | Archify specifications, SVG exports, validation, and local viewer regeneration |
 | [Python → TypeScript migration](references/python-to-typescript.md) | Cutover, rollback, and shared-state precautions                         |
 
 When changing either README, update the other language in the same change.
