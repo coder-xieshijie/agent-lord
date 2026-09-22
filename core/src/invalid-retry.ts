@@ -469,6 +469,15 @@ export async function retryResultInvalid(
           workspace.policy as StartOptions["workspace_policy"];
         if (string(workspace.workspace_branch))
           startOpts.workspace_branch = String(workspace.workspace_branch);
+        if (!contract.read_only) {
+          // The stopped writer may have committed legitimate progress on the
+          // frozen managed branch; the replacement adopts it as a verified
+          // descendant instead of failing the exact-head check, and keeps
+          // the lineage root's delivery base so that progress still counts.
+          startOpts.takeover = true;
+          if (string(delivery?.base_head))
+            startOpts.delivery_base_head = delivery!.base_head;
+        }
       }
       envelope = await host.start(
         attempt.task_id,

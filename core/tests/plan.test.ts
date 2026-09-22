@@ -347,6 +347,39 @@ describe("plan validation rules", () => {
       }),
     ],
     [
+      "owned paths that only overlap after normalization",
+      (repo: string) => ({
+        modules: [
+          moduleNode("alpha", repo, { owned_paths: ["./src/core/"] }),
+          moduleNode("beta", repo, { owned_paths: ["src/./core/auth"] }),
+        ],
+      }),
+    ],
+    [
+      "a repository-root owned path",
+      (repo: string) => ({
+        modules: [moduleNode("alpha", repo, { owned_paths: ["./"] })],
+      }),
+    ],
+    [
+      "a dot owned path",
+      (repo: string) => ({
+        modules: [moduleNode("alpha", repo, { owned_paths: ["."] })],
+      }),
+    ],
+    [
+      "an owned path escaping the repository",
+      (repo: string) => ({
+        modules: [moduleNode("alpha", repo, { owned_paths: ["src/../.."] })],
+      }),
+    ],
+    [
+      "an absolute owned path",
+      (repo: string) => ({
+        modules: [moduleNode("alpha", repo, { owned_paths: ["/src/core"] })],
+      }),
+    ],
+    [
       "a duplicate module_id",
       (repo: string) => ({
         modules: [moduleNode("alpha", repo), moduleNode("alpha", repo)],

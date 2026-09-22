@@ -45,10 +45,14 @@ node core/dist/cli.js plan-create --run-id feature-x \
 ```bash
 node core/dist/cli.js plan-status --run-id feature-x
 node core/dist/cli.js plan-dispatch --run-id feature-x --module-id auth-core \
-  --task-id feature-x-auth-core --provider mcode-cli --model "$MODEL" --effort "$EFFORT"
+  --task-id feature-x-auth-core --provider mcode-cli --model "$MODEL"
+node core/dist/cli.js start --task-id feature-x-auth-core --provider mcode-cli \
+  --model "$MODEL" --effort "$EFFORT" --workspace-branch feature-x/auth-core \
+  --message-file /tmp/run/auth-core-prompt.md \
+  --invocation-file /tmp/run/auth-core-invocation.json --include-response
 ```
 
-Run `plan-dispatch` first, then `start`. The runtime fills in the repository, source, workspace policy, and commit requirement from the registered role; explicit arguments that conflict with the plan are rejected, and each worker must still supply its own `--workspace-branch`. Dependency barriers, task binding, and observer grouping stay within this run. Legacy records that ran `start` before registration remain readable, but completion equally requires a valid commit delivery.
+Run `plan-dispatch` first, then `start`. `plan-dispatch` records only the provider and model against the barrier — it accepts no `--effort`; pass effort on `start`, which freezes it. The runtime fills in the repository, source, workspace policy, and commit requirement from the registered role; explicit arguments that conflict with the plan are rejected, and each worker must still supply its own `--workspace-branch`. Dependency barriers, task binding, and observer grouping stay within this run. Legacy records that ran `start` before registration remain readable, but completion equally requires a valid commit delivery.
 
 CLI `start` / `turn` return a `RUNNING` dispatch receipt while a detached controller keeps holding the execution and write leases. Collect terminal state with `checkpoint --run-id ... --include-response`; a wait command ending or timing out does not mean execution failed and does not terminate the controller. When a controller is genuinely gone, follow checkpoint's recovery and process-identity verification.
 

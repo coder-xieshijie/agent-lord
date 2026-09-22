@@ -5,6 +5,7 @@ import { type Data, type Envelope } from "../src/contracts.js";
 import { AgentLord } from "../src/engine.js";
 import { RequestInbox } from "../src/requests.js";
 import { main } from "../src/cli.js";
+import { recordLock } from "../src/state.js";
 import { harness, operation, waitFor } from "./helpers.js";
 
 let h: ReturnType<typeof harness>;
@@ -290,6 +291,32 @@ describe("passive request inbox", () => {
     // Filtering never hides a record from an explicit read.
     expect(record(inbox().get("req-b")).status).toBe("pending");
     expect(inbox().list().requests).toHaveLength(2);
+  });
+  it("request locks never collide with a task or operation sharing the id", () => {
+    register({ request_id: "shared-id" });
+    // A task record with the same id holds its (id-keyed) lock; the request
+    // must keep its own lease namespace instead of reporting STATE_BUSY.
+    const lease = recordLock("task", "shared-id", h.lord.root);
+    try {
+      expect(record(inbox().get("shared-id")).status).toBe("pending");
+      expect(inbox().list().requests).toHaveLength(1);
+    } finally {
+      lease.release();
+    }
+  });
+  it("list binds each request to its newest journaled operation", async () => {
+    register();
+    journalFor("req-1", { operation_id: "op-old", status: "failed" });
+    journalFor("req-1", { operation_id: "op-new", status: "succeeded" });
+    const listed = inbox().list().requests as Data[];
+    expect(listed).toHaveLength(1);
+    // The single-scan lookup must agree with operationForRequest's
+    // newest-match rule and with an explicit read.
+    expect(listed[0]).toMatchObject({
+      status: "dispatched",
+      operation_id: "op-new",
+    });
+    expect(record(inbox().get("req-1")).operation_id).toBe("op-new");
   });
   it("refuses a corrupt or unknown request record", () => {
     expect(() => inbox().get("missing")).toThrow(

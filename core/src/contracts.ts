@@ -289,6 +289,17 @@ export interface StartOptions {
   require_commit?: boolean;
   /** Set only by the request inbox, so the operation carries its origin. */
   request_id?: string;
+  /**
+   * Internal, set only by the scripted replacement dispatcher: the stopped
+   * predecessor may have committed legitimate progress on the frozen managed
+   * branch, so the checkout may sit ahead of `head_sha` as long as it is a
+   * verified descendant on that branch. Never exposed through the CLI or the
+   * request inbox.
+   */
+  takeover?: boolean;
+  /** Internal companion to `takeover`: keep the lineage root's delivery
+   * base_head so adopted commits still count as delivery. */
+  delivery_base_head?: string | null;
 }
 export function object(value: unknown): Data {
   return value !== null && typeof value === "object" && !Array.isArray(value)

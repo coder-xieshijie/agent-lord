@@ -172,6 +172,27 @@ function normalizeOwnedPath(value: string): string {
   const normalized = path.posix.normalize(value.replaceAll("\\", "/"));
   return normalized.replace(/^\.\//u, "").replace(/\/+$/u, "");
 }
+/**
+ * An owned path must stay a plain relative path inside the repository after
+ * normalization. The repository root (`.`, `./`, empty) and `..` escapes are
+ * rejected outright: they would silently bypass the pairwise overlap check
+ * instead of declaring ownership of everything.
+ */
+function ownedPath(value: string, module_id: string): string {
+  const normalized = normalizeOwnedPath(value);
+  if (
+    !normalized ||
+    normalized === "." ||
+    normalized === ".." ||
+    normalized.startsWith("../") ||
+    path.posix.isAbsolute(normalized)
+  )
+    throw planError(
+      "owned_paths must be relative paths inside the repository; to own everything, list explicit top-level paths",
+      { module_id, owned_path: value },
+    );
+  return normalized;
+}
 function overlaps(a: string, b: string): boolean {
   return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
 }
@@ -247,7 +268,7 @@ export function validatePlan(value: unknown): ImplementationPlan {
       });
     const owned_paths = strings(raw.owned_paths)
       .filter(Boolean)
-      .map(normalizeOwnedPath);
+      .map((value) => ownedPath(value, module_id));
     if (!owned_paths.length)
       throw planError(
         "each module needs owned_paths so write ownership is explicit",

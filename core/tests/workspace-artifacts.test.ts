@@ -1,8 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  mkdirSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { object, type Data } from "../src/contracts.js";
 import { deliveryRequirements, verifyDelivery } from "../src/delivery.js";
+import { retryResultInvalid } from "../src/invalid-retry.js";
 import {
   extractCodexResult,
   extractJsonlWithMetadata,
@@ -69,6 +77,83 @@ describe("source checkout and write ownership", () => {
       code: "SOURCE_MISMATCH",
     });
     expect(h.calls()).toHaveLength(2);
+  });
+  it("an authorized replacement adopts committed progress on the managed branch", async () => {
+    const head = h.initGit();
+    h.options({ missingTerminal: true });
+    await expect(
+      h.lord.start("original", "claude-cli", null, "authorized work", {
+        repository: h.target,
+        source_branch: "feat/source",
+        workspace_policy: "reuse-or-create",
+        head_sha: head,
+        require_commit: true,
+      }),
+    ).rejects.toMatchObject({ code: "RESULT_INVALID" });
+    const failed = h.lord.store.operations("original")[0]!;
+    expect(failed.delivery_requirements).toMatchObject({ base_head: head });
+    const worktree = failed.target;
+    const wgit = (args: string[]) => {
+      const result = spawnSync(
+        "git",
+        ["-C", worktree, "-c", "core.hooksPath=/dev/null", ...args],
+        { encoding: "utf8" },
+      );
+      if (result.status !== 0) throw new Error(result.stderr);
+      return result.stdout.trim();
+    };
+    h.options({});
+    // Takeover never adopts uncommitted progress.
+    writeFileSync(path.join(worktree, "tracked.txt"), "progress\n");
+    await expect(
+      retryResultInvalid(h.lord, "original", failed.operation_id, {
+        replacement_task_id: "replacement",
+      }),
+    ).rejects.toMatchObject({ code: "SOURCE_MISMATCH" });
+    // The stopped writer left legitimate committed progress on the frozen
+    // managed branch before it died.
+    wgit(["commit", "-qam", "progress"]);
+    const advanced = wgit(["rev-parse", "HEAD"]);
+    // A rewritten branch that no longer descends from the frozen head is
+    // rejected, never adopted.
+    wgit(["checkout", "-q", "--orphan", "rewrite"]);
+    wgit(["commit", "-qam", "rewrite"]);
+    wgit(["branch", "-qf", "feat/source"]);
+    wgit(["checkout", "-q", "feat/source"]);
+    await expect(
+      retryResultInvalid(h.lord, "original", failed.operation_id, {
+        replacement_task_id: "replacement",
+      }),
+    ).rejects.toMatchObject({ code: "SOURCE_MISMATCH" });
+    wgit(["reset", "-q", "--hard", advanced]);
+    const replacement = await retryResultInvalid(
+      h.lord,
+      "original",
+      failed.operation_id,
+      { replacement_task_id: "replacement" },
+    );
+    expect(replacement.status).toBe("SUCCEEDED");
+    // The frozen source identity survives; the verified advance sits beside it.
+    expect(h.lord.store.task("replacement").contract.source).toMatchObject({
+      head_sha: head,
+      verified_head_sha: advanced,
+    });
+    const op = h.lord.store.operation(String(replacement.operation_id));
+    expect(op.source).toMatchObject({
+      head_sha: head,
+      verified_head_sha: advanced,
+    });
+    // The lineage root's delivery base survives the takeover, so the adopted
+    // commit already counts as this lineage's delivery.
+    expect(op.delivery_requirements).toMatchObject({
+      require_commit: true,
+      base_head: head,
+    });
+    expect(op.delivery?.status).toBe("verified");
+    expect(op.delivery?.commit_sha).toBe(advanced);
+    expect(
+      readFileSync(path.join(h.root, "events", "replacement.jsonl"), "utf8"),
+    ).toContain("source-head-advanced");
   });
   it("read-only tasks still require their frozen source head after a commit", async () => {
     const head = h.initGit();
@@ -313,6 +398,11 @@ describe("delivery and artifact boundaries", () => {
       effort: "high",
     });
     const file = path.join(h.base, "claude.jsonl");
+    const prompt = {
+      type: "user",
+      sessionId: first.endpoint_id,
+      message: { role: "user", content: [{ type: "text", text: "work" }] },
+    };
     const entry = {
       type: "assistant",
       sessionId: first.endpoint_id,
@@ -325,7 +415,10 @@ describe("delivery and artifact boundaries", () => {
         ],
       },
     };
-    writeFileSync(file, JSON.stringify(entry));
+    writeFileSync(
+      file,
+      [prompt, entry].map((v) => JSON.stringify(v)).join("\n"),
+    );
     const result = h.lord.exportArtifact(
       "task",
       first.operation_id!,
@@ -344,6 +437,131 @@ describe("delivery and artifact boundaries", () => {
     expect(() =>
       h.lord.exportArtifact("task", first.operation_id!, file, "claude-jsonl"),
     ).toThrow(/requested session/);
+  });
+  it("Claude export stays inside the operation's turn in a shared session", async () => {
+    const first = await h.lord.start("task", "claude-cli", h.target, "work", {
+      model: "claude-opus-5",
+    });
+    const s = first.endpoint_id;
+    const user = (text: string, extra: Data = {}) => ({
+      type: "user",
+      sessionId: s,
+      message: { role: "user", content: [{ type: "text", text }] },
+      ...extra,
+    });
+    const assistant = (text: string, extra: Data = {}) => ({
+      type: "assistant",
+      sessionId: s,
+      message: {
+        role: "assistant",
+        model: "claude-opus-5",
+        content: [{ type: "text", text }],
+      },
+      ...extra,
+    });
+    const toolResult = {
+      type: "user",
+      sessionId: s,
+      message: {
+        role: "user",
+        content: [{ type: "tool_result", content: "tool output" }],
+      },
+    };
+    const file = path.join(h.base, "claude-serial.jsonl");
+    const records = [
+      user("earlier unrelated request"),
+      assistant("earlier answer"),
+      user("work"), // this operation's prompt anchors its window
+      toolResult, // tool results never close the window
+      user("sidechain prompt", { isSidechain: true }),
+      assistant("sidechain answer", { isSidechain: true }),
+      assistant("our final answer"),
+      user("later unrelated request"), // closes the window
+      assistant("later answer"),
+    ];
+    writeFileSync(file, records.map((v) => JSON.stringify(v)).join("\n"));
+    const result = h.lord.exportArtifact(
+      "task",
+      first.operation_id!,
+      file,
+      "claude-jsonl",
+    );
+    expect(readFileSync(result.artifact!.path, "utf8")).toBe(
+      "our final answer\n",
+    );
+    // A recovery continuation reopens the window for the same operation.
+    records.push(
+      user(
+        `[agent-lord-recovery:${first.operation_id}:2]\nContinue the same task.`,
+      ),
+      assistant("recovered final answer"),
+    );
+    writeFileSync(file, records.map((v) => JSON.stringify(v)).join("\n"));
+    const recovered = h.lord.exportArtifact(
+      "task",
+      first.operation_id!,
+      file,
+      "claude-jsonl",
+    );
+    expect(readFileSync(recovered.artifact!.path, "utf8")).toBe(
+      "recovered final answer\n",
+    );
+    // A session that never contains this operation's prompt proves nothing.
+    const unbound = path.join(h.base, "claude-unbound.jsonl");
+    writeFileSync(
+      unbound,
+      [user("someone else's request"), assistant("someone else's answer")]
+        .map((v) => JSON.stringify(v))
+        .join("\n"),
+    );
+    expect(() =>
+      h.lord.exportArtifact(
+        "task",
+        first.operation_id!,
+        unbound,
+        "claude-jsonl",
+      ),
+    ).toThrow(/no user record binding/);
+  });
+  it("codex export ignores turns after the marked operation", async () => {
+    const first = await h.lord.start("task", "codex", h.target, "work", {
+      model: "gpt-5.6-sol",
+      effort: "high",
+    });
+    const file = codexLog(first.operation_id!);
+    const later = [
+      {
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "next unrelated prompt" }],
+        },
+      },
+      // Metadata from the later turn must not leak into this export either.
+      {
+        type: "turn_context",
+        payload: { model: "other-model", effort: "low" },
+      },
+      {
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: "later turn answer" }],
+        },
+      },
+    ];
+    appendFileSync(file, `\n${later.map((v) => JSON.stringify(v)).join("\n")}`);
+    const result = h.lord.exportArtifact(
+      "task",
+      first.operation_id!,
+      file,
+      "codex-jsonl",
+    );
+    expect(readFileSync(result.artifact!.path, "utf8")).toBe(
+      "exported final\n",
+    );
   });
   it("MCode auxiliary import is refused without invalidating success", async () => {
     const first = await h.lord.start("task", "mcode", h.target, "work", {

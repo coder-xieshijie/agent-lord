@@ -4,11 +4,11 @@ Transport-level behavior of the Codex CLI, Codex App, and MCode adapters. Envelo
 
 ## Codex transports
 
-Codex CLI is the default Codex transport. It runs non-interactively, extracts the endpoint from `thread.started`, and resumes only by the exact saved session UUID. The operation marker remains in the prompt so an exported rollout can be tied to one operation.
+Codex CLI is the default Codex transport. It runs `codex exec --json` non-interactively, stores `thread.started.thread_id` as the endpoint identity, publishes only `--output-last-message`, and continues through `codex exec resume <session-id>` while reapplying the frozen model, effort, and permissions. `--read-only` applies explicit sandbox and approval config arguments. The operation marker remains in the prompt so an exported rollout can be tied to one operation.
 
 ### Codex App transport seam
 
-The current adapter emits model-mediated actions because no verified shell bridge owns the same Desktop-visible endpoint lifecycle. Tool results may be JSON objects, JSON strings, or plain errors; `accept` unwraps and classifies them.
+The current adapter emits model-mediated actions because no verified shell bridge owns the same Desktop-visible endpoint lifecycle. Tool results may be JSON objects, JSON strings, or plain errors; `accept` unwraps and classifies them. The adapter uses only the supported minimal `list_threads` arguments, treats `threadId` as endpoint identity and `hostId` as mutable routing, and rebinds the same thread before retrying a route-stale send.
 
 The route-recovery sequence is deterministic:
 
@@ -28,7 +28,7 @@ App routing is independent of the CLI session namespace. Never migrate an existi
 
 ## MCode Exec transport
 
-The first phase is the non-interactive `mcode exec` adapter; ACP history, steer, queue, delegation, and long-lived control are outside this transport. The binary honors `AGENT_LORD_MCODE_BIN`. Each operation invokes `--input -`, the exact `--cwd`, frozen `--model`, `--permission full`, `--output-format stream-json`, and an operation-specific `--output-last-message`; later turns add only the saved `--session` and never use `--continue`.
+MCode 0.4.9 or newer is required for the effort contract. The first phase is the non-interactive `mcode exec` adapter; ACP history, steer, queue, delegation, and long-lived control are outside this transport. The binary honors `AGENT_LORD_MCODE_BIN`. Each operation invokes `--input -`, the exact `--cwd`, frozen `--model`, `--permission full`, `--output-format stream-json`, and an operation-specific `--output-last-message`; later turns add only the saved `--session` and never use `--continue`.
 
 Every non-empty stream record must be a supported `schemaVersion=1` event with contiguous sequence and one consistent Run/Session/Turn tuple. Success requires exit zero, exactly one final `exec.completed`, a schema-version-1 `exec.result` with `status=succeeded`, matching Turn terminal and model metadata, any explicit variant, and a fresh final file equal to `output`. String output compares literally; structured output compares with the parsed JSON file value. The only accepted non-success statuses are `failed`, `timeout`, `cancelled`, and `limit_exceeded`; unknown statuses are protocol errors. Artifacts contain only the verified final file.
 

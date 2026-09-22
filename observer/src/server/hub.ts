@@ -21,7 +21,7 @@ import {
   defaultStateDir,
   fileMtimeMs,
   journalPath,
-  listOperations,
+  listOperationsByTask,
   pidAlive,
   readCompleteLines,
   readTaskRecord,
@@ -341,9 +341,12 @@ export class Hub {
             "run membership could not be read; retained last verified members";
         }
       }
+      // One directory scan per cycle; every task (terminal ones included, so
+      // late artifact/journal updates stay visible) reads its own group.
+      const operationsByTask = listOperationsByTask(this.root);
       for (const state of this.tasks.values()) {
         try {
-          this.refreshTask(state);
+          this.refreshTask(state, operationsByTask.get(state.taskId) ?? []);
         } catch {
           // A single broken task must not stall the others.
         }
@@ -353,13 +356,20 @@ export class Hub {
     }
   }
 
-  private refreshTask(state: TaskState): void {
+  private refreshTask(state: TaskState, operations: OperationRecord[]): void {
     const task = readTaskRecord(this.root, state.taskId);
-    const operations = listOperations(this.root, state.taskId);
 
     // 1. Journal: read new complete lines, split pre/post.
     const journal = journalPath(this.root, state.taskId);
     const tail = readCompleteLines(journal, state.journalOffset);
+    if (tail.skippedOversized) {
+      state.timeline.upsert({
+        id: `journal/notice/oversized/${tail.offset}`,
+        kind: "notice",
+        text: "控制平面 journal 中出现超过单次读取上限（4MiB）的超长行，该行已被跳过",
+        ord: 0,
+      });
+    }
     if (tail.truncated) {
       state.journalOffset = tail.offset;
       state.timeline.upsert({
@@ -524,6 +534,14 @@ export class Hub {
     }
     if (!reader.projector) return;
     const tail = readCompleteLines(reader.file, reader.offset);
+    if (tail.skippedOversized) {
+      state.timeline.upsert({
+        id: `notice/oversized/${operation.operationId}/${tail.offset}`,
+        kind: "notice",
+        text: `操作 ${clipTitle(operation.operationId)} 的输出中有超过单次读取上限（4MiB）的超长行，该行已被跳过`,
+        ord: 0,
+      });
+    }
     if (tail.truncated) {
       state.timeline.upsert({
         id: `notice/shrunk/${operation.operationId}/${tail.offset}`,

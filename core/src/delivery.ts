@@ -30,6 +30,9 @@ export function deliveryRequirements(
   target: string,
   files?: string[],
   commit = false,
+  /** Takeover replacements pin the lineage root's base commit instead of the
+   * (possibly advanced) current HEAD, so adopted progress counts. */
+  baseHead?: string | null,
 ): DeliveryRequirements | null {
   if (!files?.length && !commit) return null;
   const base = resolvePath(target);
@@ -57,7 +60,7 @@ export function deliveryRequirements(
   return {
     files: normalizedFiles(files),
     require_commit: commit,
-    base_head: head,
+    base_head: commit && baseHead ? baseHead : head,
   };
 }
 export function verifyDelivery(op: Operation): Delivery {

@@ -36,6 +36,8 @@ import { sameDeliveryRequest, verifyDelivery } from "../delivery.js";
 import { writeArtifact } from "../artifacts.js";
 import type { AgentLord } from "../engine.js";
 
+const frozenSource = ({ verified_head_sha: _, ...rest }: Source): Source =>
+  rest;
 export class OperationKernel {
   constructor(private readonly engine: AgentLord) {}
   operationId(taskId: string, kind: string): string {
@@ -305,7 +307,9 @@ export class OperationKernel {
       op.target === target &&
       op.message_sha256 === sha256(message) &&
       equal(op.expected, expected) &&
-      equal(op.source, source) &&
+      // verified_head_sha is a checkout observation, not contract identity;
+      // an idempotent replay must match the frozen source it asked for.
+      equal(frozenSource(op.source), frozenSource(source)) &&
       op.read_only === readOnly &&
       (object(op.workflow).run_id ?? undefined) === opts.workflow_run_id &&
       equal(op.workspace ?? {}, workspace ?? {}) &&

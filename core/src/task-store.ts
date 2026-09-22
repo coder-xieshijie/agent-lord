@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { pathToFileURL } from "node:url";
+import { isMainEntrypoint } from "./entrypoint.js";
 import { type Task } from "./contracts.js";
 import {
   normalizeProvider,
@@ -166,5 +166,4 @@ export function main(
     return error.exit_code;
   }
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
-  process.exitCode = main();
+if (isMainEntrypoint(import.meta.url)) process.exitCode = main();

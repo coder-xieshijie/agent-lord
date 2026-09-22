@@ -40,6 +40,24 @@ interface TaskSet {
   nodes?: Record<string, WorkflowNode>;
   reported?: ReportState;
 }
+/**
+ * Checkpoint responses repeat every task each round, so the node keeps its
+ * provenance identity (role, source kind, replacement task) but drops the
+ * free-text reference; pipeline references stay because they are short
+ * enumerated names. `run-status` and the stored record keep full provenance.
+ */
+function compactNode(node: WorkflowNode): Data {
+  return {
+    role: node.role,
+    source: {
+      kind: node.source.kind,
+      ...(node.source.kind === "pipeline"
+        ? { reference: node.source.reference }
+        : {}),
+      ...(node.source.task_id ? { task_id: node.source.task_id } : {}),
+    },
+  };
+}
 /** Passive task membership and explicit result acknowledgements; never dispatches work. */
 export class TaskSets {
   constructor(private readonly lord: AgentLord) {}
@@ -150,8 +168,19 @@ export class TaskSets {
     return this.status(id);
   }
   status(id: string): Envelope {
-    const record = this.read(id);
-    const scan = new CheckpointScan(this.lord.store);
+    return {
+      version: 1,
+      status: "RUN_RECORD",
+      run: this.runOf(this.read(id), new CheckpointScan(this.lord.store)),
+    };
+  }
+  /**
+   * Build the run view from an already-owned scan. A repeated tick is cheap —
+   * the scan re-parses only files whose stats changed — so checkpoint reuses
+   * its supervision scan and still reports post-supervision freshness.
+   */
+  private runOf(record: TaskSet, scan: CheckpointScan, compact = false): Data {
+    const id = record.run_id;
     scan.tick(record.task_ids);
     const latest = new Map(
       scan.latest(record.task_ids).map((op) => [op.task_id, op]),
@@ -165,6 +194,7 @@ export class TaskSets {
       const receipt = key
         ? record.receipts[sha256(`${id}\0${key}`)]
         : undefined;
+      const node = record.nodes?.[task_id] ?? null;
       return {
         task_id,
         operation_id: op?.operation_id ?? null,
@@ -176,24 +206,18 @@ export class TaskSets {
           ? (scan.action(op.operation_id)?.action_id ?? null)
           : null,
         error_code: op?.error?.code ?? null,
-        node: record.nodes?.[task_id] ?? null,
-        provenance_status: record.nodes?.[task_id]
-          ? "caller-declared"
-          : "unavailable",
+        node: node && compact ? compactNode(node) : node,
+        provenance_status: node ? "caller-declared" : "unavailable",
       };
     });
     return {
-      version: 1,
-      status: "RUN_RECORD",
-      run: {
-        run_id: id,
-        task_ids: record.task_ids,
-        tasks,
-        all_terminal: tasks.every((t) => TERMINAL_STATES.has(t.status)),
-        all_results_acknowledged: tasks.every(
-          (t) => TERMINAL_STATES.has(t.status) && t.acknowledged,
-        ),
-      },
+      run_id: id,
+      task_ids: record.task_ids,
+      tasks,
+      all_terminal: tasks.every((t) => TERMINAL_STATES.has(t.status)),
+      all_results_acknowledged: tasks.every(
+        (t) => TERMINAL_STATES.has(t.status) && t.acknowledged,
+      ),
     };
   }
   ack(id: string, receipt: string): Envelope {
@@ -221,12 +245,14 @@ export class TaskSets {
         .filter((r) => r.acknowledged)
         .map((r) => r.result_key),
     );
+    const scan = new CheckpointScan(this.lord.store);
     // Members may be registered before dispatch; checkpoint still supervises known ones.
     const [result, quiet] = await this.lord.checkpoint(
       undefined,
       seconds,
       record.task_ids,
       consumed,
+      scan,
     );
     if (result.actionable?.some((e) => typeof e.result_key === "string")) {
       withLock("task-set", id, this.lord.root, () => {
@@ -245,7 +271,7 @@ export class TaskSets {
         this.persist(current);
       });
     }
-    result.run = this.status(id).run as Data;
+    result.run = this.runOf(this.read(id), scan, true);
     withLock("task-set", id, this.lord.root, () => {
       const current = this.read(id);
       const { next, reporting } = reportChanges(

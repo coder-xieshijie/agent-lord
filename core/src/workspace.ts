@@ -273,6 +273,10 @@ export class WorkspaceManager {
     policy: string,
     workspaceBranch: string | undefined,
     existing: boolean,
+    /** A replacement adopting its stopped predecessor's committed progress:
+     * the branch may sit ahead of the frozen head; the caller must verify
+     * the advance with `verifyManagedAdvance` before trusting it. */
+    takeover = false,
   ): string {
     const branch = policy === "isolated" ? workspaceBranch! : sourceBranch;
     if (!existing) {
@@ -285,7 +289,7 @@ export class WorkspaceManager {
       mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
       const local = refHead(repository, `refs/heads/${branch}`);
       let args: string[];
-      if (local && local !== head)
+      if (local && local !== head && !takeover)
         throw new AgentLordError(
           "SOURCE_MISMATCH",
           "local checkout branch is not at the requested fixed head",
@@ -356,7 +360,7 @@ export class WorkspaceManager {
         { details: { target } },
       );
     const observed = refHead(target, "HEAD");
-    if (observed !== head)
+    if (observed !== head && !takeover)
       throw new AgentLordError(
         "SOURCE_MISMATCH",
         "source worktree is not at the requested fixed head",

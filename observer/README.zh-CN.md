@@ -128,8 +128,10 @@ shell 转义。
 任务头部常驻显示调度模型的末段名称与请求推理档位（如 `claude-opus-5` 与 `xhigh`），
 完整 provider 路由只保留在悬浮提示与详情里，避免长路由挤占头部；未记录时不显示，也不推测运行端值。
 
-详情完整展示请求模型、实际模型、推理档位和核验来源。MCode 的 xhigh 是 variant，
-不是独立 effort；Codex 只有参数约束证据时，实际模型仍显示未回报。Claude fallback 显示实际模型。
+详情完整展示请求模型、实际模型、推理档位和核验来源。推理档位（effort）是独立的、
+由启动参数强制（argument-enforced）的启动配置，不属于模型名的一部分；`#variant` 后缀属于
+模型身份（model identity），且 schema-v1 的终态汇报不回传 effort。
+Codex 只有参数约束证据时，实际模型仍显示未回报。Claude fallback 显示实际模型。
 最初调度者与本轮调用者分别来自首次和当前 operation.invocation，缺失时标为未记录。
 
 每轮先显示用户原始请求（有记录时）、实际派发请求，再显示执行端输出。调度方补充和故障恢复

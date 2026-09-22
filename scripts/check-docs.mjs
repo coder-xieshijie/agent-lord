@@ -23,8 +23,8 @@ const files = execFileSync("git", ["ls-files", "-z", "--", "*.md"], {
   .split("\0")
   .filter(Boolean);
 
-/** Strip fenced code blocks and inline code spans, preserving line count. */
-function stripCode(text) {
+/** Strip fenced code blocks, preserving line count. */
+function stripFences(text) {
   const lines = text.split("\n");
   let fence = null;
   const kept = lines.map((line) => {
@@ -38,9 +38,17 @@ function stripCode(text) {
       fence = open[1];
       return "";
     }
-    return line.replace(/`[^`]*`/g, (m) => " ".repeat(m.length));
+    return line;
   });
   return kept.join("\n");
+}
+
+/** Strip fenced code blocks and inline code spans, preserving line count. */
+function stripCode(text) {
+  return stripFences(text)
+    .split("\n")
+    .map((line) => line.replace(/`[^`]*`/g, (m) => " ".repeat(m.length)))
+    .join("\n");
 }
 
 /** GitHub anchor slug for a heading line's text. */
@@ -50,6 +58,8 @@ function slugify(heading) {
     .replace(/[*_]{1,3}([^*_]+)[*_]{1,3}/g, "$1") // emphasis -> text
     .trim()
     .toLowerCase();
+  // Like GitHub's slugger, `code` spans lose the backticks but keep their
+  // text (the backtick falls to the character filter below).
   return text.replace(/[^\p{L}\p{N}\p{M}\s_-]/gu, "").replace(/\s/g, "-");
 }
 
@@ -57,7 +67,9 @@ function slugify(heading) {
 function anchorsOf(text) {
   const seen = new Map();
   const anchors = new Set();
-  for (const line of stripCode(text).split("\n")) {
+  // Fence-stripped only: heading text must keep inline-code text so the
+  // slug matches GitHub's anchor for headings like `## \`check\` versus …`.
+  for (const line of stripFences(text).split("\n")) {
     const m = line.match(/^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/);
     if (!m) continue;
     const slug = slugify(m[2]);
