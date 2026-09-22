@@ -95,7 +95,7 @@ export class TaskSets {
       raw.nodes = mergeWorkflowNodes(
         raw.task_ids as string[],
         undefined,
-        workflowNodes(raw.nodes),
+        workflowNodes(raw.nodes, { stored: true }),
       );
     for (const [token, value] of Object.entries(raw.receipts)) {
       if (

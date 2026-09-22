@@ -6,6 +6,8 @@ Every step below belongs to the originating [scheduling caller](../../SKILL.md#s
 
 User-facing explanations and reports follow the shared [explain-as-fool rules](../explain-as-fool.md). Pass this bundled reference or its wording to the authoring endpoint; each named pipeline defines its report content and delivery requirements.
 
+Use the bundled rule files selected by the pipeline, with the upstream revision recorded in [skill-rules.json](../skill-rules.json). Include their actual content hashes in the run's input versions and ensure every relevant endpoint can read them. Keep that rule version for later turns and replacements; do not refresh it during an active run. These are content standards, not permission to add roles or outputs. Review audits stay in the run artifacts unless repository publication of those records is requested.
+
 ## Resolve the contract before dispatch
 
 Write one compact run manifest per user-defined workflow outside the target repository. One scheduling session can manage multiple independent runs; apply [tasks added during execution](../../SKILL.md#tasks-added-during-execution) when the user adds work later, and register an addition you cannot dispatch yet in the [request inbox](../../SKILL.md#deferred-instruction-inbox) so it is not lost with the conversation context.
@@ -29,7 +31,7 @@ For ordinary task sets, persist these role sources with `run-create --nodes-file
 2. Hold each downstream barrier until all required upstream artifacts are terminal and validated.
 3. Exchange sanitized final artifacts. Never pass raw logs, hidden reasoning, or an unverified summary of another endpoint's result.
 4. Prefer `turn` on the saved task for later rounds. When replacement is necessary, transfer the current round and progress under the replacement policy; a fresh session does not restart the graph or its bounds.
-5. Never bypass repository/source validation with a manually prepared worktree plus `--target`. Let the runtime create or reuse the contract workspace. The single documented exception is the exact-target dirty continuation in [handoff.md](handoff.md), where the runtime itself fingerprints the workspace under its write lease.
+5. Never bypass repository/source validation with a manually prepared worktree plus `--target`. Let the runtime create or reuse the contract workspace. An authorized exact-target dirty continuation uses the [legacy handoff command](../protocol.md#legacy-handoff-command), where the runtime itself fingerprints the workspace under its write lease; this is not a named pipeline.
 
 ## Supervise and recover
 

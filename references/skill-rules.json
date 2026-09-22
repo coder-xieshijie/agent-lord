@@ -1,0 +1,24 @@
+{
+  "repository": "https://github.com/coder-xieshijie/dev-skills",
+  "revision": "be19ce4fdfc64d948698f3b2d7cc064985b52d2b",
+  "files": [
+    {
+      "source": "skills/explain-as-fool/SKILL.md",
+      "target": "references/explain-as-fool.md",
+      "source_sha256": "ed41f1926f5b5f60a664e8bbd2c975df541af5006d7f59377591fe9dc4b1269d",
+      "sha256": "1961b48a1fbecb9dadcaa6b34a4f8dfcfff58b7f7a49bd63a7cab6a7c04815e7"
+    },
+    {
+      "source": "skills/review-rules/SKILL.md",
+      "target": "references/review-rules.md",
+      "source_sha256": "b646624f4f34c4bd48b2c128c7e6e97d5b5185929064576640e4bd7ddcfc0f12",
+      "sha256": "749124e37d87331337787be2ccdfe20ba6bd87851115190e829f88935d2a36a0"
+    },
+    {
+      "source": "skills/plan-for-agents/SKILL.md",
+      "target": "references/plan-for-agents.md",
+      "source_sha256": "e0e47799936914baf04057886289f00da21ad8b26e32be5cd3e68c0749b986b0",
+      "sha256": "8b45ef8bfcb02597d7001b1b825f70d12b865c7bf31a1d45b644ef16d9f99148"
+    }
+  ]
+}

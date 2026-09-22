@@ -125,7 +125,18 @@ Current state comes from task, operation, and provider truth. `events/*.jsonl` i
 
 Task handles follow `schemas/task-v2.schema.json`. Version 1 records are normalized for inspection, but another turn is blocked until `node core/dist/task-store.js upgrade` attaches an explicit model, effort, retry, permission, and optional source contract. Operations and actions follow their corresponding schemas.
 
-A `handoff` operation is a third initial-operation kind beside `start` and `turn`-continued work: it consumes one validated `handoff-v1` packet (`schemas/handoff-v1.schema.json`), stores the canonical packet as an input artifact, freezes the workspace snapshot in its `handoff` manifest, and writes an immutable `lineage` record into the continuation task it creates. Lineage means `continues_user_task` on a brand-new endpoint; source-session identity stays `caller-declared` or `unavailable`, never `verified`. Policy, authorization, and the packet contract live in `references/pipelines/handoff.md`.
+A `handoff` operation is a third initial-operation kind beside `start` and `turn`-continued work: it consumes one validated `handoff-v1` packet (`schemas/handoff-v1.schema.json`), stores the canonical packet as an input artifact, freezes the workspace snapshot in its `handoff` manifest, and writes an immutable `lineage` record into the continuation task it creates. Lineage means `continues_user_task` on a brand-new endpoint; source-session identity stays `caller-declared` or `unavailable`, never `verified`. The command remains available for explicit low-level use and existing runs; the named handoff pipeline has been retired. See [legacy command](#legacy-handoff-command).
+
+## Legacy handoff command
+
+`handoff` is retained as a low-level compatibility command, not a Skill route or named pipeline. New `source.kind: pipeline` registrations cannot select `handoff`; existing stored runs keep their lineage and can continue. Use the ordinary task/replacement contract for new user-authorized work. The command does not add scheduling authority or additional roles.
+
+For an explicitly authorized exact-workspace continuation, the source authors a sanitized packet from visible context under [task context preparation](../SKILL.md#task-context-preparation). Include the executor constraint, current decisions, completed work, remaining work, acceptance criteria, and accessible evidence references. The source session identity is caller-declared or unavailable. The destination is one new local CLI endpoint, never a migrated native session or a Codex App task.
+
+- [handoff-v1 schema](../schemas/handoff-v1.schema.json) defines the packet, including contract request, workspace-relative evidence, sanitization attestation, and integrity digest. The validator enforces the closed shape and size bounds; the source remains responsible for redacting secrets and personal data.
+- `handoff --task-id <new-task> --packet-file <private-json> --provider <cli> --target <workspace> --model <model> --effort <effort>` validates the packet and contract, acquires the workspace lease, fingerprints HEAD and dirty contents, saves a canonical packet, and starts the new endpoint. `--validate-only` checks without creating durable state. Use `dangerously_bypass`; task-level write limits still apply.
+- Replaying an identical packet and contract returns the existing operation; conflicting reuse fails with `HANDOFF_CONFLICT`. An uncertain delivery follows the standard recovery rules rather than replaying to another endpoint.
+- Continue with `turn` and supervise with `checkpoint`. The canonical packet remains in the state directory; remove the caller-owned temporary packet after it has been consumed. Task identity, delivery evidence, and source-assurance limits remain visible in the result.
 
 ## Execution contract
 

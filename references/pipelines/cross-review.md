@@ -30,15 +30,7 @@ The two initial reviews are one concurrent ready set. The two cross-exams are a 
 
 ## Shared review lens
 
-Give both initial reviewers the same pinned source scope and acceptance lens, but neither receives the other's output:
-
-- prefer the smallest change and reuse existing capability;
-- respect the architecture boundaries established by the target repository and confirmed task requirements;
-- reject complexity introduced only for a narrow local case when its cost exceeds the risk;
-- retain sufficient extension seams without speculative abstractions;
-- minimize context required by the next change;
-- make production ownership, rollback units, boundaries, and coupling obvious;
-- find real bugs, incomplete behavior, unnecessary code, smaller alternatives, and duplication with existing implementation.
+Give both initial reviewers the same pinned source scope and the bundled [review-rules](../review-rules.md). Read and apply that reference to findings and proposed fixes in every review, cross-exam, and checker assignment; it owns the quality criteria. Neither initial reviewer receives the other's output. Repository rules and confirmed task requirements define the applicable architecture and behavior boundaries.
 
 Require source-pinned findings only. Each initial finding needs a stable reviewer-prefixed ID, severity proposal, exact location, evidence, concrete failure scenario, and the smallest credible fix. “Could be cleaner” or unsupported architectural preference is not a finding.
 

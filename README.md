@@ -8,12 +8,11 @@ Use your Codex Desktop, Codex CLI, Claude Code, or MCode session to delegate wor
 
 Start with a single task, or choose a built-in pipeline:
 
-| You want to…                                  | Pipeline                                | What you get                                                              |
-| --------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------- |
-| Check a change from independent perspectives  | [Cross-review](#cross-review)           | Source-backed findings, mutual challenges, and an independent final audit |
-| Rewrite a complete plan after cross-review    | [Plan-cross-review](#plan-cross-review) | Four CLI roles, a standalone plan, and author coverage verification       |
-| Turn an implementation plan into code         | [Plan-to-implement](#plan-to-implement) | Parallel module delivery, one integrator, and one PR/MR per repository    |
-| Let a fresh CLI session continue ongoing work | [Handoff](#handoff)                     | A new endpoint with a sanitized context packet and recorded lineage       |
+| You want to…                                 | Pipeline                                | What you get                                                              |
+| -------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------- |
+| Check a change from independent perspectives | [Cross-review](#cross-review)           | Source-backed findings, mutual challenges, and an independent final audit |
+| Rewrite a complete plan after cross-review   | [Plan-cross-review](#plan-cross-review) | Four CLI roles, a standalone plan, and author coverage verification       |
+| Turn an implementation plan into code        | [Plan-to-implement](#plan-to-implement) | Parallel module delivery, one integrator, and one PR/MR per repository    |
 
 [Quick start](#quick-start) · [Observer](#observer) · [Execution endpoints](#execution-endpoints) · [Documentation](#documentation)
 
@@ -51,6 +50,8 @@ Use this when you want reviewers to challenge each other's findings before an in
 Defaults: MCode reviewer and checker use **Opus 5 / xhigh**; Codex uses **GPT-6 Astra / high**. The normal path has five planned provider operations, or seven with the optional convergence pair. Recovery does not add semantic review rounds.
 
 The result separates **Pipeline Check** (whether the workflow and independent audit were verified) from **Review Result** (whether confirmed problems remain). A correctly completed pipeline can find bugs: `Pipeline Check: PASS`, `Review Result: FAIL`.
+
+Review assignments apply the bundled [review-rules](references/review-rules.md). Plan writers apply [plan-for-agents](references/plan-for-agents.md); user-facing authors apply [explain-as-fool](references/explain-as-fool.md). These rules are pinned copies from dev-skills, with [source and update instructions](references/development.md#bundled-skill-rules); no extra Skill installation is needed.
 
 ### Plan-cross-review
 
@@ -94,22 +95,6 @@ Use this when you already have an implementation plan and want module owners to 
 4. The runtime checks final branch heads, module history, structured verification records, and remote PR/MR identity. It persists the closing report before releasing workspace claims. Tests need actual evidence; user-accepted exceptions remain explicit.
 
 By default, planner, workers, and integrator use MCode's resolved model and effort, currently **Opus 5 / xhigh**. You can override the provider globally or per role with Codex CLI or Claude Code. `plan-status` retains the ready set, barriers, and run journal across caller restarts; integration recovery preserves existing work and records. **The pipeline publishes PRs/MRs; it does not merge them.**
-
-### Handoff
-
-Use this when ongoing work needs a fresh local CLI session with enough context to continue in the existing workspace.
-
-> Use Agent Lord's handoff pipeline to let MCode continue this task in the current workspace. Include the goal, completed work, remaining work, evidence, and acceptance criteria. Preserve the task's existing write boundaries.
-
-![Handoff: visible context, sanitized packet, pre-dispatch validation, new CLI endpoint, and lineage](assets/diagrams/handoff.svg)
-
-[Full policy](references/pipelines/handoff.md)
-
-The main session writes a sanitized `handoff-v1` packet from its visible context. Before launching, the runtime checks the packet and frozen contract, acquires workspace leases, and fingerprints HEAD plus changed-file contents. The new Claude Code, Codex CLI, or MCode endpoint continues in the **exact existing workspace**, including uncommitted work.
-
-Handoff starts **one continuation role**. The main session keeps scheduling authority. Replaying the identical request returns the existing operation; a conflicting packet or contract is rejected. Later turns use the saved endpoint through the ordinary `turn` / `checkpoint` / recovery loop.
-
-The deliverable includes a new task/endpoint identity and recorded lineage. This transfers context, **not a native session or transcript**; source-session identity is caller-declared or unavailable, never claimed as verified. Codex App is not a handoff destination.
 
 ## Quick start
 
@@ -178,7 +163,7 @@ MCode requires version **0.4.9+**. `--model provider/model[#variant]` selects mo
 
 - **Continue across turns.** Each task saves one endpoint and allows one in-flight operation. Durable controllers keep CLI execution alive after a dispatch command returns; checkpoints collect progress and handle supported recovery.
 - **Resume supervision.** [Persistent task sets](references/supervision.md#persistent-task-sets) retain selected tasks and result acknowledgments. The [request inbox](references/scheduling-updates.md) retains deferred instructions; registering a request does not start or steer a running CLI.
-- **Protect concurrent work.** Repo-managed concurrent CLI tasks use isolated worktrees and exclusive workspace/branch leases. Plan integration adds durable claims; handoff uses a checked exact workspace.
+- **Protect concurrent work.** Repo-managed concurrent CLI tasks use isolated worktrees and exclusive workspace/branch leases. Plan integration adds durable claims.
 - **Distinguish execution from acceptance.** `SUCCEEDED`, verified file/commit delivery, test results, review findings, and publication are separate facts. Missing evidence stays unknown. Optional file preflight catches missing inputs before launch; it does not prove content correctness.
 
 Task state defaults to `~/.codex/state/agent-lord`. Override it with `AGENT_LORD_STATE_DIR`; use `AGENT_LORD_PROVIDER_CONFIG` for another provider configuration. macOS is the local validation platform, CI is configured for macOS and Linux with Node 24, and Windows is not claimed as end-to-end validated.

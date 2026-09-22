@@ -4,6 +4,22 @@
 
 Run the commands below from the repository root. The runtime and the read-only Observer are TypeScript packages in one pnpm workspace.
 
+## Bundled Skill rules
+
+The canonical content for [review-rules](review-rules.md), [plan-for-agents](plan-for-agents.md), and [explain-as-fool](explain-as-fool.md) lives in the corresponding Skills in [dev-skills](https://github.com/coder-xieshijie/dev-skills). Agent Lord ships generated body-only copies so execution endpoints can read the standards without installing or invoking other Skills. Pipeline files own roles, barriers, review disposition audits, and delivery; the bundled rules own content quality.
+
+To update, fetch and inspect the desired dev-skills revision, then run:
+
+```sh
+node scripts/sync-skill-rules.mjs --source /path/to/dev-skills --revision <reviewed-commit>
+pnpm docs:check
+pnpm test:skill-rules
+```
+
+The exporter reads committed blobs, never dirty checkout contents. [skill-rules.json](skill-rules.json) records the upstream commit, source hashes, and generated file hashes; source links point to that commit. Edit the canonical Skill and resync instead of editing a generated copy. Review the resulting diff and commit the three references and manifest together. `docs:check` verifies the local copies without network access or an upstream installation. Formatting tools exclude these generated Markdown files to preserve their bytes.
+
+Only review roles read review-rules; only a plan author/checker reads plan-for-agents; user-facing authors read explain-as-fool. Supply each applicable reference with the task and freeze its content hash in the run inputs. Updating the installed package does not authorize changing the rules of an active run; retain its input snapshots. Source/byte checks establish provenance, not semantic quality or successful provider execution.
+
 ## Runtime structure
 
 The CLI dispatches, supervises, and validates results. The Observer reads execution records and displays them; host link-opening tools only present the page. Agent Lord does not use or depend on Computer Use, CUA, or browser automation, including for fallback verification.

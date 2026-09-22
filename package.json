@@ -12,7 +12,8 @@
     "test": "pnpm --filter @agent-lord/core test && pnpm --filter agent-lord-observer test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "docs:check": "node scripts/check-docs.mjs",
+    "docs:check": "node scripts/check-docs.mjs && node scripts/sync-skill-rules.mjs --check",
+    "test:skill-rules": "node --test scripts/sync-skill-rules.test.mjs",
     "agent-lord": "node core/dist/cli.js",
     "task-store": "node core/dist/task-store.js"
   },

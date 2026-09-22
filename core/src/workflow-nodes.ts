@@ -12,7 +12,11 @@ export interface WorkflowNode {
 }
 
 /** Caller-declared provenance, not proof that a natural-language request authorizes a role. */
-export function workflowNodes(value: unknown): Record<string, WorkflowNode> {
+export function workflowNodes(
+  value: unknown,
+  // Retired names may be read from persisted runs, never newly registered.
+  options: { stored?: boolean } = {},
+): Record<string, WorkflowNode> {
   if (!isObject(value) || !Object.keys(value).length)
     throw usageError("nodes-file must be a non-empty object keyed by task_id");
   const result: Record<string, WorkflowNode> = Object.create(null);
@@ -44,12 +48,10 @@ export function workflowNodes(value: unknown): Record<string, WorkflowNode> {
       );
     if (
       source.kind === "pipeline" &&
-      ![
-        "cross-review",
-        "plan-cross-review",
-        "plan-to-implement",
-        "handoff",
-      ].includes(source.reference)
+      !["cross-review", "plan-cross-review", "plan-to-implement"].includes(
+        source.reference,
+      ) &&
+      !(options.stored && source.reference === "handoff")
     )
       throw usageError(`node ${id} names an unknown pipeline`);
     if (source.kind === "replacement") {
