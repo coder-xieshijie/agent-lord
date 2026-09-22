@@ -1,6 +1,7 @@
 import {
   type Data,
   type Envelope,
+  type Operation,
   type RequestIntent,
   type RequestRecord,
   type StartOptions,
@@ -18,6 +19,15 @@ import {
   withAsyncLock,
   withLock,
 } from "./state.js";
+import { leaseId } from "./workspace-claims.js";
+
+/**
+ * Requests lock in their own namespace: lock files are keyed by id alone, so
+ * a request must never contend with a task or operation that reuses its id.
+ */
+function requestLockId(id: string): string {
+  return leaseId("request", id);
+}
 
 /** Dispatch options frozen at registration; the same names `start` accepts. */
 const START_OPTION_KEYS = [
@@ -194,9 +204,13 @@ export class RequestInbox {
    * Rebuild the request status from the operation log, which is the only
    * record written atomically with the dispatch itself.
    */
-  private reconcile(record: RequestRecord): RequestRecord {
+  private reconcile(
+    record: RequestRecord,
+    latestOperationFor: (requestId: string) => Operation | undefined = (id) =>
+      this.lord.store.operationForRequest(id),
+  ): RequestRecord {
     if (record.status === "cancelled") return record;
-    const bound = this.lord.store.operationForRequest(record.request_id);
+    const bound = latestOperationFor(record.request_id);
     if (!bound || bound.operation_id === record.operation_id) return record;
     return {
       ...record,
@@ -298,7 +312,7 @@ export class RequestInbox {
       cancel_reason: null,
     };
     normalizeRequest(fresh);
-    return withLock("request", requestId, this.root, () => {
+    return withLock("request", requestLockId(requestId), this.root, () => {
       if (this.lord.store.hasRequest(requestId)) {
         const existing = this.read(requestId);
         // Re-entrant registration of the same intent returns the original
@@ -325,7 +339,7 @@ export class RequestInbox {
   }
   get(id: string): Envelope {
     validateIdentifier("request_id", id);
-    return withLock("request", id, this.root, () => {
+    return withLock("request", requestLockId(id), this.root, () => {
       const current = this.read(id);
       const reconciled = this.reconcile(current);
       return this.record(
@@ -339,9 +353,17 @@ export class RequestInbox {
       throw usageError(`status must be one of: ${STATUSES.join(", ")}`);
     if (filter.intent && !["start", "turn"].includes(filter.intent))
       throw usageError("intent must be start or turn");
+    // One pass over the operation log serves every row; operations() is
+    // ordered oldest-first, so the last write per request wins, matching
+    // operationForRequest's newest-match rule.
+    const latest = new Map<string, Operation>();
+    for (const op of this.lord.store.operations())
+      if (op.request_id) latest.set(op.request_id, op);
     const requests = this.lord.store
       .requestRecords()
-      .map((raw) => this.reconcile(normalizeRequest(raw)))
+      .map((raw) =>
+        this.reconcile(normalizeRequest(raw), (id) => latest.get(id)),
+      )
       .filter(
         (v) =>
           (!filter.status || v.status === filter.status) &&
@@ -375,7 +397,7 @@ export class RequestInbox {
   cancel(id: string, reason?: string | null): Envelope {
     validateIdentifier("request_id", id);
     const note = optional(reason, "reason", 4_000);
-    return withLock("request", id, this.root, () => {
+    return withLock("request", requestLockId(id), this.root, () => {
       const before = this.read(id);
       const current = this.reconcile(before);
       if (current.status === "dispatched") {
@@ -415,7 +437,7 @@ export class RequestInbox {
     opts: { invocation?: unknown } = {},
   ): Promise<Envelope> {
     validateIdentifier("request_id", id);
-    return withAsyncLock("request", id, this.root, async () => {
+    return withAsyncLock("request", requestLockId(id), this.root, async () => {
       let current = this.read(id);
       if (current.status === "cancelled")
         throw new AgentLordError(

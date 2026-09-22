@@ -108,6 +108,11 @@ export class Reporting {
       format,
       op.provider === "claude-cli" ? undefined : operationMarker(operationId),
       op.provider === "claude-cli" ? op.endpoint_id! : undefined,
+      // The session alone does not identify the turn: the original prompt or
+      // a recovery marker must anchor the exported answer to this operation.
+      op.provider === "claude-cli"
+        ? { message: op.message, operationId }
+        : undefined,
     );
     const observed = extracted.observed;
     const models = strings(observed.models);

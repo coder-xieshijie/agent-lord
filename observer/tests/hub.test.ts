@@ -10,7 +10,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { Hub } from "../src/server/hub.js";
-import { validStdoutPath } from "../src/server/scan.js";
+import { MAX_READ_BYTES, validStdoutPath } from "../src/server/scan.js";
 import type { DeltaResponse } from "../src/shared/types.js";
 
 const j = (value: unknown): string => JSON.stringify(value);
@@ -452,6 +452,34 @@ describe("Hub ordering and incremental refresh", () => {
     expect(messages).toHaveLength(2);
     expect((messages[1] as { text: string }).text).toBe("第二轮");
     expect(hub.snapshot(taskId)!.task.operations).toBe(2);
+  });
+
+  it("skips an oversized stream line with a visible notice and keeps parsing later events", () => {
+    const root = makeRoot();
+    const taskId = "fixture-task-oversized";
+    const stdout = writeOperation(root, taskId, "fixture-op-big", "codex-cli");
+    appendFileSync(
+      stdout,
+      `${"x".repeat(MAX_READ_BYTES + 1024)}\n${j({
+        type: "item.completed",
+        item: { id: "item_0", type: "agent_message", text: "超长行之后" },
+      })}\n`,
+    );
+    const hub = new Hub([taskId], root);
+    hub.refresh(); // consumes the oversized line (skip) and emits the notice
+    hub.refresh(); // next poll parses the events after the skipped line
+    const items = hub.snapshot(taskId)!.items;
+    expect(
+      items.some(
+        (item) =>
+          item.kind === "notice" &&
+          (item as { text: string }).text.includes("超长") &&
+          (item as { text: string }).text.includes("跳过"),
+      ),
+    ).toBe(true);
+    const messages = items.filter((item) => item.kind === "message");
+    expect(messages).toHaveLength(1);
+    expect((messages[0] as { text: string }).text).toBe("超长行之后");
   });
 
   it("notices an attempt switch and reads the new stream from the start", () => {

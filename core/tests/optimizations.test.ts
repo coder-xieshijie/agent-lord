@@ -12,6 +12,8 @@ import {
 } from "../src/invalid-retry.js";
 import { harness, operation, waitFor } from "./helpers.js";
 import { main } from "../src/cli.js";
+import { TaskSets } from "../src/task-sets.js";
+import { workflowNodes } from "../src/workflow-nodes.js";
 let h: ReturnType<typeof harness>;
 beforeEach(() => {
   h = harness();
@@ -177,6 +179,75 @@ describe("O4: batched checkpoint supervision", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe("O5: run checkpoint scan reuse and compact provenance", () => {
+  const terminal = async (taskId: string) => {
+    const target = path.join(h.base, `run-ws-${taskId}`);
+    mkdirSync(target);
+    const started = await h.lord.start(taskId, "codex", target, "work");
+    h.lord.store.updateOperation(String(started.operation_id), (op) => ({
+      ...op,
+      status: "succeeded",
+    }));
+  };
+  it("shares one scan between supervision and the returned run status", async () => {
+    await terminal("a");
+    const sets = new TaskSets(h.lord);
+    sets.create("run", ["a"]);
+    const spy = vi.spyOn(h.lord, "checkpoint");
+    try {
+      const [result] = await sets.checkpoint("run", 1);
+      const scan = spy.mock.calls[0]![4] as CheckpointScan;
+      // The run view in the same result re-ticked the supervision scan:
+      // unchanged records came from its cache instead of a second full parse.
+      expect(scan).toBeInstanceOf(CheckpointScan);
+      expect(scan.stats.parsed).toBeGreaterThan(0);
+      expect(scan.stats.reused).toBeGreaterThan(0);
+      expect((result.run as Data).all_terminal).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+  it("returns compact checkpoint nodes while run-status keeps full provenance", async () => {
+    await terminal("a");
+    await terminal("b");
+    const sets = new TaskSets(h.lord);
+    const reference = "resume the interrupted migration work ".repeat(50);
+    sets.create(
+      "run",
+      ["a", "b"],
+      false,
+      workflowNodes({
+        a: {
+          role: "implementation",
+          source: { kind: "user_request", reference },
+        },
+        b: {
+          role: "implementation",
+          source: { kind: "replacement", task_id: "a", reference },
+        },
+      }),
+    );
+    const [result] = await sets.checkpoint("run", 1);
+    const tasks = (result.run as Data).tasks as Data[];
+    // Long free-text references are dropped from the repeated checkpoint
+    // payload; identity (role, kind, replacement lineage) survives.
+    expect(tasks[0]!.node).toEqual({
+      role: "implementation",
+      source: { kind: "user_request" },
+    });
+    expect(tasks[1]!.node).toEqual({
+      role: "implementation",
+      source: { kind: "replacement", task_id: "a" },
+    });
+    expect(tasks[0]!.provenance_status).toBe("caller-declared");
+    const status = (sets.status("run").run as Data).tasks as Data[];
+    expect((status[0]!.node as Data).source).toEqual({
+      kind: "user_request",
+      reference,
+    });
   });
 });
 

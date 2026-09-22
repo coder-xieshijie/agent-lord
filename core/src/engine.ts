@@ -187,7 +187,7 @@ export class AgentLord {
       opts.retry_plan ?? resolveRetryPlan(provider, model, opts.retry_attempts);
     if (typeof message !== "string" || !message)
       throw usageError("message must be non-empty");
-    const source = validateSource(opts.head_sha, opts.base_sha);
+    let source = validateSource(opts.head_sha, opts.base_sha);
     let workspace: Workspace | undefined;
     let target = rawTarget;
     let repository: string | undefined;
@@ -261,6 +261,13 @@ export class AgentLord {
         verifyCheckout(target, source);
       }
     }
+    if (
+      (opts.takeover || opts.delivery_base_head != null) &&
+      (!repository || readOnly)
+    )
+      throw usageError(
+        "takeover replacement dispatch requires managed writable workspace preparation",
+      );
     if (
       cli &&
       (opts.codex_environment !== undefined ||
@@ -398,6 +405,7 @@ export class AgentLord {
               taskId,
             );
           if (repository) {
+            const takeover = Boolean(opts.takeover);
             target = this.workspaces.prepare(
               repository,
               opts.source_branch!,
@@ -406,8 +414,23 @@ export class AgentLord {
               opts.workspace_policy!,
               opts.workspace_branch,
               exists,
+              takeover,
             );
-            verifyBase(target, source);
+            if (takeover) {
+              // The stopped predecessor may have committed progress on the
+              // frozen branch; adopt it only as a verified descendant and
+              // record the advance beside the untouched frozen source.
+              const branch = opts.workspace_branch || opts.source_branch!;
+              const advanced = verifyManagedAdvance(target, source, branch);
+              if (advanced) {
+                source = { ...source, verified_head_sha: advanced };
+                this.store.event(taskId, "source-head-advanced", {
+                  frozen_head: source.head_sha,
+                  verified_head: advanced,
+                  branch,
+                });
+              }
+            } else verifyBase(target, source);
             prepare!.release();
             prepare = undefined;
           }
@@ -445,6 +468,9 @@ export class AgentLord {
                   target!,
                   opts.required_files,
                   Boolean(opts.require_commit),
+                  // A takeover keeps the lineage root's delivery base so the
+                  // adopted commits still count as this lineage's delivery.
+                  opts.takeover ? opts.delivery_base_head : undefined,
                 ),
               ),
               input_evidence: inputEvidence,
@@ -1176,6 +1202,9 @@ export class AgentLord {
     seconds: number,
     startingIds?: string[],
     acknowledged?: ReadonlySet<string>,
+    // A caller that also builds run status may pass its scan so one
+    // supervision pass shares the parsed-operation cache end to end.
+    scan: CheckpointScan = new CheckpointScan(this.store),
   ): Promise<[Envelope, boolean]> {
     if (!Number.isFinite(seconds) || seconds <= 0)
       throw usageError("checkpoint seconds must be greater than zero");
@@ -1191,7 +1220,6 @@ export class AgentLord {
       );
     const explicit =
       known || starting.length ? [...(known ?? []), ...starting] : undefined;
-    const scan = new CheckpointScan(this.store);
     scan.tick(explicit);
     let active = scan.active(explicit, starting);
     const selected = explicit ?? active.map((v) => v.task_id);

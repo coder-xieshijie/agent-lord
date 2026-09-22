@@ -123,8 +123,12 @@ export function extractJsonlWithMetadata(
   format: string,
   marker?: string,
   session?: string,
+  /** Claude sessions interleave operations; the original prompt (or a
+   * recovery marker) is the only record that binds a window of assistant
+   * messages to this operation. */
+  binding?: { message: string; operationId: string },
 ): { text: string; observed: Data } {
-  if (session !== undefined && format !== "claude-jsonl")
+  if ((session !== undefined || binding) && format !== "claude-jsonl")
     throw usageError(
       "session binding is only defined for claude-jsonl sources",
       { source_format: format },
@@ -146,24 +150,53 @@ export function extractJsonlWithMetadata(
   let efforts: string[] = [];
   let markerSeen = !marker;
   let sessionSeen = session === undefined;
+  let boundSeen = !binding;
+  // Without an anchor everything counts; with one, only messages between the
+  // anchoring user record and the next unrelated user prompt are this
+  // operation's turn.
+  let collecting = !marker && !binding;
   let currentModel: string | null = null;
   let currentEffort: string | null = null;
   const recordContract = () => {
     if (currentModel) models.push(currentModel);
     if (currentEffort) efforts.push(currentEffort);
   };
+  const openWindow = () => {
+    collecting = true;
+    candidates = [];
+    models = [];
+    efforts = [];
+  };
+  const bindsOperation = (text: string): boolean =>
+    !!binding &&
+    (text === binding.message.trim() ||
+      text.startsWith(`[agent-lord-recovery:${binding.operationId}:`));
   for (const item of jsonLines(raw)) {
     let text = "";
     if (format === "claude-jsonl") {
       if (
-        item.type !== "assistant" ||
-        (session !== undefined &&
-          (item.sessionId ?? item.session_id) !== session)
+        session !== undefined &&
+        (item.sessionId ?? item.session_id) !== session
       )
         continue;
-      sessionSeen = true;
+      // Subagent transcripts share the session file but not the operation's
+      // conversation; their prompts and answers prove nothing about it.
+      if (item.isSidechain === true) continue;
       const message = object(item.message);
-      if (message.role !== "assistant") continue;
+      if (item.type === "user" && message.role === "user") {
+        const prompt = contentText(message.content);
+        // Tool results are user-typed records with no prompt text; they
+        // never open or close the window.
+        if (!prompt) continue;
+        if (bindsOperation(prompt)) {
+          boundSeen = true;
+          openWindow();
+        } else if (binding) collecting = false;
+        continue;
+      }
+      if (item.type !== "assistant" || message.role !== "assistant") continue;
+      sessionSeen = true;
+      if (!collecting) continue;
       if (string(message.model)) models.push(message.model as string);
       const effort = string(item.effort) || string(item.reasoning_effort);
       if (effort) efforts.push(effort);
@@ -176,20 +209,23 @@ export function extractJsonlWithMetadata(
           string(payload.effort) ||
           string(payload.reasoning_effort) ||
           currentEffort;
-        if (markerSeen) recordContract();
+        if (collecting) recordContract();
         continue;
       }
       if (item.type !== "response_item" || payload.type !== "message") continue;
       text = contentText(payload.content);
-      if (marker && payload.role === "user" && text.includes(marker)) {
-        markerSeen = true;
-        candidates = [];
-        models = [];
-        efforts = [];
-        recordContract();
+      if (payload.role === "user") {
+        if (marker && text.includes(marker)) {
+          markerSeen = true;
+          openWindow();
+          recordContract();
+        } else if (marker && text && collecting)
+          // The next real user prompt starts a different exchange; keeping
+          // the window open would export a later turn's answer as ours.
+          collecting = false;
         continue;
       }
-      if (payload.role !== "assistant" || !markerSeen) continue;
+      if (payload.role !== "assistant" || !collecting) continue;
     }
     if (text) candidates.push(text);
   }
@@ -203,6 +239,12 @@ export function extractJsonlWithMetadata(
     throw new AgentLordError(
       "RESULT_INVALID",
       "artifact source contains no assistant record for the requested session",
+      { details: { path: file, session_id: session } },
+    );
+  if (!boundSeen)
+    throw new AgentLordError(
+      "RESULT_INVALID",
+      "artifact source contains no user record binding the requested operation",
       { details: { path: file, session_id: session } },
     );
   if (!candidates.length)

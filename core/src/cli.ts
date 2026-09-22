@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { pathToFileURL } from "node:url";
+import { isMainEntrypoint } from "./entrypoint.js";
 import { AgentLord } from "./engine.js";
 import { TaskSets } from "./task-sets.js";
 import { workflowNodes } from "./workflow-nodes.js";
@@ -584,5 +584,5 @@ export async function main(
     return error.exit_code;
   }
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
+if (isMainEntrypoint(import.meta.url))
   process.exitCode = await main(undefined, undefined, { background: true });

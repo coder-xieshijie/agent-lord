@@ -1,6 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { writeFileSync, readFileSync } from "node:fs";
+import {
+  writeFileSync,
+  readFileSync,
+  mkdtempSync,
+  symlinkSync,
+  rmSync,
+} from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { isMainEntrypoint } from "../src/entrypoint.js";
 import { argumentsFor } from "../src/arguments.js";
 import { main, COMMANDS } from "../src/cli.js";
 import { main as taskStore } from "../src/task-store.js";
@@ -240,5 +249,33 @@ describe("CLI protocol", () => {
     expect((await h.lord.turn("legacy", "next")).status).toBe(
       "ACTION_REQUIRED",
     );
+  });
+});
+describe("CLI entrypoint guard", () => {
+  it("runs main for direct and symlinked invocations but never on import", () => {
+    const base = mkdtempSync(path.join(os.tmpdir(), "agent-lord-entry-"));
+    try {
+      const script = path.join(base, "cli.js");
+      writeFileSync(script, "");
+      const url = pathToFileURL(script).href;
+      expect(isMainEntrypoint(url, script)).toBe(true);
+      const link = path.join(base, "bin-shim");
+      symlinkSync(script, link);
+      expect(isMainEntrypoint(url, link)).toBe(true);
+      const importer = path.join(base, "importer.js");
+      writeFileSync(importer, "");
+      expect(isMainEntrypoint(url, importer)).toBe(false);
+      expect(isMainEntrypoint(url, undefined)).toBe(false);
+      expect(isMainEntrypoint(url, path.join(base, "missing.js"))).toBe(false);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+  it("kept module imports side-effect free for cli and task-store", () => {
+    // Importing the modules at the top of this file must not have executed
+    // their mains: both remain callable and the process exit code is unset.
+    expect(typeof main).toBe("function");
+    expect(typeof taskStore).toBe("function");
+    expect(process.exitCode).toBeUndefined();
   });
 });

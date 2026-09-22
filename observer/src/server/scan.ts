@@ -398,20 +398,29 @@ export function readFinalArtifact(
   }
 }
 
-/** All operations belonging to `taskId`, sorted by created_at.
- * Cached per file by (mtime,size) so 1s polling stays cheap. */
+/** All operations belonging to `taskId`, sorted by created_at. */
 export function listOperations(
   root: string,
   taskId: string,
 ): OperationRecord[] {
+  return listOperationsByTask(root).get(taskId) ?? [];
+}
+
+/** One directory pass over `<root>/operations`, grouped by task_id and sorted
+ * by created_at. Parses are cached per file by (mtime,size) so 1s polling
+ * stays cheap; the hub calls this once per refresh cycle and distributes the
+ * groups, instead of re-scanning the directory once per task. */
+export function listOperationsByTask(
+  root: string,
+): Map<string, OperationRecord[]> {
   const dir = path.join(root, "operations");
   let names: string[];
   try {
     names = readdirSync(dir);
   } catch {
-    return [];
+    return new Map();
   }
-  const result: OperationRecord[] = [];
+  const result = new Map<string, OperationRecord[]>();
   for (const name of names) {
     if (!name.endsWith(".json") || name.startsWith(".")) continue;
     const file = path.join(dir, name);
@@ -433,9 +442,14 @@ export function listOperations(
       record = parseOperationFile(file);
       opCache.set(file, { mtimeMs: stats.mtimeMs, size: stats.size, record });
     }
-    if (record && record.taskId === taskId) result.push(record);
+    if (!record) continue;
+    const list = result.get(record.taskId);
+    if (list) list.push(record);
+    else result.set(record.taskId, [record]);
   }
-  return result.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  for (const list of result.values())
+    list.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return result;
 }
 
 export function journalPath(root: string, taskId: string): string {
@@ -462,11 +476,22 @@ export interface TailResult {
   offset: number;
   /** Set when the file shrank below the cursor (truncate/rotation). */
   truncated: boolean;
+  /** Set when a line longer than a full read window was skipped so the
+   * reader could keep making progress. Callers should surface a notice. */
+  skippedOversized?: boolean;
 }
 
 export const MAX_READ_BYTES = 4 * 1024 * 1024;
 
-/** Read complete lines from `offset`; half-written trailing bytes stay. */
+/** Read complete lines from `offset`; half-written trailing bytes stay.
+ *
+ * Two no-newline cases are distinguished:
+ * - a partial read window that reaches EOF is a half-written trailing line:
+ *   the offset does not advance and the next poll retries;
+ * - a *full* window without any newline is an oversized line that would
+ *   otherwise stall the reader forever: it is skipped window by window
+ *   (bounded memory) until the next newline or EOF, and the result carries
+ *   `skippedOversized` so callers can emit a visible notice. */
 export function readCompleteLines(file: string, offset: number): TailResult {
   let size: number;
   try {
@@ -480,32 +505,65 @@ export function readCompleteLines(file: string, offset: number): TailResult {
   if (size === offset) {
     return { lines: [], offset, truncated: false };
   }
-  const length = Math.min(size - offset, MAX_READ_BYTES);
-  const buffer = Buffer.alloc(length);
   let descriptor: number;
   try {
     descriptor = openSync(file, "r");
   } catch {
     return { lines: [], offset, truncated: false };
   }
-  let bytesRead = 0;
+  const buffer = Buffer.alloc(Math.min(size - offset, MAX_READ_BYTES));
   try {
-    bytesRead = readSync(descriptor, buffer, 0, length, offset);
+    let cursor = offset;
+    let skipping = false;
+    while (cursor < size) {
+      const length = Math.min(size - cursor, MAX_READ_BYTES);
+      const bytesRead = readSync(descriptor, buffer, 0, length, cursor);
+      if (bytesRead <= 0) break;
+      const chunk = buffer.subarray(0, bytesRead);
+      if (skipping) {
+        // Looking for the end of the oversized line; consume up to and
+        // including the next newline, then let the following poll resume
+        // normal parsing from there.
+        const next = chunk.indexOf(0x0a);
+        if (next >= 0) {
+          return {
+            lines: [],
+            offset: cursor + next + 1,
+            truncated: false,
+            skippedOversized: true,
+          };
+        }
+        cursor += bytesRead;
+        continue;
+      }
+      const cut = chunk.lastIndexOf(0x0a);
+      if (cut >= 0) {
+        const consumed = chunk.subarray(0, cut + 1);
+        return {
+          lines: consumed
+            .toString("utf8")
+            .split("\n")
+            .filter((line) => line.length > 0),
+          offset: cursor + consumed.length,
+          truncated: false,
+        };
+      }
+      if (bytesRead < MAX_READ_BYTES) {
+        // Half-written trailing line at EOF: wait for the writer.
+        return { lines: [], offset: cursor, truncated: false };
+      }
+      // A full window with no newline: oversized line, skip past it.
+      skipping = true;
+      cursor += bytesRead;
+    }
+    // EOF while skipping an unterminated oversized line: the scanned bytes
+    // stay consumed so polling never re-reads the same oversized prefix.
+    return skipping
+      ? { lines: [], offset: cursor, truncated: false, skippedOversized: true }
+      : { lines: [], offset, truncated: false };
   } finally {
     closeSync(descriptor);
   }
-  const chunk = buffer.subarray(0, bytesRead);
-  const cut = chunk.lastIndexOf(0x0a);
-  if (cut < 0) return { lines: [], offset, truncated: false };
-  const consumed = chunk.subarray(0, cut + 1);
-  return {
-    lines: consumed
-      .toString("utf8")
-      .split("\n")
-      .filter((line) => line.length > 0),
-    offset: offset + consumed.length,
-    truncated: false,
-  };
 }
 
 export function pidAlive(pid: number | null): boolean | null {

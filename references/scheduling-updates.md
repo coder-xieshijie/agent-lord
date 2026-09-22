@@ -39,7 +39,7 @@ The `task=` URL parameter selects focus; it does not authorize visibility. `queu
 
 ## Report transitions, retain recovery
 
-Task-set checkpoints return `reporting.should_notify` and `reporting.events`. A persistent per-task fingerprint suppresses repeated operation states, including across caller restarts. New operations, terminal outcomes, pending host actions, and changed terminal delivery produce update candidates. Tool names, event counts, liveness age, and result acknowledgement do not. Pending registration alone is not evidence that execution started.
+Task-set checkpoints return `reporting.should_notify` and `reporting.events`. Checkpoint output compacts each task's `node` to `{ role, source: { kind, reference?, task_id? } }`: `reference` survives only for `source.kind: "pipeline"`, so long `user_request` and `replacement` reference text never rides in checkpoint output. Full provenance stays queryable through `run-status` and the persisted records. A persistent per-task fingerprint suppresses repeated operation states, including across caller restarts. New operations, terminal outcomes, pending host actions, and changed terminal delivery produce update candidates. Tool names, event counts, liveness age, and result acknowledgement do not. Pending registration alone is not evidence that execution started.
 
 This reporting ledger records emitted update candidates, **not human receipt**. If a tool response is lost, reconcile with `run-status` and the terminal result. Always process `actionable`, even when `should_notify` is false; terminal receipts remain at-least-once until `run-ack`. Reporting never triggers dispatch or recovery and never consumes an actionable result.
 
