@@ -88,11 +88,15 @@ export class AgentLord {
   readonly control: Control;
   readonly workspaces: WorkspaceManager;
   readonly app: CodexAppAdapter;
-  /** @internal Subsystem seams; external callers use the public facade methods. */
+  /** @internal Subsystem seam; external callers use the public facade methods. */
   readonly ops: OperationKernel;
+  /** @internal Subsystem seam; external callers use the public facade methods. */
   readonly claude: ClaudeFlows;
+  /** @internal Subsystem seam; external callers use the public facade methods. */
   readonly mcode: McodeFlows;
+  /** @internal Subsystem seam; external callers use the public facade methods. */
   readonly codexApp: CodexAppFlows;
+  /** @internal Subsystem seam; external callers use the public facade methods. */
   readonly reporting: Reporting;
   constructor(
     root = stateDir(),

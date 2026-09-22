@@ -50,7 +50,7 @@
         },
         "effort": {
           "type": ["string", "null"],
-          "description": "Always null for mcode-cli because it has no independent effort control."
+          "description": "For mcode-cli this is the frozen effort literal resolved at dispatch — the explicit request or the provider profile default; null when neither supplies one."
         },
         "read_only": { "type": "boolean" },
         "permission_mode": { "type": "string", "minLength": 1 },

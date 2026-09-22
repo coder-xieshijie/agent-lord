@@ -18,10 +18,10 @@ const schemasDir = fileURLToPath(new URL("../../schemas/", import.meta.url));
 // The if/then branches in result-v1 require properties that the parent
 // schema defines, which strictRequired cannot see; keep the rest of strict
 // mode active.
+const schemaFiles = () =>
+  readdirSync(schemasDir).filter((file) => file.endsWith(".schema.json"));
 const ajv = new Ajv2020({ allErrors: true, strictRequired: false });
-for (const file of readdirSync(schemasDir).filter((v) =>
-  v.endsWith(".schema.json"),
-)) {
+for (const file of schemaFiles()) {
   ajv.addSchema(JSON.parse(readFileSync(path.join(schemasDir, file), "utf8")));
 }
 
@@ -54,9 +54,7 @@ const actionId = (result: Envelope) => String(result.action!.action_id);
 
 describe("published schema round-trip", () => {
   it("every schema in schemas/ compiles under draft 2020-12", () => {
-    for (const file of readdirSync(schemasDir).filter((v) =>
-      v.endsWith(".schema.json"),
-    )) {
+    for (const file of schemaFiles()) {
       const name = file.replace(/\.schema\.json$/, "");
       expect(validator(name)).toBeTypeOf("function");
     }

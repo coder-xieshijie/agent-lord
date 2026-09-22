@@ -8,6 +8,7 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "declaration": true,
+    "stripInternal": true,
     "forceConsistentCasingInFileNames": true,
     "rootDir": "src",
     "outDir": "dist",

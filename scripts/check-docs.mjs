@@ -123,9 +123,12 @@ for (const file of files) {
 }
 
 for (const [file, budget] of Object.entries(SIZE_BUDGETS)) {
-  const size = Buffer.byteLength(contents.get(file) ?? "", "utf8");
-  if (!contents.has(file)) errors.push(`${file}: budgeted file is missing`);
-  else if (size > budget)
+  if (!contents.has(file)) {
+    errors.push(`${file}: budgeted file is missing`);
+    continue;
+  }
+  const size = Buffer.byteLength(contents.get(file), "utf8");
+  if (size > budget)
     errors.push(
       `${file}: ${size} bytes exceeds the ${budget}-byte budget; ` +
         `trim it or consciously raise SIZE_BUDGETS in scripts/check-docs.mjs`,
