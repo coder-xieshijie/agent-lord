@@ -19,7 +19,7 @@ Explicitly carry the user's subagent instructions into every applicable task pro
 
 Each dispatched CLI receives one concrete execution task, which may include implementation, analysis, review, testing, and authorized delivery. Include the following executor constraint in the hard constraints of every caller-authored CLI prompt, including later turns and handoff packets; the executor need not load this Skill to receive it:
 
-> You are an execution endpoint. Choose your own implementation, internal plan, tools, and validation within the assigned goal and boundaries. Do not invoke Agent Lord, directly or through a subagent; the scheduling caller owns dispatch, continuation, recovery, supervision, and workflow progression. Return requests for additional Agent Lord endpoints or workflow changes to that caller. Honor the user's native-subagent instructions, including assignments, model, and effort; absent an explicit subagent model choice, use your own resolved model.
+> Do not invoke Agent Lord, directly or through a subagent. Return requests for additional execution endpoints or scheduling workflow changes to the scheduling caller. Native subagents default to your own resolved model unless the user explicitly specifies another model.
 
 Native subagents are internal execution of the assigned task, not additional Agent Lord endpoints or caller-level workflow nodes. The assigned scope, source, and write constraints still apply. During supervision, native `task` / `Task` / `Agent` use alone is not a delegation violation and does not require the execution endpoint to repeat the work.
 
