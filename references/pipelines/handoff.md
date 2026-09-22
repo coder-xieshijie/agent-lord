@@ -19,7 +19,7 @@ A handoff is a sanitized context transfer plus new-endpoint lineage — never a 
 
 ## Packet authoring contract
 
-Treat the `handoff-v1` packet as a compact handoff document for a fresh agent. Author it from the current session's visible context and tailor `objective`, `remaining_work`, and `acceptance_criteria` to the user's named continuation task. Include `suggested_skills` that materially help the continuation. Reference existing work through `evidence` instead of duplicating specs, plans, decisions, diffs, or other durable artifacts. Redact secrets and personally identifiable information; raw provider logs, transcripts, and hidden reasoning never belong in the packet.
+Treat the `handoff-v1` packet as a compact handoff document for a fresh agent. Apply [task context preparation](../../SKILL.md#task-context-preparation) through the existing packet fields and evidence path rules. Author it from the current session's visible context and tailor `objective`, `remaining_work`, and `acceptance_criteria` to the user's named continuation task. Include `suggested_skills` that materially help the continuation. Reference existing work through `evidence` instead of duplicating specs, plans, decisions, diffs, or other durable artifacts. Redact secrets and personally identifiable information; raw provider logs, transcripts, and hidden reasoning never belong in the packet.
 
 Include the [executor constraint](../../SKILL.md#scheduling-ownership) in the packet's `constraints` array so the fresh endpoint receives its role boundary in the rendered prompt.
 
