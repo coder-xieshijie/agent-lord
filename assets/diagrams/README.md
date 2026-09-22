@@ -1,6 +1,6 @@
 # Agent Lord diagrams
 
-These diagrams describe the repository's current architecture and three named pipelines. Labels are Chinese; the [English README](../../README.md) and [中文 README](../../README.zh-CN.md) explain the same workflows.
+These archived SVG diagrams describe the architecture and three original pipelines at the revision recorded below. The fourth pipeline, `plan-cross-review`, has an inline Mermaid diagram in both root READMEs. Current model/effort defaults are defined by the linked pipeline policies. Labels are Chinese; the [English README](../../README.md) and [中文 README](../../README.zh-CN.md) explain the same workflows.
 
 | Diagram               | Type           | README image                 | Editable source                |
 | --------------------- | -------------- | ---------------------------- | ------------------------------ |
@@ -20,7 +20,7 @@ The diagrams were checked against repository revision `1c76e25d6dbc4e840a779aa8e
 - Plan-to-implement: [pipeline policy](../../references/pipelines/plan-to-implement.md), [plan runtime](../../core/src/plan.ts), and [CLI commands](../../core/src/cli.ts). The worker/commit stage repeats for each dependency-ready set. The last node combines publication and runtime closure; the integrator publishes, then the caller registers verification and closes the run.
 - Handoff: [pipeline policy](../../references/pipelines/handoff.md), [packet validation](../../core/src/handoff.ts), and [dispatch](../../core/src/engine.ts). A new endpoint continues in the existing workspace; source-session identity is not independently verified.
 
-The diagrams summarize responsibilities and barriers. Policies and runtime code retain the full failure/recovery contracts. The common contract is shared infrastructure, not a fourth named pipeline.
+The diagrams summarize responsibilities and barriers. Policies and runtime code retain the full failure/recovery contracts. The common contract is shared infrastructure, not a named pipeline.
 
 ## Regeneration
 

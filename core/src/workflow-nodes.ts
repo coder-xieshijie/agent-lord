@@ -44,9 +44,12 @@ export function workflowNodes(value: unknown): Record<string, WorkflowNode> {
       );
     if (
       source.kind === "pipeline" &&
-      !["cross-review", "plan-to-implement", "handoff"].includes(
-        source.reference,
-      )
+      ![
+        "cross-review",
+        "plan-cross-review",
+        "plan-to-implement",
+        "handoff",
+      ].includes(source.reference)
     )
       throw usageError(`node ${id} names an unknown pipeline`);
     if (source.kind === "replacement") {

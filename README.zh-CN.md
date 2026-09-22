@@ -8,11 +8,12 @@
 
 可以从单个任务开始，也可以直接选择内置 pipeline：
 
-| 你想完成什么                | Pipeline                                   | 最终得到什么                             |
-| --------------------------- | ------------------------------------------ | ---------------------------------------- |
-| 从独立视角审查一份改动      | [交叉审查](#交叉审查cross-review)          | 有源码证据的发现、双向质证和独立终审     |
-| 把已有实现计划落成代码      | [计划到实现](#计划到实现plan-to-implement) | 模块并行交付、统一整合、每仓库一个 PR/MR |
-| 让新 CLI 会话接着做现有工作 | [交接](#交接handoff)                       | 带脱敏上下文和来源记录的新执行端         |
+| 你想完成什么                | Pipeline                                       | 最终得到什么                             |
+| --------------------------- | ---------------------------------------------- | ---------------------------------------- |
+| 从独立视角审查一份改动      | [交叉审查](#交叉审查cross-review)              | 有源码证据的发现、双向质证和独立终审     |
+| 交叉审查后重写完整方案      | [方案交叉审查](#方案交叉审查plan-cross-review) | 四个 CLI 角色、完整 plan、作者逐项自查   |
+| 把已有实现计划落成代码      | [计划到实现](#计划到实现plan-to-implement)     | 模块并行交付、统一整合、每仓库一个 PR/MR |
+| 让新 CLI 会话接着做现有工作 | [交接](#交接handoff)                           | 带脱敏上下文和来源记录的新执行端         |
 
 [快速开始](#快速开始) · [Observer](#observer) · [支持的执行端](#支持的执行端) · [文档导航](#文档导航)
 
@@ -26,7 +27,7 @@ Agent Lord 由三部分组成：指导主会话的 **Skill**、负责执行与�
 
 主会话负责整个流程：确定角色和依赖、派发任务、交换产物、判断是否通过验收。Runtime 负责冻结执行配置、管理 worktree 与租约、保存记录，并核验执行结果及声明的交付项。执行端接收具体任务，可以使用原生工具和子 agent，但不能递归调用 Agent Lord。
 
-Codex App 任务由主会话通过宿主工具派发，Observer 展示其任务状态；本地 CLI 任务经由 Runtime 执行，Observer 还能展示对话和工具活动。所有图均由 Archify 生成，README 内嵌 SVG；交互版 HTML 可按[图源 README](assets/diagrams/README.md) 的步骤在本地重新生成，不随仓库分发。
+Codex App 任务由主会话通过宿主工具派发，Observer 展示其任务状态；本地 CLI 任务经由 Runtime 执行，Observer 还能展示对话和工具活动。架构与原有 pipeline 图由 Archify 生成，README 内嵌 SVG；新的 plan-cross-review 使用下方 Mermaid 流程图。交互版 HTML 可按[图源 README](assets/diagrams/README.md) 的步骤在本地重新生成，不随仓库分发。
 
 ## Pipelines
 
@@ -47,9 +48,35 @@ Codex App 任务由主会话通过宿主工具派发，Observer 展示其任务�
 3. 必要时增加**最多一轮**收敛，仅处理仍有分歧的条目。若分歧仍未消除，保留为 `UNRESOLVED`，在独立复核前停止。
 4. 没有未决项后，启动**全新的 MCode checker 会话**。它拿到源码证据和初审原文，但不接收共识标签或最终严重度，同时检查已被丢弃的问题是否漏判。
 
-默认 MCode reviewer 与 checker 使用 **Opus 5 / xhigh**，Codex 使用 **GPT-6 Astra / max**。常规路径共五次计划内执行；增加收敛轮后共七次。运行时恢复不会增加语义上的审查轮次。
+默认 MCode reviewer 与 checker 使用 **Opus 5 / xhigh**，Codex 使用 **GPT-6 Astra / high**。常规路径共五次计划内执行；增加收敛轮后共七次。运行时恢复不会增加语义上的审查轮次。
 
 最终分开报告 **Pipeline Check**（流程与独立审计是否经过核验）和 **Review Result**（是否仍有已确认的问题）。流程有效但发现了 Bug 时，结果可以是 `Pipeline Check: PASS`、`Review Result: FAIL`。
+
+### 方案交叉审查：Plan-cross-review
+
+适合以 spec 和当前源码为依据，把已有 plan 重写为一份可以单独指导实施的完整方案。
+
+> 使用 Agent Lord 的 plan-cross-review pipeline，基于最新目标分支审查 spec.md 和 plan.md。交叉质证后独立检查问题与方案，再启动新的 MCode session 重写完整 plan，由作者自查完整性并确认最终文档。
+
+```mermaid
+flowchart LR
+  I["1. 固定输入"] --> A["2. MCode 独立 review"]
+  I --> B["2. Codex 独立 review"]
+  A --> X["3. 交叉质证"]
+  B --> X
+  X --> C["新 MCode：检查问题与方案"]
+  C --> D["4. 新 MCode：重写完整 plan"]
+  D --> S["5. 同一作者：自查与修订"]
+  S --> F["6. 同一作者确认；主会话交付"]
+```
+
+[完整六步规则](references/pipelines/plan-cross-review.md)
+
+固定 **四个 CLI 角色**：两个 reviewer、一个全新 session 的独立 checker，以及另一个全新 session 的 writer。前三者沿用上方 cross-review 默认值；writer 默认 **MCode Opus 5 / xhigh**。用户可以覆盖角色、模型与 effort。作者后续轮次复用写作 session，不增加第五个终稿审查 CLI。
+
+作者接收原 plan 全文、spec、固定源码、全部 review、经过核验的方案与用户裁决，重写最终设计和完整实施上下文；随后逐项映射需求、原方案有效细节与 review 处理结论。**不设行数目标，不写历史补丁。** 最终确认绑定 plan 哈希，交付保持同一份文档，简短摘要单独提供。
+
+交付完整 plan 和覆盖核对记录；修订轮次有上限，未解决问题明确保留。除非另有授权，不实施代码或发布改动。独立 checker 在写作前检查问题与方案；终稿采用**作者自查**，不声称经过独立终审。所有用户问题仍在原主会话提出。
 
 ### 计划到实现：Plan-to-implement
 
