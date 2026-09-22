@@ -125,6 +125,75 @@ describe("frozen node provenance", () => {
     ).toBe("unavailable");
   });
 
+  it("registers all plan-cross-review roles and preserves pipeline provenance across writer turns", async () => {
+    const roles = {
+      mcode: "mcode-reviewer",
+      codex: "codex-reviewer",
+      checker: "independent-checker",
+      writer: "plan-writer",
+    };
+    const nodes = workflowNodes(
+      Object.fromEntries(
+        Object.entries(roles).map(([id, role]) => [
+          id,
+          {
+            role,
+            source: { kind: "pipeline", reference: "plan-cross-review" },
+          },
+        ]),
+      ),
+    );
+    const file = path.join(h.base, "plan-review-nodes.json");
+    writeFileSync(file, JSON.stringify(nodes));
+    let output = "";
+    expect(
+      await main(
+        [
+          "run-create",
+          "--run-id",
+          "plan-review",
+          ...Object.keys(roles).flatMap((id) => ["--task-id", id]),
+          "--nodes-file",
+          file,
+        ],
+        (s) => {
+          output += s;
+        },
+      ),
+    ).toBe(0);
+    const run = JSON.parse(output).run;
+    expect(run.task_ids).toEqual(Object.keys(roles).sort());
+    expect(run.tasks.map((task: any) => task.node)).toEqual(
+      Object.keys(roles)
+        .sort()
+        .map((id) => nodes[id]),
+    );
+    expect(h.calls()).toHaveLength(0); // Registration never dispatches a role.
+    const draft = await h.lord.start("writer", "mcode", h.target, "rewrite", {
+      workflow_run_id: "plan-review",
+    });
+    const check = await h.lord.turn("writer", "self-check");
+    const confirmed = await h.lord.turn("writer", "confirm exact plan");
+    for (const result of [draft, check, confirmed]) {
+      expect(h.lord.store.operation(result.operation_id!).workflow).toEqual({
+        run_id: "plan-review",
+        node: nodes.writer,
+        provenance_status: "caller-declared",
+      });
+    }
+  });
+
+  it.each(["cross-review", "plan-to-implement", "handoff"])(
+    "retains the existing %s pipeline source",
+    (reference) => {
+      const declared = {
+        role: "existing-role",
+        source: { kind: "pipeline", reference },
+      };
+      expect(workflowNodes({ existing: declared }).existing).toEqual(declared);
+    },
+  );
+
   it("rejects invented pipeline names and cyclic replacement lineage", () => {
     expect(() =>
       workflowNodes({

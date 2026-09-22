@@ -11,6 +11,7 @@ Start with a single task, or choose a built-in pipeline:
 | You want to…                                  | Pipeline                                | What you get                                                              |
 | --------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------- |
 | Check a change from independent perspectives  | [Cross-review](#cross-review)           | Source-backed findings, mutual challenges, and an independent final audit |
+| Rewrite a complete plan after cross-review    | [Plan-cross-review](#plan-cross-review) | Four CLI roles, a standalone plan, and author coverage verification       |
 | Turn an implementation plan into code         | [Plan-to-implement](#plan-to-implement) | Parallel module delivery, one integrator, and one PR/MR per repository    |
 | Let a fresh CLI session continue ongoing work | [Handoff](#handoff)                     | A new endpoint with a sanitized context packet and recorded lineage       |
 
@@ -47,9 +48,35 @@ Use this when you want reviewers to challenge each other's findings before an in
 3. If needed, run one additional convergence pair on unresolved items only. If disagreements remain, preserve them as `UNRESOLVED` and stop before the checker.
 4. Once no items remain unresolved, start a **fresh MCode checker session**. It receives the source evidence and initial artifacts without consensus labels or final severity, and also inspects dropped candidates.
 
-Defaults: MCode reviewer and checker use **Opus 5 / xhigh**; Codex uses **GPT-6 Astra / max**. The normal path has five planned provider operations, or seven with the optional convergence pair. Recovery does not add semantic review rounds.
+Defaults: MCode reviewer and checker use **Opus 5 / xhigh**; Codex uses **GPT-6 Astra / high**. The normal path has five planned provider operations, or seven with the optional convergence pair. Recovery does not add semantic review rounds.
 
 The result separates **Pipeline Check** (whether the workflow and independent audit were verified) from **Review Result** (whether confirmed problems remain). A correctly completed pipeline can find bugs: `Pipeline Check: PASS`, `Review Result: FAIL`.
+
+### Plan-cross-review
+
+Use this to replace an existing plan with a complete, self-contained implementation plan grounded in the spec and current source.
+
+> Use Agent Lord's plan-cross-review pipeline on spec.md and plan.md against the latest target branch. Cross-review the findings, independently check the proposed solutions, then start a fresh MCode writer to rewrite the complete plan, self-check coverage, and confirm the exact final document.
+
+```mermaid
+flowchart LR
+  I["1. Freeze inputs"] --> A["2. MCode review"]
+  I --> B["2. Codex review"]
+  A --> X["3. Mutual cross-exam"]
+  B --> X
+  X --> C["Fresh MCode: check findings and solutions"]
+  C --> D["4. Fresh MCode: rewrite full plan"]
+  D --> S["5. Same writer: self-check and revise"]
+  S --> F["6. Same writer: confirm; caller delivers"]
+```
+
+[Full six-step policy](references/pipelines/plan-cross-review.md)
+
+Exactly **four CLI roles**: two reviewers, a fresh independent checker, then a separate fresh writer. Reviewers/checker use the cross-review defaults above; the writer defaults to **MCode Opus 5 / xhigh**. Explicit role/model/effort choices override defaults. Later author turns reuse the writer session; there is no fifth final-plan auditor.
+
+The writer receives the full original plan, spec, pinned source, review artifacts, checked solutions, and user decisions. It writes the final chosen design with all implementation context, then maps every requirement, valid old detail, and review disposition to the new text. There is **no line-count target** and no historical patch structure. Final confirmation binds the exact plan hash; delivery preserves those bytes and keeps any short summary separate.
+
+The workflow delivers the plan and coverage audit, with bounded revisions and explicit unresolved items. It does not implement code or publish changes unless separately authorized. The checker audits review findings **before** writing; final document verification is the **writer's self-check**, not an independent final audit.
 
 ### Plan-to-implement
 

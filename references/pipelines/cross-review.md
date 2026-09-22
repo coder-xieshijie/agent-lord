@@ -1,6 +1,6 @@
 # Cross-Review Pipeline
 
-Load this policy whenever the user asks Agent Lord for “交叉 Review”, “交叉审查”, or `cross-review`. It is the documented expansion of that shorthand. Read [common.md](common.md) first.
+Load this policy for “交叉 Review”, “交叉审查”, or `cross-review` of an existing change. For `plan-cross-review` or a request to cross-review and rewrite a complete plan, route to [plan-cross-review.md](plan-cross-review.md) instead; it reuses this review protocol within its four-role graph. It is the documented expansion of that shorthand. Read [common.md](common.md) first.
 
 The scheduling caller directly starts the reviewers, exchanges their final artifacts through `turn`, maintains the verdict ledger, and starts the independent checker after the barrier. Each reviewer or checker receives its current review assignment and the [executor constraint](../../SKILL.md#scheduling-ownership). Keep this orchestration in the caller instead of creating a cross-review coordinator CLI.
 
@@ -11,10 +11,10 @@ Unless the user overrides them, freeze these three roles at one repository and f
 | Role                      | Provider    | Model                                        | Effort  | Workspace  |
 | ------------------------- | ----------- | -------------------------------------------- | ------- | ---------- |
 | MCode reviewer            | `mcode-cli` | `custom_provider:mafia-claude/claude-opus-5` | `xhigh` | `isolated` |
-| Codex reviewer            | `codex-cli` | `gpt-6-astra`                                | `max`   | `isolated` |
+| Codex reviewer            | `codex-cli` | `gpt-6-astra`                                | `high`  | `isolated` |
 | Independent MCode checker | `mcode-cli` | `custom_provider:mafia-claude/claude-opus-5` | `xhigh` | `isolated` |
 
-Pass these pipeline-specific model and effort choices explicitly, including `--effort xhigh` for MCode and `--effort max` for Codex. A MCode `#variant` remains model identity and is never used as reasoning effort. These choices do not change ordinary provider defaults.
+Pass these pipeline-specific model and effort choices explicitly, including `--effort xhigh` for MCode and `--effort high` for Codex. A MCode `#variant` remains model identity and is never used as reasoning effort. These choices do not change ordinary provider defaults.
 
 Start all three CLI roles in `dangerously_bypass` without `--read-only`. Give each role its own worktree and distinct `--workspace-branch` from the same fixed review head; create them without confirmation under [common.md](common.md). Continue each role's later turns in its saved workspace. These review roles hold exclusive runtime leases and need no integration metadata or integrator.
 
@@ -88,4 +88,4 @@ Report two independent statuses:
 - `Pipeline Check`: `PASS` only when the role/source/barrier contract held and a verified independent MCode checker accepted the audit. Report the actual model/variant, MCode and Codex effort evidence, and the distinct reviewer/checker task/session identities. Otherwise report `FAIL`, `PARTIAL`, or `UNVERIFIED` with the exact reason; a failed or unverified checker never satisfies the final barrier.
 - `Review Result`: `FAIL` when at least one confirmed issue remains, otherwise `PASS` after completed verification. If verification could not finish, report `UNVERIFIED` with the blockers. A successful pipeline can therefore produce `Pipeline Check: PASS` and `Review Result: FAIL`.
 
-Show confirmed issues in one table with columns: ID, severity, location, issue and failure scenario, evidence, minimal fix and dependencies, MCode reviewer verdict, Codex verdict, and independent MCode checker verdict. Label the MCode columns `Opus 5 xhigh` and the Codex column `GPT-6 max`, using the verified execution details above to distinguish the same-model MCode roles. Follow it with compact `DROPPED`, `UNRESOLVED`, and `OUT_OF_SCOPE` appendices when non-empty. Never merge an unresolved or checker-only candidate into the confirmed table.
+Show confirmed issues in one table with columns: ID, severity, location, issue and failure scenario, evidence, minimal fix and dependencies, MCode reviewer verdict, Codex verdict, and independent MCode checker verdict. Label the MCode columns `Opus 5 xhigh` and the Codex column `GPT-6 high`, using the verified execution details above to distinguish the same-model MCode roles. Follow it with compact `DROPPED`, `UNRESOLVED`, and `OUT_OF_SCOPE` appendices when non-empty. Never merge an unresolved or checker-only candidate into the confirmed table.
