@@ -83,7 +83,13 @@ export interface ToolItem {
   /** Extracted readable output (content[].text / stdout), clipped. */
   outputText?: string;
   errorText?: string | null;
-  phase?: "preparing" | "ready" | "executing" | "completed" | "failed" | "unknown";
+  phase?:
+    | "preparing"
+    | "ready"
+    | "executing"
+    | "completed"
+    | "failed"
+    | "unknown";
   preparationMs?: number;
   executionMs?: number;
   exitCode?: number;
@@ -176,13 +182,34 @@ export interface TaskMeta {
   model: string | null;
   effort: string | null;
   execution?: ExecutionModel;
-  caller?: { initial: CallerDisplay | null; current: CallerDisplay | null; lifecycle: CallerLifecycle; session: CallerSessionMeta | null };
-  timing?: { providerCompletedAtMs: number | null; artifactReadyAtMs: number | null; callerReceivedAtMs: number | null; callerCompletedAtMs: number | null };
-  artifact?: { operationId: string; path: string; bytes: number; sha256: string };
+  caller?: {
+    initial: CallerDisplay | null;
+    current: CallerDisplay | null;
+    lifecycle: CallerLifecycle;
+    session: CallerSessionMeta | null;
+  };
+  timing?: {
+    providerCompletedAtMs: number | null;
+    artifactReadyAtMs: number | null;
+    callerReceivedAtMs: number | null;
+    callerCompletedAtMs: number | null;
+  };
+  artifact?: {
+    operationId: string;
+    path: string;
+    bytes: number;
+    sha256: string;
+  };
   permissionMode: string | null;
   target: string | null;
   status: string;
-  statusKind: "running" | "succeeded" | "failed" | "needs_decision" | "unknown" | "empty";
+  statusKind:
+    | "running"
+    | "succeeded"
+    | "failed"
+    | "needs_decision"
+    | "unknown"
+    | "empty";
   running: boolean;
   pidAlive: boolean | null;
   operations: number;

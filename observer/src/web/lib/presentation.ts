@@ -7,9 +7,12 @@ export interface ToolGroup {
 }
 
 export function isExecutionDetail(item: TimelineItem): boolean {
-  return item.kind === "lifecycle" || item.kind === "omitted"
-    || (item.kind === "journal" && item.level !== "error")
-    || (item.kind === "final" && item.ok);
+  return (
+    item.kind === "lifecycle" ||
+    item.kind === "omitted" ||
+    (item.kind === "journal" && item.level !== "error") ||
+    (item.kind === "final" && item.ok)
+  );
 }
 
 /** Group only consecutive successful tools in one known operation.
@@ -22,7 +25,8 @@ export function presentTimeline(items: TimelineItem[]): {
   const details: TimelineItem[] = [];
   let run: ToolItem[] = [];
   const flush = () => {
-    if (run.length >= 3) rows.push({ kind: "tool-group", id: `group:${run[0].id}`, tools: run });
+    if (run.length >= 3)
+      rows.push({ kind: "tool-group", id: `group:${run[0].id}`, tools: run });
     else rows.push(...run);
     run = [];
   };
@@ -42,6 +46,9 @@ export function presentTimeline(items: TimelineItem[]): {
 
 export function toolSummary(tools: ToolItem[]): string {
   const counts = new Map<string, number>();
-  for (const tool of tools) counts.set(tool.name, (counts.get(tool.name) ?? 0) + 1);
-  return [...counts].map(([name, count]) => count > 1 ? `${name} ×${count}` : name).join(" · ");
+  for (const tool of tools)
+    counts.set(tool.name, (counts.get(tool.name) ?? 0) + 1);
+  return [...counts]
+    .map(([name, count]) => (count > 1 ? `${name} ×${count}` : name))
+    .join(" · ");
 }

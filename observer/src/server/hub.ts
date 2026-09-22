@@ -11,7 +11,12 @@
 import path from "node:path";
 import { runTasks } from "./run-binding.js";
 import { randomBytes } from "node:crypto";
-import type { DeltaResponse, Patch, ProviderId, TaskMeta } from "../shared/types.js";
+import type {
+  DeltaResponse,
+  Patch,
+  ProviderId,
+  TaskMeta,
+} from "../shared/types.js";
 import {
   defaultStateDir,
   fileMtimeMs,
@@ -96,7 +101,8 @@ function parseJournalLine(line: string, lineNo: number): JournalEvent | null {
   } catch {
     return null;
   }
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    return null;
   const record = value as Record<string, unknown>;
   const type = typeof record.type === "string" ? record.type : "unknown";
   const data = (record.data ?? {}) as Record<string, unknown>;
@@ -123,7 +129,8 @@ function parseJournalLine(line: string, lineNo: number): JournalEvent | null {
   return {
     lineNo,
     type,
-    opId: typeof record.operation_id === "string" ? record.operation_id : undefined,
+    opId:
+      typeof record.operation_id === "string" ? record.operation_id : undefined,
     ts: typeof record.timestamp === "string" ? record.timestamp : undefined,
     detail,
     level,
@@ -220,7 +227,11 @@ export class Hub {
   private refreshing = false;
 
   readonly bindingErrors: Record<string, string> = {};
-  constructor(taskIds: string[], stateDir?: string, readonly runIds: string[] = []) {
+  constructor(
+    taskIds: string[],
+    stateDir?: string,
+    readonly runIds: string[] = [],
+  ) {
     this.root = stateDir ? path.resolve(stateDir) : defaultStateDir();
     this.generation = `${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`;
     this.addTasks(taskIds);
@@ -276,7 +287,12 @@ export class Hub {
     return [...this.tasks.values()].map((state) => state.meta);
   }
 
-  snapshot(taskId: string): { cursor: string; task: TaskMeta; items: ReturnType<Timeline["snapshotItems"]>; truncatedHistory: boolean } | null {
+  snapshot(taskId: string): {
+    cursor: string;
+    task: TaskMeta;
+    items: ReturnType<Timeline["snapshotItems"]>;
+    truncatedHistory: boolean;
+  } | null {
     const state = this.tasks.get(taskId);
     if (!state) return null;
     return {
@@ -288,10 +304,15 @@ export class Hub {
   }
 
   artifact(taskId: string, operationId: string): Buffer | null {
-    return this.tasks.has(taskId) ? readFinalArtifact(this.root, taskId, operationId) : null;
+    return this.tasks.has(taskId)
+      ? readFinalArtifact(this.root, taskId, operationId)
+      : null;
   }
 
-  delta(taskId: string, afterSeq: number): { cursor: string; patches: Patch[]; task: TaskMeta } | null {
+  delta(
+    taskId: string,
+    afterSeq: number,
+  ): { cursor: string; patches: Patch[]; task: TaskMeta } | null {
     const state = this.tasks.get(taskId);
     if (!state) return null;
     const patches = state.timeline.patchesAfter(afterSeq);
@@ -316,7 +337,8 @@ export class Hub {
           this.addTasks(runTasks(this.root, runId));
           delete this.bindingErrors[runId];
         } catch {
-          this.bindingErrors[runId] = "run membership could not be read; retained last verified members";
+          this.bindingErrors[runId] =
+            "run membership could not be read; retained last verified members";
         }
       }
       for (const state of this.tasks.values()) {
@@ -372,28 +394,53 @@ export class Hub {
       });
     };
     const opIds = new Set(operations.map((op) => op.operationId));
-    for (const event of pre) if (!event.opId || !opIds.has(event.opId)) emitJournal(event);
+    for (const event of pre)
+      if (!event.opId || !opIds.has(event.opId)) emitJournal(event);
 
     // Replay each complete round in order, including requests on reconnect.
     for (const operation of operations) {
-      for (const event of pre) if (event.opId === operation.operationId) emitJournal(event);
-      if (!state.requestOps.has(operation.operationId) && (operation.message || operation.invocation?.user_request)) {
+      for (const event of pre)
+        if (event.opId === operation.operationId) emitJournal(event);
+      if (
+        !state.requestOps.has(operation.operationId) &&
+        (operation.message || operation.invocation?.user_request)
+      ) {
         const invocation = operation.invocation;
         const base = {
-          kind: "request" as const, trigger: invocation?.trigger ?? "unspecified" as const,
-          caller: displayCaller(invocation?.caller), originalRecorded: Boolean(invocation?.user_request),
-          opId: operation.operationId, ord: 0, tsMs: timestamp(operation.createdAt) ?? undefined,
+          kind: "request" as const,
+          trigger: invocation?.trigger ?? ("unspecified" as const),
+          caller: displayCaller(invocation?.caller),
+          originalRecorded: Boolean(invocation?.user_request),
+          opId: operation.operationId,
+          ord: 0,
+          tsMs: timestamp(operation.createdAt) ?? undefined,
         };
-        if (invocation?.user_request) state.timeline.upsert({ ...base, id: `${operation.operationId}/request/user`, role: "user", text: invocation.user_request, reason: null });
-        if (operation.message) state.timeline.upsert({ ...base, id: `${operation.operationId}/request/caller`, role: "caller", text: operation.message, reason: invocation?.reason ?? null });
+        if (invocation?.user_request)
+          state.timeline.upsert({
+            ...base,
+            id: `${operation.operationId}/request/user`,
+            role: "user",
+            text: invocation.user_request,
+            reason: null,
+          });
+        if (operation.message)
+          state.timeline.upsert({
+            ...base,
+            id: `${operation.operationId}/request/caller`,
+            role: "caller",
+            text: operation.message,
+            reason: invocation?.reason ?? null,
+          });
         state.requestOps.add(operation.operationId);
       }
       this.pumpOperation(state, operation);
-      for (const event of post) if (event.opId === operation.operationId) emitJournal(event);
+      for (const event of post)
+        if (event.opId === operation.operationId) emitJournal(event);
     }
 
     // 3. Post journal events (terminal states, artifacts) after stream output.
-    for (const event of post) if (!event.opId || !opIds.has(event.opId)) emitJournal(event);
+    for (const event of post)
+      if (!event.opId || !opIds.has(event.opId)) emitJournal(event);
 
     // 4. Metadata.
     this.rebuildMeta(state, task, operations);
@@ -414,9 +461,16 @@ export class Hub {
       times = { startedAtMs: null, artifactExportedAtMs: null };
       state.opTimes.set(event.opId, times);
     }
-    if ((event.type === "operation-started" || event.type === "operation-continued") && times.startedAtMs === null) {
+    if (
+      (event.type === "operation-started" ||
+        event.type === "operation-continued") &&
+      times.startedAtMs === null
+    ) {
       times.startedAtMs = ts;
-    } else if (event.type === "artifact-exported" && times.artifactExportedAtMs === null) {
+    } else if (
+      event.type === "artifact-exported" &&
+      times.artifactExportedAtMs === null
+    ) {
       times.artifactExportedAtMs = ts;
     }
   }
@@ -437,7 +491,11 @@ export class Hub {
   }
 
   private pumpOperation(state: TaskState, operation: OperationRecord): void {
-    const file = validStdoutPath(this.root, operation.operationId, operation.stdoutPath);
+    const file = validStdoutPath(
+      this.root,
+      operation.operationId,
+      operation.stdoutPath,
+    );
     if (!file) return;
     let reader = state.readers.get(operation.operationId);
     if (reader && reader.file !== file) {
@@ -454,7 +512,9 @@ export class Hub {
     if (!reader) {
       const base = path.basename(file);
       const isPrimary = base === `${operation.operationId}.stdout`;
-      const scope = isPrimary ? operation.operationId : `${operation.operationId}@${base}`;
+      const scope = isPrimary
+        ? operation.operationId
+        : `${operation.operationId}@${base}`;
       reader = {
         file,
         offset: 0,
@@ -479,26 +539,54 @@ export class Hub {
     }
   }
 
-  private rebuildMeta(state: TaskState, task: ReturnType<typeof readTaskRecord>, operations: OperationRecord[]): void {
+  private rebuildMeta(
+    state: TaskState,
+    task: ReturnType<typeof readTaskRecord>,
+    operations: OperationRecord[],
+  ): void {
     const lastOp = operations[operations.length - 1] ?? null;
     const providerRaw = task?.provider ?? lastOp?.provider ?? null;
-    const provider = (providerRaw && providerRaw in PROVIDER_LABELS ? providerRaw : null) as ProviderId | null;
+    const provider = (
+      providerRaw && providerRaw in PROVIDER_LABELS ? providerRaw : null
+    ) as ProviderId | null;
     const target = task?.target ?? lastOp?.target ?? null;
-    const { status, statusKind, running, pidAlive: alive } = deriveStatus(operations, pidAlive);
+    const {
+      status,
+      statusKind,
+      running,
+      pidAlive: alive,
+    } = deriveStatus(operations, pidAlive);
     const evidence = sessionEvidence(task, operations, state.streamSessionId);
-    const lifecycle = this.callerLifecycle.observe(lastOp?.invocation?.caller, lastOp?.operationId ?? "", lastOp?.createdAt ?? "", timestamp(lastOp?.completedAt ?? null));
+    const lifecycle = this.callerLifecycle.observe(
+      lastOp?.invocation?.caller,
+      lastOp?.operationId ?? "",
+      lastOp?.createdAt ?? "",
+      timestamp(lastOp?.completedAt ?? null),
+    );
     // 调度会话归属规则：以“最初拉起该 CLI 会话”的调度会话为准，即首个操作
     // （initial caller）记录的 session_id；后续 turn/recovery 由其他会话调用
     // 也不迁移分组（本轮调用者仍在 caller.current 中单独展示）。首个操作没有
     // 记录调用方时保持未归属，不从后来的操作推断最初拉起者。
     const attributedCaller = operations[0]?.invocation?.caller;
     const callerSession = attributedCaller?.session_id
-      ? { kind: attributedCaller.kind, sessionId: attributedCaller.session_id, ...this.callerSession.read(attributedCaller) }
+      ? {
+          kind: attributedCaller.kind,
+          sessionId: attributedCaller.session_id,
+          ...this.callerSession.read(attributedCaller),
+        }
       : null;
     const activityCandidates = [
       fileMtimeMs(journalPath(this.root, state.taskId)),
       ...(lastOp
-        ? [fileMtimeMs(validStdoutPath(this.root, lastOp.operationId, lastOp.stdoutPath) ?? "")]
+        ? [
+            fileMtimeMs(
+              validStdoutPath(
+                this.root,
+                lastOp.operationId,
+                lastOp.stdoutPath,
+              ) ?? "",
+            ),
+          ]
         : []),
     ].filter((value): value is number => typeof value === "number");
     const meta: TaskMeta = {
@@ -507,17 +595,31 @@ export class Hub {
       available: Boolean(task) || operations.length > 0,
       provisional: !task && operations.length > 0,
       provider,
-      providerLabel: provider ? PROVIDER_LABELS[provider] : (providerRaw ?? "未知"),
+      providerLabel: provider
+        ? PROVIDER_LABELS[provider]
+        : (providerRaw ?? "未知"),
       model: task?.model ?? lastOp?.model ?? null,
       effort: task?.effort ?? null,
       execution: lastOp?.execution,
-      caller: { initial: displayCaller(operations[0]?.invocation?.caller), current: displayCaller(lastOp?.invocation?.caller), lifecycle, session: callerSession },
+      caller: {
+        initial: displayCaller(operations[0]?.invocation?.caller),
+        current: displayCaller(lastOp?.invocation?.caller),
+        lifecycle,
+        session: callerSession,
+      },
       timing: {
-        providerCompletedAtMs: lastOp?.providerCompletedAtMs ?? (lastOp ? state.readers.get(lastOp.operationId)?.projector?.completedAtMs : null) ?? null,
+        providerCompletedAtMs:
+          lastOp?.providerCompletedAtMs ??
+          (lastOp
+            ? state.readers.get(lastOp.operationId)?.projector?.completedAtMs
+            : null) ??
+          null,
         artifactReadyAtMs: lastOp?.artifact
-          ? state.opTimes.get(lastOp.operationId)?.artifactExportedAtMs ?? timestamp(lastOp.completedAt)
+          ? (state.opTimes.get(lastOp.operationId)?.artifactExportedAtMs ??
+            timestamp(lastOp.completedAt))
           : null,
-        callerReceivedAtMs: lifecycle.receivedAtMs, callerCompletedAtMs: lifecycle.completedAtMs,
+        callerReceivedAtMs: lifecycle.receivedAtMs,
+        callerCompletedAtMs: lifecycle.completedAtMs,
       },
       artifact: lastOp?.artifact,
       permissionMode: task?.permissionMode ?? null,
@@ -528,13 +630,17 @@ export class Hub {
       pidAlive: alive,
       operations: operations.length,
       lastOperationId: lastOp?.operationId ?? null,
-      lastActivityMs: activityCandidates.length ? Math.max(...activityCandidates) : null,
+      lastActivityMs: activityCandidates.length
+        ? Math.max(...activityCandidates)
+        : null,
       createdAt: task?.createdAt ?? (operations[0]?.createdAt || null),
       updatedAt: task?.updatedAt ?? lastOp?.completedAt ?? null,
       capability: provider ? CAPABILITY[provider] : "未知",
       granularity: provider ? GRANULARITY[provider] : "未知",
       resume: buildResume(provider, evidence, target, running),
-      error: lastOp?.errorMessage ? clip(lastOp.errorMessage, TOOL_TEXT_CLIP) : undefined,
+      error: lastOp?.errorMessage
+        ? clip(lastOp.errorMessage, TOOL_TEXT_CLIP)
+        : undefined,
       activity: lastOp?.activity,
       delivery: lastOp?.delivery,
       recovery: lastOp?.recovery,
@@ -554,7 +660,10 @@ export class Hub {
     for (const listener of state.listeners) {
       const patches = state.timeline.patchesAfter(listener.seq);
       if (patches === null) {
-        listener.send({ reset: true, reason: "cursor 已超出保留窗口，请重新获取快照" });
+        listener.send({
+          reset: true,
+          reason: "cursor 已超出保留窗口，请重新获取快照",
+        });
         continue;
       }
       if (!patches.length && !metaChanged) continue;

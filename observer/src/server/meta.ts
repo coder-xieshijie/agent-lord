@@ -49,14 +49,29 @@ export function sessionEvidence(
   operations: OperationRecord[],
   streamSessionId: string | null,
 ): SessionEvidence {
-  if (task?.endpointId) return { sessionId: task.endpointId, source: "任务记录 endpoint_id（控制平面 journal）" };
+  if (task?.endpointId)
+    return {
+      sessionId: task.endpointId,
+      source: "任务记录 endpoint_id（控制平面 journal）",
+    };
   for (const operation of [...operations].reverse()) {
-    if (operation.endpointId) return { sessionId: operation.endpointId, source: "操作记录 endpoint_id（控制平面 journal）" };
+    if (operation.endpointId)
+      return {
+        sessionId: operation.endpointId,
+        source: "操作记录 endpoint_id（控制平面 journal）",
+      };
     if (operation.observedSessionId) {
-      return { sessionId: operation.observedSessionId, source: "操作记录 observed.session_id（控制平面 journal）" };
+      return {
+        sessionId: operation.observedSessionId,
+        source: "操作记录 observed.session_id（控制平面 journal）",
+      };
     }
   }
-  if (streamSessionId) return { sessionId: streamSessionId, source: "原生 exec 输出流（只读观察）" };
+  if (streamSessionId)
+    return {
+      sessionId: streamSessionId,
+      source: "原生 exec 输出流（只读观察）",
+    };
   return { sessionId: null, source: null };
 }
 
@@ -76,16 +91,21 @@ export function buildResume(
     note: "",
   };
   if (provider === "codex-app") {
-    return { ...base, note: "Codex App 任务只提供状态观察，无本地 CLI 续聊命令" };
+    return {
+      ...base,
+      note: "Codex App 任务只提供状态观察，无本地 CLI 续聊命令",
+    };
   }
   if (!evidence.sessionId) {
     return { ...base, note: "尚未观察到原生 Session ID，暂无法给出续聊命令" };
   }
   let command: string | null = null;
-  if (provider === "claude-cli") command = `claude --resume ${shellQuote(evidence.sessionId)}`;
+  if (provider === "claude-cli")
+    command = `claude --resume ${shellQuote(evidence.sessionId)}`;
   else if (provider === "codex-cli")
     command = `codex resume${target ? ` -C ${shellQuote(target)}` : ""} ${shellQuote(evidence.sessionId)}`;
-  else if (provider === "mcode-cli") command = `mcode --session ${shellQuote(evidence.sessionId)}`;
+  else if (provider === "mcode-cli")
+    command = `mcode --session ${shellQuote(evidence.sessionId)}`;
   if (!command) return { ...base, note: "未知 provider，无法给出续聊命令" };
   if (running) {
     return {
@@ -103,18 +123,32 @@ export function buildResume(
   };
 }
 
-export function deriveStatus(operations: OperationRecord[], aliveOf: (pid: number | null) => boolean | null): {
+export function deriveStatus(
+  operations: OperationRecord[],
+  aliveOf: (pid: number | null) => boolean | null,
+): {
   status: string;
   statusKind: TaskMeta["statusKind"];
   running: boolean;
   pidAlive: boolean | null;
 } {
   const last = operations[operations.length - 1];
-  if (!last) return { status: "尚无操作", statusKind: "empty", running: false, pidAlive: null };
+  if (!last)
+    return {
+      status: "尚无操作",
+      statusKind: "empty",
+      running: false,
+      pidAlive: null,
+    };
   const raw = last.status ?? "unknown";
   if (TERMINAL.has(raw)) {
     const kind = raw as "succeeded" | "failed" | "needs_decision";
-    const label = raw === "succeeded" ? "本轮执行完成" : raw === "failed" ? "本轮执行失败" : "待决策";
+    const label =
+      raw === "succeeded"
+        ? "本轮执行完成"
+        : raw === "failed"
+          ? "本轮执行失败"
+          : "待决策";
     return { status: label, statusKind: kind, running: false, pidAlive: null };
   }
   const alive = aliveOf(last.pid);
@@ -126,5 +160,10 @@ export function deriveStatus(operations: OperationRecord[], aliveOf: (pid: numbe
       pidAlive: false,
     };
   }
-  return { status: "运行中", statusKind: "running", running: true, pidAlive: alive };
+  return {
+    status: "运行中",
+    statusKind: "running",
+    running: true,
+    pidAlive: alive,
+  };
 }

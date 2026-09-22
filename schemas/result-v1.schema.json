@@ -5,23 +5,38 @@
   "type": "object",
   "required": ["version", "status"],
   "properties": {
-    "version": {"const": 1},
+    "version": { "const": 1 },
     "status": {
-      "enum": ["RUNNING", "ACTION_REQUIRED", "SUCCEEDED", "ERROR", "NEEDS_DECISION", "CHECKPOINT_ACTIONABLE", "CHECKPOINT_QUIET", "IDLE", "RUN_RECORD", "REQUEST_RECORD", "REQUEST_LIST", "REQUEST_PENDING"]
+      "enum": [
+        "RUNNING",
+        "ACTION_REQUIRED",
+        "SUCCEEDED",
+        "ERROR",
+        "NEEDS_DECISION",
+        "CHECKPOINT_ACTIONABLE",
+        "CHECKPOINT_QUIET",
+        "IDLE",
+        "RUN_RECORD",
+        "REQUEST_RECORD",
+        "REQUEST_LIST",
+        "REQUEST_PENDING",
+        "PLAN_VALID",
+        "PLAN_RECORD"
+      ]
     },
-    "task_id": {"type": "string"},
-    "operation_id": {"type": "string"},
-    "provider": {"type": "string"},
-    "endpoint_id": {"type": "string"},
-    "expected": {"type": "object"},
-    "invocation": {"$ref": "operation-v1.schema.json#/properties/invocation"},
-    "provider_return_code": {"type": ["integer", "null"]},
+    "task_id": { "type": "string" },
+    "operation_id": { "type": "string" },
+    "provider": { "type": "string" },
+    "endpoint_id": { "type": "string" },
+    "expected": { "type": "object" },
+    "invocation": { "$ref": "operation-v1.schema.json#/properties/invocation" },
+    "provider_return_code": { "type": ["integer", "null"] },
     "timing": {
       "type": "object",
       "required": ["created_at_ms", "completed_at_ms"],
       "properties": {
-        "created_at_ms": {"type": "number"},
-        "completed_at_ms": {"type": ["number", "null"]}
+        "created_at_ms": { "type": "number" },
+        "completed_at_ms": { "type": ["number", "null"] }
       },
       "additionalProperties": false
     },
@@ -29,43 +44,48 @@
       "type": "object",
       "required": ["text", "read_at_ms"],
       "properties": {
-        "text": {"type": "string"},
-        "read_at_ms": {"type": "number"}
+        "text": { "type": "string" },
+        "read_at_ms": { "type": "number" }
       },
       "additionalProperties": false
     },
     "observed": {
       "type": "object",
       "properties": {
-        "models": {"type": "array", "items": {"type": "string"}},
-        "model": {"type": "string"},
-        "model_verification": {"type": "string"},
-        "variant": {"type": ["string", "null"]},
-        "variant_verification": {"type": "string"},
-        "effort": {"type": ["string", "null"]},
-        "effort_verification": {"type": "string"},
-        "permission_mode": {"type": "string"},
-        "permission_enforcement": {"type": "string"},
-        "run_id": {"type": "string"},
-        "session_id": {"type": "string"},
-        "turn_id": {"type": "string"},
-        "terminal_status": {"type": "string"},
-        "provider_completed_at_ms": {"type": "number"},
-        "progress_seq": {"type": "integer", "minimum": 0}
+        "models": { "type": "array", "items": { "type": "string" } },
+        "model": { "type": "string" },
+        "model_verification": { "type": "string" },
+        "variant": { "type": ["string", "null"] },
+        "variant_verification": { "type": "string" },
+        "effort": { "type": ["string", "null"] },
+        "effort_verification": { "type": "string" },
+        "permission_mode": { "type": "string" },
+        "permission_enforcement": { "type": "string" },
+        "run_id": { "type": "string" },
+        "session_id": { "type": "string" },
+        "turn_id": { "type": "string" },
+        "terminal_status": { "type": "string" },
+        "provider_completed_at_ms": { "type": "number" },
+        "progress_seq": { "type": "integer", "minimum": 0 }
       },
       "additionalProperties": true
     },
-    "source": {"type": "object"},
-    "workspace": {"type": "object"},
-    "parallel_plan": {"type": "object"},
+    "source": { "type": "object" },
+    "workspace": { "type": "object" },
+    "parallel_plan": { "type": "object" },
     "continuation": {
       "type": "object",
-      "required": ["parent_operation_id", "root_operation_id", "attempt", "limit"],
+      "required": [
+        "parent_operation_id",
+        "root_operation_id",
+        "attempt",
+        "limit"
+      ],
       "properties": {
-        "parent_operation_id": {"type": "string"},
-        "root_operation_id": {"type": "string"},
-        "attempt": {"type": "integer", "minimum": 1, "maximum": 5},
-        "limit": {"type": "integer", "minimum": 1, "maximum": 5}
+        "parent_operation_id": { "type": "string" },
+        "root_operation_id": { "type": "string" },
+        "attempt": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 5 }
       },
       "additionalProperties": true
     },
@@ -73,10 +93,10 @@
       "type": "object",
       "required": ["status", "scope", "checks"],
       "properties": {
-        "status": {"enum": ["verified", "incomplete", "unverified"]},
-        "scope": {"const": "declared-files-and-commit"},
-        "checks": {"type": "array", "items": {"type": "object"}},
-        "commit_sha": {"type": ["string", "null"]}
+        "status": { "enum": ["verified", "incomplete", "unverified"] },
+        "scope": { "const": "declared-files-and-commit" },
+        "checks": { "type": "array", "items": { "type": "object" } },
+        "commit_sha": { "type": ["string", "null"] }
       },
       "additionalProperties": false
     },
@@ -84,14 +104,14 @@
       "type": "object",
       "description": "Public handoff lineage summary: digests and provenance only, never the packet body.",
       "properties": {
-        "schema": {"const": "handoff-v1"},
-        "handoff_id": {"type": "string"},
-        "relationship": {"const": "continues_user_task"},
-        "source_session": {"type": "object"},
-        "packet_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-        "packet_bytes": {"type": "integer", "minimum": 1},
-        "workspace_snapshot": {"type": "object"},
-        "validated_only": {"const": true}
+        "schema": { "const": "handoff-v1" },
+        "handoff_id": { "type": "string" },
+        "relationship": { "const": "continues_user_task" },
+        "source_session": { "type": "object" },
+        "packet_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "packet_bytes": { "type": "integer", "minimum": 1 },
+        "workspace_snapshot": { "type": "object" },
+        "validated_only": { "const": true }
       },
       "additionalProperties": false
     },
@@ -103,9 +123,9 @@
             "type": "object",
             "required": ["code", "source", "model"],
             "properties": {
-              "code": {"type": "string"},
-              "source": {"type": "string"},
-              "model": {"type": "string"}
+              "code": { "type": "string" },
+              "source": { "type": "string" },
+              "model": { "type": "string" }
             },
             "additionalProperties": false
           },
@@ -113,9 +133,9 @@
             "type": "object",
             "required": ["code", "source_format", "expected_effort"],
             "properties": {
-              "code": {"const": "EFFORT_UNVERIFIABLE_FORMAT"},
-              "source_format": {"type": "string"},
-              "expected_effort": {"type": "string"}
+              "code": { "const": "EFFORT_UNVERIFIABLE_FORMAT" },
+              "source_format": { "type": "string" },
+              "expected_effort": { "type": "string" }
             },
             "additionalProperties": false
           }
@@ -126,9 +146,9 @@
       "type": "object",
       "required": ["action_id", "tool", "arguments"],
       "properties": {
-        "action_id": {"type": "string"},
-        "tool": {"type": "string"},
-        "arguments": {"type": "object"}
+        "action_id": { "type": "string" },
+        "tool": { "type": "string" },
+        "arguments": { "type": "object" }
       },
       "additionalProperties": false
     },
@@ -136,10 +156,10 @@
       "type": "object",
       "required": ["code", "message", "retryable", "requires_authorization"],
       "properties": {
-        "code": {"type": "string"},
-        "message": {"type": "string"},
-        "retryable": {"type": "boolean"},
-        "requires_authorization": {"type": "boolean"}
+        "code": { "type": "string" },
+        "message": { "type": "string" },
+        "retryable": { "type": "boolean" },
+        "requires_authorization": { "type": "boolean" }
       },
       "additionalProperties": true
     },
@@ -149,10 +169,12 @@
         "type": "object",
         "required": ["version", "status"],
         "properties": {
-          "version": {"const": 1},
-          "status": {"enum": ["ACTION_REQUIRED", "SUCCEEDED", "ERROR", "NEEDS_DECISION"]},
-          "task_id": {"type": "string"},
-          "operation_id": {"type": "string"}
+          "version": { "const": 1 },
+          "status": {
+            "enum": ["ACTION_REQUIRED", "SUCCEEDED", "ERROR", "NEEDS_DECISION"]
+          },
+          "task_id": { "type": "string" },
+          "operation_id": { "type": "string" }
         },
         "additionalProperties": true
       }
@@ -172,56 +194,66 @@
         "type": "object",
         "required": ["task_id", "phase", "operation_id", "operation_status"],
         "properties": {
-          "task_id": {"type": "string"},
-          "phase": {"enum": ["not_observed", "operation_recorded", "task_established"]},
-          "operation_id": {"type": ["string", "null"]},
-          "operation_status": {"type": ["string", "null"]},
-          "reason": {"const": "no_record_observed"},
-          "detail": {"type": "string"}
+          "task_id": { "type": "string" },
+          "phase": {
+            "enum": ["not_observed", "operation_recorded", "task_established"]
+          },
+          "operation_id": { "type": ["string", "null"] },
+          "operation_status": { "type": ["string", "null"] },
+          "reason": { "const": "no_record_observed" },
+          "detail": { "type": "string" }
         },
         "additionalProperties": false
       }
     },
-    "request": {"type": "object"},
+    "request": { "type": "object" },
     "run": {
       "type": "object",
-      "required": ["run_id", "task_ids", "tasks", "all_terminal", "all_results_acknowledged"],
+      "required": [
+        "run_id",
+        "task_ids",
+        "tasks",
+        "all_terminal",
+        "all_results_acknowledged"
+      ],
       "properties": {
-        "run_id": {"type": "string"},
-        "task_ids": {"type": "array", "items": {"type": "string"}},
-        "tasks": {"type": "array", "items": {"type": "object"}},
-        "all_terminal": {"type": "boolean"},
-        "all_results_acknowledged": {"type": "boolean"}
+        "run_id": { "type": "string" },
+        "task_ids": { "type": "array", "items": { "type": "string" } },
+        "tasks": { "type": "array", "items": { "type": "object" } },
+        "all_terminal": { "type": "boolean" },
+        "all_results_acknowledged": { "type": "boolean" }
       }
     },
-    "requests": {"type": "array", "items": {"type": "object"}},
-    "counts": {"type": "object"},
-    "pending_reason": {"$ref": "#/properties/error"}
+    "requests": { "type": "array", "items": { "type": "object" } },
+    "counts": { "type": "object" },
+    "pending_reason": { "$ref": "#/properties/error" }
   },
   "allOf": [
     {
-      "if": {"properties": {"status": {"const": "RUN_RECORD"}}},
-      "then": {"required": ["run"]}
+      "if": { "properties": { "status": { "const": "RUN_RECORD" } } },
+      "then": { "required": ["run"] }
     },
     {
-      "if": {"properties": {"status": {"const": "CHECKPOINT_ACTIONABLE"}}},
-      "then": {"required": ["actionable", "active"]}
+      "if": {
+        "properties": { "status": { "const": "CHECKPOINT_ACTIONABLE" } }
+      },
+      "then": { "required": ["actionable", "active"] }
     },
     {
-      "if": {"properties": {"status": {"const": "CHECKPOINT_QUIET"}}},
-      "then": {"required": ["active"]}
+      "if": { "properties": { "status": { "const": "CHECKPOINT_QUIET" } } },
+      "then": { "required": ["active"] }
     },
     {
-      "if": {"properties": {"status": {"const": "REQUEST_PENDING"}}},
-      "then": {"required": ["request", "pending_reason"]}
+      "if": { "properties": { "status": { "const": "REQUEST_PENDING" } } },
+      "then": { "required": ["request", "pending_reason"] }
     },
     {
-      "if": {"properties": {"status": {"const": "REQUEST_RECORD"}}},
-      "then": {"required": ["request"]}
+      "if": { "properties": { "status": { "const": "REQUEST_RECORD" } } },
+      "then": { "required": ["request"] }
     },
     {
-      "if": {"properties": {"status": {"const": "REQUEST_LIST"}}},
-      "then": {"required": ["requests", "counts"]}
+      "if": { "properties": { "status": { "const": "REQUEST_LIST" } } },
+      "then": { "required": ["requests", "counts"] }
     }
   ],
   "additionalProperties": true

@@ -38,10 +38,7 @@
           "CLAUDE_CODE_BG_CLASSIFIER_MODEL",
           "CLAUDE_CODE_SUBAGENT_MODEL"
         ],
-        "effort_environment_keys": [
-          "CLAUDE_CODE_EFFORT_LEVEL",
-          "CLAUDE_EFFORT"
-        ]
+        "effort_environment_keys": ["CLAUDE_CODE_EFFORT_LEVEL", "CLAUDE_EFFORT"]
       },
       "default_retry_attempts": 5,
       "efforts": ["low", "medium", "high", "xhigh", "max"],
@@ -80,7 +77,16 @@
       "default_model": "gpt-6-astra",
       "default_effort": "xhigh",
       "default_retry_attempts": 1,
-      "efforts": ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
+      "efforts": [
+        "none",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "ultra"
+      ],
       "permissions": {
         "default": "dangerously_bypass",
         "read_only_override": "read_only",
@@ -90,7 +96,12 @@
             "enforcement": "argument-enforced"
           },
           "read_only": {
-            "arguments": ["-c", "sandbox_mode=\"read-only\"", "-c", "approval_policy=\"never\""],
+            "arguments": [
+              "-c",
+              "sandbox_mode=\"read-only\"",
+              "-c",
+              "approval_policy=\"never\""
+            ],
             "enforcement": "config-argument-enforced"
           }
         }
@@ -123,7 +134,16 @@
       "default_model": "gpt-5.6-sol",
       "default_effort": "high",
       "default_retry_attempts": 1,
-      "efforts": ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
+      "efforts": [
+        "none",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "ultra"
+      ],
       "list_threads_limit": 50,
       "permissions": {
         "default": "dangerously_bypass",

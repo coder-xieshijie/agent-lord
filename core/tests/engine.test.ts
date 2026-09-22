@@ -141,7 +141,12 @@ describe("local CLI lifecycle", () => {
     });
     expect(result.status).toBe("SUCCEEDED");
     expect(h.calls()[0].args).toEqual(
-      expect.arrayContaining(["--model", "test/model#deep", "--effort", "high"]),
+      expect.arrayContaining([
+        "--model",
+        "test/model#deep",
+        "--effort",
+        "high",
+      ]),
     );
     expect(h.lord.store.task("task").contract).toMatchObject({
       model: "test/model#deep",

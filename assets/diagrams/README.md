@@ -2,14 +2,14 @@
 
 These diagrams describe the repository's current architecture and three named pipelines. Labels are Chinese; the [English README](../../README.md) and [中文 README](../../README.zh-CN.md) explain the same workflows.
 
-| Diagram               | Type           | Interactive viewer             | README image                 | Editable source                |
-| --------------------- | -------------- | ------------------------------ | ---------------------------- | ------------------------------ |
-| Architecture overview | `architecture` | [HTML](overview.html)          | [SVG](overview.svg)          | [JSON](overview.json)          |
-| Cross-review          | `workflow` v2  | [HTML](cross-review.html)      | [SVG](cross-review.svg)      | [JSON](cross-review.json)      |
-| Plan-to-implement     | `workflow` v2  | [HTML](plan-to-implement.html) | [SVG](plan-to-implement.svg) | [JSON](plan-to-implement.json) |
-| Handoff               | `workflow` v2  | [HTML](handoff.html)           | [SVG](handoff.svg)           | [JSON](handoff.json)           |
+| Diagram               | Type           | README image                 | Editable source                |
+| --------------------- | -------------- | ---------------------------- | ------------------------------ |
+| Architecture overview | `architecture` | [SVG](overview.svg)          | [JSON](overview.json)          |
+| Cross-review          | `workflow` v2  | [SVG](cross-review.svg)      | [JSON](cross-review.json)      |
+| Plan-to-implement     | `workflow` v2  | [SVG](plan-to-implement.svg) | [JSON](plan-to-implement.json) |
+| Handoff               | `workflow` v2  | [SVG](handoff.svg)           | [JSON](handoff.json)           |
 
-Download/open an HTML file locally for theme switching, zoom, relationship tracing, and export. GitHub renders the SVG images inline but displays HTML as source. Each viewer is self-contained; it does not need an external service. The SVG files come from Archify's built-in SVG export and include automatic light/dark styling and font licensing.
+Interactive HTML viewers (theme switching, zoom, relationship tracing, export) are **not committed**; regenerate them locally from the JSON sources with the steps below. Each generated viewer is self-contained and needs no external service. The SVG files come from Archify's built-in SVG export and include automatic light/dark styling and font licensing.
 
 ## Source of truth
 
@@ -37,13 +37,13 @@ node "$ARCHIFY_DIR/bin/archify.mjs" visual-check \
   assets/diagrams/cross-review.html --json
 ```
 
-Use `architecture` for `overview.json`, and `workflow` for the other three. Run each step only after its predecessor succeeds. Open the delivered HTML and choose **Export → SVG** to replace the corresponding README image. Keep the JSON as the authoring source; do not hand-edit generated HTML or SVG. Preserve the bundled font license in exports. Strip trailing horizontal whitespace from exported SVG text before recording its digest; leave the delivered HTML and source JSON bytes unchanged.
+Use `architecture` for `overview.json`, and `workflow` for the other three. Run each step only after its predecessor succeeds. Open the delivered HTML and choose **Export → SVG** to replace the corresponding README image. Keep the JSON as the authoring source; do not hand-edit generated HTML or SVG. Preserve the bundled font license in exports. Strip trailing horizontal whitespace from exported SVG text before recording its digest; leave the delivered HTML and source JSON bytes unchanged. Generated HTML viewers stay local: `.gitignore` excludes `assets/diagrams/*.html`.
 
 `visual-check` generates local screenshot, contact-sheet, and receipt sidecars. Inspect its light/dark screenshots, then refresh [validation.json](validation.json) from the current artifact-bound receipts. Screenshot sidecars need not be committed.
 
 ## Validation
 
-[validation.json](validation.json) records specification/HTML SHA-256 digests and byte counts, SVG export digests, deterministic delivery checks, browser measurements, and a separate perceptual review record.
+[validation.json](validation.json) records specification/HTML SHA-256 digests and byte counts, SVG export digests, deterministic delivery checks, browser measurements, and a separate perceptual review record. HTML digests describe the locally generated viewers at validation time; the viewers themselves are not committed.
 
 - **Deterministic artifacts:** all four passed 9/9 showcase checks, with zero composition errors and warnings.
 - **Browser evidence:** all four passed containment/readability checks at 1440×900, 1600×1000, 1920×1080, and 2048×1320.

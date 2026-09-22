@@ -17,7 +17,11 @@ import { Hub } from "./hub.js";
 import { runTasks } from "./run-binding.js";
 import { createObserverServer } from "./http.js";
 import { defaultStateDir, IDENTIFIER_PATTERN } from "./scan.js";
-import { removeMetadata, writeMetadata, type PreviewRecord } from "./runtime.js";
+import {
+  removeMetadata,
+  writeMetadata,
+  type PreviewRecord,
+} from "./runtime.js";
 
 export interface CliOptions {
   tasks: string[];
@@ -49,7 +53,12 @@ export function parseArgs(argv: string[], requireTasks = true): CliOptions {
     };
     switch (arg) {
       case "--tasks":
-        options.tasks.push(...next().split(",").map((part) => part.trim()).filter(Boolean));
+        options.tasks.push(
+          ...next()
+            .split(",")
+            .map((part) => part.trim())
+            .filter(Boolean),
+        );
         break;
       case "--run-id":
         (options.runIds ??= []).push(next());
@@ -77,17 +86,29 @@ export function parseArgs(argv: string[], requireTasks = true): CliOptions {
     }
   }
   options.runIds = [...new Set(options.runIds ?? [])].sort();
-  for (const runId of options.runIds) options.tasks.push(...runTasks(options.stateDir, runId));
+  for (const runId of options.runIds)
+    options.tasks.push(...runTasks(options.stateDir, runId));
   options.tasks = [...new Set(options.tasks)].sort();
-  if (requireTasks && !options.tasks.length) throw new Error("必须用 --tasks 指定至少一个 task id（显式 allowlist）");
+  if (requireTasks && !options.tasks.length)
+    throw new Error("必须用 --tasks 指定至少一个 task id（显式 allowlist）");
   for (const taskId of options.tasks) {
-    if (!IDENTIFIER_PATTERN.test(taskId)) throw new Error(`非法 task id：${taskId}`);
+    if (!IDENTIFIER_PATTERN.test(taskId))
+      throw new Error(`非法 task id：${taskId}`);
   }
-  if (options.focusTask && !options.tasks.includes(options.focusTask)) throw new Error("focus-task 必须属于本次 --tasks");
-  if (!Number.isInteger(options.port) || options.port <= 0 || options.port > 65535) {
+  if (options.focusTask && !options.tasks.includes(options.focusTask))
+    throw new Error("focus-task 必须属于本次 --tasks");
+  if (
+    !Number.isInteger(options.port) ||
+    options.port <= 0 ||
+    options.port > 65535
+  ) {
     throw new Error("端口必须是 1-65535 的整数");
   }
-  if (!Number.isInteger(options.refreshMs) || options.refreshMs < 200 || options.refreshMs > 60_000) {
+  if (
+    !Number.isInteger(options.refreshMs) ||
+    options.refreshMs < 200 ||
+    options.refreshMs > 60_000
+  ) {
     throw new Error("refresh-ms 必须是 200-60000 的整数");
   }
   if (!options.webRoot) {
@@ -105,7 +126,8 @@ function main(): void {
   let options: CliOptions;
   try {
     options = parseArgs(process.argv.slice(2));
-    if (!statSync(path.join(options.webRoot!, "index.html")).isFile()) throw new Error("web 资源未构建，请先运行 pnpm build");
+    if (!statSync(path.join(options.webRoot!, "index.html")).isFile())
+      throw new Error("web 资源未构建，请先运行 pnpm build");
     if (!options.token) options.token = randomBytes(16).toString("base64url");
   } catch (error) {
     console.error(String(error instanceof Error ? error.message : error));
@@ -129,7 +151,11 @@ function main(): void {
     clearInterval(timer);
     server.close(() => {
       if (record) {
-        try { removeMetadata(record); } catch (error) { console.error(String(error)); }
+        try {
+          removeMetadata(record);
+        } catch (error) {
+          console.error(String(error));
+        }
       }
     });
     server.closeAllConnections(); // includes SSE readers, whose close handlers unsubscribe
@@ -170,4 +196,8 @@ function main(): void {
   });
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+)
+  main();

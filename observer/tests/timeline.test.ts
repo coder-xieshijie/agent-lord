@@ -3,7 +3,14 @@ import { Timeline, PATCH_RING_LIMIT } from "../src/server/timeline.js";
 import type { MessageItem } from "../src/shared/types.js";
 
 function message(id: string, text: string): MessageItem {
-  return { id, kind: "message", role: "assistant", text, streaming: false, ord: 0 };
+  return {
+    id,
+    kind: "message",
+    role: "assistant",
+    text,
+    streaming: false,
+    ord: 0,
+  };
 }
 
 describe("Timeline cursor semantics", () => {

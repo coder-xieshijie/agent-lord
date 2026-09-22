@@ -13,7 +13,13 @@
  *    is addressed by design (no held connections), not measured here.
  */
 
-import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  appendFileSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
@@ -49,7 +55,8 @@ afterEach(() => {
 /* Fakes                                                              */
 /* ------------------------------------------------------------------ */
 
-const flush = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+const flush = (): Promise<void> =>
+  new Promise((resolve) => setImmediate(resolve));
 
 class FakeTimers implements PollerTimers {
   now = 0;
@@ -89,11 +96,24 @@ function meta(over: Partial<TaskMeta> = {}): TaskMeta {
   return { taskId: "fixture-task", status: "运行中", ...over } as TaskMeta;
 }
 
-function snap(cursor: string, over: Partial<SnapshotResponse> = {}): SnapshotResponse {
-  return { generation: "g", cursor, task: meta(), items: [], truncatedHistory: false, ...over };
+function snap(
+  cursor: string,
+  over: Partial<SnapshotResponse> = {},
+): SnapshotResponse {
+  return {
+    generation: "g",
+    cursor,
+    task: meta(),
+    items: [],
+    truncatedHistory: false,
+    ...over,
+  };
 }
 
-function delta(cursor: string, over: Partial<DeltaResponse> = {}): DeltaResponse {
+function delta(
+  cursor: string,
+  over: Partial<DeltaResponse> = {},
+): DeltaResponse {
   return { cursor, patches: [], task: meta(), ...over };
 }
 
@@ -106,7 +126,12 @@ interface Recorded {
 function makeController(
   transport: TaskTransport,
   timers: FakeTimers,
-  options: { intervalMs?: number; requestTimeoutMs?: number; backoffInitialMs?: number; backoffMaxMs?: number } = {},
+  options: {
+    intervalMs?: number;
+    requestTimeoutMs?: number;
+    backoffInitialMs?: number;
+    backoffMaxMs?: number;
+  } = {},
 ): { controller: TaskSyncController; recorded: Recorded } {
   const recorded: Recorded = { snapshots: [], deltas: [], states: [] };
   const controller = new TaskSyncController(
@@ -117,7 +142,13 @@ function makeController(
       onDelta: (d) => recorded.deltas.push(d),
       onState: (state) => recorded.states.push(state),
     },
-    { intervalMs: 100, backoffInitialMs: 100, backoffMaxMs: 400, timers, ...options },
+    {
+      intervalMs: 100,
+      backoffInitialMs: 100,
+      backoffMaxMs: 400,
+      timers,
+      ...options,
+    },
   );
   cleanups.push(() => controller.dispose());
   return { controller, recorded };
@@ -168,11 +199,15 @@ describe("TaskSyncController mechanisms", () => {
         deltaStarts.push(timers.now);
         if (healthy) return Promise.resolve(delta("g:2"));
         return new Promise((_resolve, reject) => {
-          signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+          signal.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError")),
+          );
         });
       },
     };
-    const { controller, recorded } = makeController(transport, timers, { requestTimeoutMs: 50 });
+    const { controller, recorded } = makeController(transport, timers, {
+      requestTimeoutMs: 50,
+    });
     controller.start();
     await flush();
     // t=100 first delta; timeout at t=150; retries with backoff 100, 200, 400 (capped).
@@ -187,7 +222,9 @@ describe("TaskSyncController mechanisms", () => {
     healthy = true;
     const before = deltaStarts.length;
     await timers.advance(1000);
-    const healthyGaps = deltaStarts.slice(before + 1).map((at, i) => at - deltaStarts[before + i]);
+    const healthyGaps = deltaStarts
+      .slice(before + 1)
+      .map((at, i) => at - deltaStarts[before + i]);
     expect(healthyGaps.every((gap) => gap === 100)).toBe(true);
     expect(recorded.states[recorded.states.length - 1]).toBe("live");
   });
@@ -228,7 +265,11 @@ describe("TaskSyncController mechanisms", () => {
             resolve(
               delta("g:9", {
                 patches: [
-                  { seq: 9, type: "upsert", item: { id: "late", kind: "notice", text: "迟到", ord: 9 } },
+                  {
+                    seq: 9,
+                    type: "upsert",
+                    item: { id: "late", kind: "notice", text: "迟到", ord: 9 },
+                  },
                 ],
               }),
             );
@@ -259,7 +300,8 @@ describe("TaskSyncController mechanisms", () => {
       },
       delta: async (): Promise<DeltaResponse | ResetResponse> => {
         deltaCalls += 1;
-        if (deltaCalls === 1) return { reset: true, reason: "cursor 属于其他服务实例" };
+        if (deltaCalls === 1)
+          return { reset: true, reason: "cursor 属于其他服务实例" };
         return delta("h:5");
       },
     };
@@ -299,7 +341,12 @@ describe("TaskSyncController mechanisms", () => {
 /* Integration: production sync logic against a real HTTP server      */
 /* ------------------------------------------------------------------ */
 
-function makeFixture(): { root: string; taskId: string; stdout: string; hub: Hub } {
+function makeFixture(): {
+  root: string;
+  taskId: string;
+  stdout: string;
+  hub: Hub;
+} {
   const root = mkdtempSync(path.join(tmpdir(), "observer-sync-fixture-"));
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(path.join(root, "operations"), { recursive: true });
@@ -307,7 +354,10 @@ function makeFixture(): { root: string; taskId: string; stdout: string; hub: Hub
   mkdirSync(path.join(root, "events"), { recursive: true });
   const taskId = "fixture-task-sync";
   const stdout = path.join(root, "logs", "fixture-op-sync.stdout");
-  writeFileSync(stdout, `${j({ type: "item.completed", item: { id: "item_0", type: "agent_message", text: "初始" } })}\n`);
+  writeFileSync(
+    stdout,
+    `${j({ type: "item.completed", item: { id: "item_0", type: "agent_message", text: "初始" } })}\n`,
+  );
   writeFileSync(
     path.join(root, "operations", "fixture-op-sync.json"),
     j({
@@ -324,8 +374,16 @@ function makeFixture(): { root: string; taskId: string; stdout: string; hub: Hub
   return { root, taskId, stdout, hub };
 }
 
-async function listen(hub: Hub, port = 0): Promise<{ base: string; port: number; server: Server }> {
-  const server = createObserverServer({ hub, token: TOKEN, webRoot: null, port });
+async function listen(
+  hub: Hub,
+  port = 0,
+): Promise<{ base: string; port: number; server: Server }> {
+  const server = createObserverServer({
+    hub,
+    token: TOKEN,
+    webRoot: null,
+    port,
+  });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, "127.0.0.1", resolve);
@@ -335,10 +393,15 @@ async function listen(hub: Hub, port = 0): Promise<{ base: string; port: number;
   return { base: `http://127.0.0.1:${actual}`, port: actual, server };
 }
 
-async function waitFor(cond: () => boolean, what: string, timeoutMs = 8000): Promise<void> {
+async function waitFor(
+  cond: () => boolean,
+  what: string,
+  timeoutMs = 8000,
+): Promise<void> {
   const start = Date.now();
   while (!cond()) {
-    if (Date.now() - start > timeoutMs) throw new Error(`waitFor 超时：${what}`);
+    if (Date.now() - start > timeoutMs)
+      throw new Error(`waitFor 超时：${what}`);
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
 }
@@ -352,7 +415,12 @@ interface LiveClient {
 
 function startClient(base: string, taskId: string, token: string): LiveClient {
   const transport = createHttpTransport(base, token);
-  const client: LiveClient = { items: new Map(), states: [], snapshots: 0, controller: null! };
+  const client: LiveClient = {
+    items: new Map(),
+    states: [],
+    snapshots: 0,
+    controller: null!,
+  };
   client.controller = new TaskSyncController(
     taskId,
     transport,
@@ -362,7 +430,8 @@ function startClient(base: string, taskId: string, token: string): LiveClient {
         client.items = new Map(snapshot.items.map((item) => [item.id, item]));
       },
       onDelta(d) {
-        for (const patch of d.patches) client.items.set(patch.item.id, patch.item);
+        for (const patch of d.patches)
+          client.items.set(patch.item.id, patch.item);
       },
       onState: (state) => client.states.push(state),
     },
@@ -374,17 +443,30 @@ function startClient(base: string, taskId: string, token: string): LiveClient {
 }
 
 const hasText = (client: LiveClient, text: string): boolean =>
-  [...client.items.values()].some((item) => item.kind === "message" && item.text.includes(text));
+  [...client.items.values()].some(
+    (item) => item.kind === "message" && item.text.includes(text),
+  );
 
 describe("production sync against a real HTTP server", () => {
   it("keeps 10 concurrent polling clients current without held connections", async () => {
     const { hub, taskId, stdout } = makeFixture();
     const { base } = await listen(hub);
-    const clients = Array.from({ length: 10 }, () => startClient(base, taskId, TOKEN));
-    await waitFor(() => clients.every((c) => c.snapshots >= 1), "所有客户端完成首次快照");
-    appendFileSync(stdout, `${j({ type: "item.completed", item: { id: "item_1", type: "agent_message", text: "并发广播" } })}\n`);
+    const clients = Array.from({ length: 10 }, () =>
+      startClient(base, taskId, TOKEN),
+    );
+    await waitFor(
+      () => clients.every((c) => c.snapshots >= 1),
+      "所有客户端完成首次快照",
+    );
+    appendFileSync(
+      stdout,
+      `${j({ type: "item.completed", item: { id: "item_1", type: "agent_message", text: "并发广播" } })}\n`,
+    );
     hub.refresh();
-    await waitFor(() => clients.every((c) => hasText(c, "并发广播")), "所有客户端通过 delta 收到新增内容");
+    await waitFor(
+      () => clients.every((c) => hasText(c, "并发广播")),
+      "所有客户端通过 delta 收到新增内容",
+    );
     for (const client of clients) {
       expect(client.snapshots).toBe(1); // updates arrived incrementally, not via re-snapshot
       expect(client.states).toContain("live");
@@ -398,21 +480,31 @@ describe("production sync against a real HTTP server", () => {
     await waitFor(() => bad.states.includes("retrying"), "401 进入重试退避");
     expect(bad.snapshots).toBe(0);
     expect(bad.items.size).toBe(0);
-    const direct = await fetch(`${base}/api/tasks/${taskId}/snapshot?token=wrong-token`);
+    const direct = await fetch(
+      `${base}/api/tasks/${taskId}/snapshot?token=wrong-token`,
+    );
     expect(direct.status).toBe(401);
   });
 
   it("survives a server restart: backoff during downtime, reset + re-snapshot on the new generation", async () => {
     const fixture = makeFixture();
     const first = await listen(fixture.hub);
-    const clients = Array.from({ length: 3 }, () => startClient(first.base, fixture.taskId, TOKEN));
+    const clients = Array.from({ length: 3 }, () =>
+      startClient(first.base, fixture.taskId, TOKEN),
+    );
     await waitFor(() => clients.every((c) => c.snapshots >= 1), "首次快照");
     // Stop the first server (drop every connection), keep clients polling.
     first.server.closeAllConnections();
     await new Promise<void>((resolve) => first.server.close(() => resolve()));
-    await waitFor(() => clients.every((c) => c.states.includes("retrying")), "停机期间进入退避");
+    await waitFor(
+      () => clients.every((c) => c.states.includes("retrying")),
+      "停机期间进入退避",
+    );
     // Restart on the same port with a fresh Hub → new generation, new history.
-    appendFileSync(fixture.stdout, `${j({ type: "item.completed", item: { id: "item_2", type: "agent_message", text: "重启后新增" } })}\n`);
+    appendFileSync(
+      fixture.stdout,
+      `${j({ type: "item.completed", item: { id: "item_2", type: "agent_message", text: "重启后新增" } })}\n`,
+    );
     const hub2 = new Hub([fixture.taskId], fixture.root);
     hub2.refresh();
     await listen(hub2, first.port);

@@ -176,8 +176,7 @@ describe("native terminal launcher", () => {
     expect(result.resume_command).toBe(
       "claude --resume 'session with '\\'' quote'",
     );
-    const command =
-      `cd -- ${h.target} && exec claude --resume 'session with '\\'' quote'`;
+    const command = `cd -- ${h.target} && exec claude --resume 'session with '\\'' quote'`;
     expect(calls).toEqual([
       { command: "it2", args: ["window", "new"] },
       { command: "it2", args: ["session", "list", "--json"] },
@@ -191,13 +190,7 @@ describe("native terminal launcher", () => {
       },
       {
         command: "it2",
-        args: [
-          "session",
-          "run",
-          command,
-          "--session",
-          "iterm-session-e2e",
-        ],
+        args: ["session", "run", command, "--session", "iterm-session-e2e"],
       },
     ]);
   });

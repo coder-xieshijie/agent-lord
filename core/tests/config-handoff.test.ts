@@ -104,15 +104,16 @@ describe("frozen configuration", () => {
       "test/model#deep",
       "xhigh",
     ]);
-    expect(resolveExecutionDefaults("mcode-cli", "test/model", "high")).toEqual([
-      "test/model",
-      "high",
-    ]);
+    expect(resolveExecutionDefaults("mcode-cli", "test/model", "high")).toEqual(
+      ["test/model", "high"],
+    );
     expect(resolveExecutionDefaults("mcode-cli", undefined, "high")).toEqual([
       "custom_provider:mafia-claude/claude-opus-5",
       "high",
     ]);
-    expect(() => resolveExecutionDefaults("mcode-cli", "test/model", "   ")).toThrow();
+    expect(() =>
+      resolveExecutionDefaults("mcode-cli", "test/model", "   "),
+    ).toThrow();
     expect(() => resolveExecutionDefaults("mcode-cli", "")).toThrow();
     const file = path.join(h.base, "providers.json");
     const config = JSON.parse(readFileSync(file, "utf8"));

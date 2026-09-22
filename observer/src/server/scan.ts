@@ -7,7 +7,15 @@
  * records that already carry the allow-listed task_id.
  */
 
-import { readdirSync, readFileSync, statSync, openSync, readSync, closeSync, realpathSync } from "node:fs";
+import {
+  readdirSync,
+  readFileSync,
+  statSync,
+  openSync,
+  readSync,
+  closeSync,
+  realpathSync,
+} from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -74,7 +82,9 @@ function asString(value: unknown): string | null {
 }
 
 function object(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function invocation(value: unknown): Invocation | undefined {
@@ -85,12 +95,23 @@ function invocation(value: unknown): Invocation | undefined {
   const trigger = raw.trigger;
   return {
     caller: {
-      kind: asString(c.kind) ?? "unknown", session_id: asString(c.session_id), turn_id: asString(c.turn_id),
-      identity_source: source === "runtime-env" || source === "caller-declared" ? source : "unavailable",
+      kind: asString(c.kind) ?? "unknown",
+      session_id: asString(c.session_id),
+      turn_id: asString(c.turn_id),
+      identity_source:
+        source === "runtime-env" || source === "caller-declared"
+          ? source
+          : "unavailable",
       ...(typeof c.data_root === "string" ? { data_root: c.data_root } : {}),
     },
-    trigger: trigger === "user_request" || trigger === "caller_followup" || trigger === "recovery" ? trigger : "unspecified",
-    user_request: asString(raw.user_request), reason: asString(raw.reason),
+    trigger:
+      trigger === "user_request" ||
+      trigger === "caller_followup" ||
+      trigger === "recovery"
+        ? trigger
+        : "unspecified",
+    user_request: asString(raw.user_request),
+    reason: asString(raw.reason),
   };
 }
 
@@ -100,55 +121,117 @@ function parallelPlan(value: unknown): OperationRecord["parallel"] {
   const group = asString(plan.group);
   if (!group) return undefined;
   if (plan.role === "worker" && asString(plan.integrator_task_id)) {
-    return { group, role: "worker", integratorTaskId: String(plan.integrator_task_id), workers: [] };
+    return {
+      group,
+      role: "worker",
+      integratorTaskId: String(plan.integrator_task_id),
+      workers: [],
+    };
   }
   if (plan.role === "integrator" && Array.isArray(plan.integration_workers)) {
-    const workers = plan.integration_workers.filter((item): item is string => typeof item === "string" && Boolean(item)).slice(0, 50);
-    if (workers.length) return { group, role: "integrator", integratorTaskId: null, workers };
+    const workers = plan.integration_workers
+      .filter(
+        (item): item is string => typeof item === "string" && Boolean(item),
+      )
+      .slice(0, 50);
+    if (workers.length)
+      return { group, role: "integrator", integratorTaskId: null, workers };
   }
   return undefined;
 }
 
-function displayEvidence(value: Record<string, unknown>): Pick<OperationRecord, "activity" | "delivery" | "recovery"> {
+function displayEvidence(
+  value: Record<string, unknown>,
+): Pick<OperationRecord, "activity" | "delivery" | "recovery"> {
   const summary = object(object(value.observed).supervision);
-  const terminal = ["succeeded", "failed", "needs_decision"].includes(String(value.status));
-  const toolName = (raw: unknown): string | null => typeof raw === "string" && /^[A-Za-z][A-Za-z0-9_.:-]{0,79}$/.test(raw) ? raw : null;
-  const activeTools = !terminal && Array.isArray(summary.active_tools) ? summary.active_tools.map(toolName).filter((name): name is string => name !== null).slice(0, 5) : [];
-  const activeCount = !terminal && Number.isInteger(summary.active_tool_count) && Number(summary.active_tool_count) >= 0 ? Number(summary.active_tool_count) : 0;
+  const terminal = ["succeeded", "failed", "needs_decision"].includes(
+    String(value.status),
+  );
+  const toolName = (raw: unknown): string | null =>
+    typeof raw === "string" && /^[A-Za-z][A-Za-z0-9_.:-]{0,79}$/.test(raw)
+      ? raw
+      : null;
+  const activeTools =
+    !terminal && Array.isArray(summary.active_tools)
+      ? summary.active_tools
+          .map(toolName)
+          .filter((name): name is string => name !== null)
+          .slice(0, 5)
+      : [];
+  const activeCount =
+    !terminal &&
+    Number.isInteger(summary.active_tool_count) &&
+    Number(summary.active_tool_count) >= 0
+      ? Number(summary.active_tool_count)
+      : 0;
   const evidence: ReturnType<typeof displayEvidence> = {};
-  if (Object.keys(summary).length) evidence.activity = {
-    lastEventType: toolName(summary.last_event_type), lastTool: toolName(summary.last_tool),
-    activeToolCount: activeCount, activeTools,
-    lastProgressMs: typeof summary.last_progress_at_ms === "number" && Number.isFinite(summary.last_progress_at_ms) ? summary.last_progress_at_ms : null,
-  };
+  if (Object.keys(summary).length)
+    evidence.activity = {
+      lastEventType: toolName(summary.last_event_type),
+      lastTool: toolName(summary.last_tool),
+      activeToolCount: activeCount,
+      activeTools,
+      lastProgressMs:
+        typeof summary.last_progress_at_ms === "number" &&
+        Number.isFinite(summary.last_progress_at_ms)
+          ? summary.last_progress_at_ms
+          : null,
+    };
   if (value.status === "succeeded") {
     const raw = object(value.delivery);
     const known = raw.scope === "declared-files-and-commit";
     evidence.delivery = {
-      status: known && (raw.status === "verified" || raw.status === "incomplete") ? raw.status : "unverified",
-      checks: known && Array.isArray(raw.checks) ? raw.checks.flatMap((entry) => {
-        const check = object(entry);
-        const label = check.kind === "file" && typeof check.path === "string" ? clipTitle(check.path)
-          : check.kind === "commit" ? "新提交且工作区干净" : null;
-        return label ? [{ label, ok: check.ok === true }] : [];
-      }) : [],
-      commitSha: typeof raw.commit_sha === "string" && /^[a-f0-9]{40,64}$/.test(raw.commit_sha) ? raw.commit_sha : null,
+      status:
+        known && (raw.status === "verified" || raw.status === "incomplete")
+          ? raw.status
+          : "unverified",
+      checks:
+        known && Array.isArray(raw.checks)
+          ? raw.checks.flatMap((entry) => {
+              const check = object(entry);
+              const label =
+                check.kind === "file" && typeof check.path === "string"
+                  ? clipTitle(check.path)
+                  : check.kind === "commit"
+                    ? "新提交且工作区干净"
+                    : null;
+              return label ? [{ label, ok: check.ok === true }] : [];
+            })
+          : [],
+      commitSha:
+        typeof raw.commit_sha === "string" &&
+        /^[a-f0-9]{40,64}$/.test(raw.commit_sha)
+          ? raw.commit_sha
+          : null,
     };
   }
   const chain = object(value.continuation);
   const action = object(object(object(value.error).details).recovery);
   const limit = chain.limit ?? action.limit;
   const attempt = chain.attempt ?? 0;
-  if (Number.isInteger(limit) && Number(limit) > 0 && Number(limit) <= 5 && Number.isInteger(attempt) && Number(attempt) >= 0 && Number(attempt) <= Number(limit)) {
+  if (
+    Number.isInteger(limit) &&
+    Number(limit) > 0 &&
+    Number(limit) <= 5 &&
+    Number.isInteger(attempt) &&
+    Number(attempt) >= 0 &&
+    Number(attempt) <= Number(limit)
+  ) {
     evidence.recovery = {
-      attempt: Number(attempt), limit: Number(limit),
-      available: value.status === "failed" && object(value.error).safe_recovery === "CONTINUE_SAME_SESSION",
+      attempt: Number(attempt),
+      limit: Number(limit),
+      available:
+        value.status === "failed" &&
+        object(value.error).safe_recovery === "CONTINUE_SAME_SESSION",
     };
   }
   return evidence;
 }
 
-export function readTaskRecord(root: string, taskId: string): TaskRecord | null {
+export function readTaskRecord(
+  root: string,
+  taskId: string,
+): TaskRecord | null {
   const file = path.join(root, `${taskId}.json`);
   let raw: string;
   try {
@@ -186,7 +269,10 @@ const opCache = new Map<string, OpCacheEntry>();
 
 function parseOperationFile(file: string): OperationRecord | null {
   try {
-    const value = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+    const value = JSON.parse(readFileSync(file, "utf8")) as Record<
+      string,
+      unknown
+    >;
     const observed = (value.observed ?? {}) as Record<string, unknown>;
     const expected = (value.expected ?? {}) as Record<string, unknown>;
     const error = (value.error ?? null) as Record<string, unknown> | null;
@@ -194,15 +280,35 @@ function parseOperationFile(file: string): OperationRecord | null {
     const taskId = asString(value.task_id);
     if (!operationId || !taskId) return null;
     const requestedModel = asString(expected.model);
-    const modelVerification = asString(observed.model_verification) ?? (observed.main_model_verified === true ? "provider-metadata" : null);
-    const models = Array.isArray(observed.models) ? observed.models.filter((v): v is string => typeof v === "string" && Boolean(v)) : [];
-    const actualModel = asString(observed.model) ?? asString(observed.main_model)
-      ?? (models.length === 1 && modelVerification !== "argument-enforced" ? models[0] : null);
+    const modelVerification =
+      asString(observed.model_verification) ??
+      (observed.main_model_verified === true ? "provider-metadata" : null);
+    const models = Array.isArray(observed.models)
+      ? observed.models.filter(
+          (v): v is string => typeof v === "string" && Boolean(v),
+        )
+      : [];
+    const actualModel =
+      asString(observed.model) ??
+      asString(observed.main_model) ??
+      (models.length === 1 && modelVerification !== "argument-enforced"
+        ? models[0]
+        : null);
     const parallel = parallelPlan(value.parallel_plan);
     const rawArtifact = object(value.artifact);
-    const artifact = value.status === "succeeded" && asString(rawArtifact.path) && asString(rawArtifact.sha256)
-      && typeof rawArtifact.bytes === "number" && rawArtifact.bytes > 0
-      ? { operationId, path: String(rawArtifact.path), sha256: String(rawArtifact.sha256), bytes: rawArtifact.bytes } : undefined;
+    const artifact =
+      value.status === "succeeded" &&
+      asString(rawArtifact.path) &&
+      asString(rawArtifact.sha256) &&
+      typeof rawArtifact.bytes === "number" &&
+      rawArtifact.bytes > 0
+        ? {
+            operationId,
+            path: String(rawArtifact.path),
+            sha256: String(rawArtifact.sha256),
+            bytes: rawArtifact.bytes,
+          }
+        : undefined;
     return {
       operationId,
       taskId,
@@ -220,13 +326,25 @@ function parseOperationFile(file: string): OperationRecord | null {
       message: asString(value.message),
       invocation: invocation(value.invocation),
       execution: {
-        requestedModel, requestedEffort: asString(expected.effort),
-        requestedVariant: value.provider === "mcode-cli" && requestedModel?.includes("#") ? requestedModel.slice(requestedModel.indexOf("#") + 1) : null,
-        actualModel, actualEffort: asString(observed.effort), actualVariant: asString(observed.variant),
-        modelVerification, effortVerification: asString(observed.effort_verification), variantVerification: asString(observed.variant_verification),
+        requestedModel,
+        requestedEffort: asString(expected.effort),
+        requestedVariant:
+          value.provider === "mcode-cli" && requestedModel?.includes("#")
+            ? requestedModel.slice(requestedModel.indexOf("#") + 1)
+            : null,
+        actualModel,
+        actualEffort: asString(observed.effort),
+        actualVariant: asString(observed.variant),
+        modelVerification,
+        effortVerification: asString(observed.effort_verification),
+        variantVerification: asString(observed.variant_verification),
       },
       artifact,
-      providerCompletedAtMs: typeof observed.provider_completed_at_ms === "number" && Number.isFinite(observed.provider_completed_at_ms) ? observed.provider_completed_at_ms : null,
+      providerCompletedAtMs:
+        typeof observed.provider_completed_at_ms === "number" &&
+        Number.isFinite(observed.provider_completed_at_ms)
+          ? observed.provider_completed_at_ms
+          : null,
       errorCode: error ? asString(error.code) : null,
       errorMessage: error ? asString(error.message) : null,
       ...(parallel ? { parallel } : {}),
@@ -238,22 +356,54 @@ function parseOperationFile(file: string): OperationRecord | null {
 }
 
 /** Only the exact canonical artifact named by an allow-listed operation may be downloaded. */
-export function readFinalArtifact(root: string, taskId: string, opId: string): Buffer | null {
-  if (!IDENTIFIER_PATTERN.test(taskId) || !IDENTIFIER_PATTERN.test(opId)) return null;
+export function readFinalArtifact(
+  root: string,
+  taskId: string,
+  opId: string,
+): Buffer | null {
+  if (!IDENTIFIER_PATTERN.test(taskId) || !IDENTIFIER_PATTERN.test(opId))
+    return null;
   try {
-    const operation = parseOperationFile(path.join(root, "operations", `${opId}.json`));
-    if (operation?.taskId !== taskId || operation.operationId !== opId || operation.status !== "succeeded" || !operation.artifact) return null;
-    const expected = path.join(realpathSync(root), "artifacts", taskId, `${opId}.md`);
-    if (realpathSync(operation.artifact.path) !== expected || realpathSync(expected) !== expected) return null;
+    const operation = parseOperationFile(
+      path.join(root, "operations", `${opId}.json`),
+    );
+    if (
+      operation?.taskId !== taskId ||
+      operation.operationId !== opId ||
+      operation.status !== "succeeded" ||
+      !operation.artifact
+    )
+      return null;
+    const expected = path.join(
+      realpathSync(root),
+      "artifacts",
+      taskId,
+      `${opId}.md`,
+    );
+    if (
+      realpathSync(operation.artifact.path) !== expected ||
+      realpathSync(expected) !== expected
+    )
+      return null;
     const bytes = readFileSync(expected);
-    if (bytes.length !== operation.artifact.bytes || createHash("sha256").update(bytes).digest("hex") !== operation.artifact.sha256) return null;
+    if (
+      bytes.length !== operation.artifact.bytes ||
+      createHash("sha256").update(bytes).digest("hex") !==
+        operation.artifact.sha256
+    )
+      return null;
     return bytes;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 /** All operations belonging to `taskId`, sorted by created_at.
  * Cached per file by (mtime,size) so 1s polling stays cheap. */
-export function listOperations(root: string, taskId: string): OperationRecord[] {
+export function listOperations(
+  root: string,
+  taskId: string,
+): OperationRecord[] {
   const dir = path.join(root, "operations");
   let names: string[];
   try {
@@ -273,7 +423,11 @@ export function listOperations(root: string, taskId: string): OperationRecord[] 
     }
     const cached = opCache.get(file);
     let record: OperationRecord | null;
-    if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
+    if (
+      cached &&
+      cached.mtimeMs === stats.mtimeMs &&
+      cached.size === stats.size
+    ) {
       record = cached.record;
     } else {
       record = parseOperationFile(file);
@@ -290,7 +444,11 @@ export function journalPath(root: string, taskId: string): string {
 
 /** Validate a journaled stdout path: must live in `<root>/logs` and belong to
  * the operation. Client-supplied paths are never accepted anywhere. */
-export function validStdoutPath(root: string, operationId: string, raw: string | null): string | null {
+export function validStdoutPath(
+  root: string,
+  operationId: string,
+  raw: string | null,
+): string | null {
   if (!raw) return null;
   const resolved = path.resolve(raw);
   const logsDir = path.resolve(root, "logs");
@@ -341,7 +499,10 @@ export function readCompleteLines(file: string, offset: number): TailResult {
   if (cut < 0) return { lines: [], offset, truncated: false };
   const consumed = chunk.subarray(0, cut + 1);
   return {
-    lines: consumed.toString("utf8").split("\n").filter((line) => line.length > 0),
+    lines: consumed
+      .toString("utf8")
+      .split("\n")
+      .filter((line) => line.length > 0),
     offset: offset + consumed.length,
     truncated: false,
   };

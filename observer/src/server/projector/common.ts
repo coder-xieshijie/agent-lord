@@ -42,9 +42,14 @@ export abstract class OpProjector {
   protected finishPending(): void {
     for (const item of this.timeline.snapshotItems()) {
       if (!("opId" in item) || item.opId !== this.opId) continue;
-      if (item.kind === "message" && item.streaming) this.timeline.upsert({ ...item, streaming: false });
+      if (item.kind === "message" && item.streaming)
+        this.timeline.upsert({ ...item, streaming: false });
       if (item.kind === "tool" && item.state === "running") {
-        this.timeline.upsert({ ...item, state: "error", errorText: "本轮已结束，未收到该工具的完成事件" });
+        this.timeline.upsert({
+          ...item,
+          state: "error",
+          errorText: "本轮已结束，未收到该工具的完成事件",
+        });
       }
     }
   }
@@ -57,22 +62,43 @@ export abstract class OpProjector {
 
   protected lifecycle(name: string, label: string, tsMs?: number): void {
     const id = this.id(`lifecycle/${name}/${this.lifecycleCounter++}`);
-    this.timeline.upsert({ id, kind: "lifecycle", name, label, opId: this.opId, ord: 0, tsMs });
+    this.timeline.upsert({
+      id,
+      kind: "lifecycle",
+      name,
+      label,
+      opId: this.opId,
+      ord: 0,
+      tsMs,
+    });
   }
 
   /** Aggregated marker for intentionally unrendered event types. */
   protected omitted(name: string): void {
     const id = this.id(`omitted/${name}`);
     const existing = this.timeline.get(id);
-    const count = existing && existing.kind === "omitted" ? existing.count + 1 : 1;
-    const item: OmittedItem = { id, kind: "omitted", name, count, opId: this.opId, ord: 0 };
+    const count =
+      existing && existing.kind === "omitted" ? existing.count + 1 : 1;
+    const item: OmittedItem = {
+      id,
+      kind: "omitted",
+      name,
+      count,
+      opId: this.opId,
+      ord: 0,
+    };
     this.timeline.upsert(item);
   }
 
-  protected appendMessage(messageId: string, delta: string, tsMs?: number): void {
+  protected appendMessage(
+    messageId: string,
+    delta: string,
+    tsMs?: number,
+  ): void {
     const id = this.id(`message/${messageId}`);
     const existing = this.timeline.get(id);
-    const previous = existing && existing.kind === "message" ? existing.text : "";
+    const previous =
+      existing && existing.kind === "message" ? existing.text : "";
     const item: MessageItem = {
       id,
       kind: "message",
@@ -87,7 +113,11 @@ export abstract class OpProjector {
   }
 
   /** Replace a message with its authoritative full text (dedupes partials). */
-  protected finishMessage(messageId: string, fullText: string | undefined, tsMs?: number): void {
+  protected finishMessage(
+    messageId: string,
+    fullText: string | undefined,
+    tsMs?: number,
+  ): void {
     const id = this.id(`message/${messageId}`);
     const existing = this.timeline.get(id);
     const text =
@@ -109,15 +139,33 @@ export abstract class OpProjector {
     });
   }
 
-  protected upsertTool(toolId: string, patch: Partial<ToolItem> & { name?: string }): void {
+  protected upsertTool(
+    toolId: string,
+    patch: Partial<ToolItem> & { name?: string },
+  ): void {
     const id = this.id(`tool/${toolId}`);
     const existing = this.timeline.get(id);
     const base: ToolItem =
       existing && existing.kind === "tool"
         ? existing
-        : { id, kind: "tool", name: patch.name ?? "tool", state: "running", opId: this.opId, ord: 0 };
+        : {
+            id,
+            kind: "tool",
+            name: patch.name ?? "tool",
+            state: "running",
+            opId: this.opId,
+            ord: 0,
+          };
     // Partial updates need not repeat the original input/title/output.
-    const supplied = Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined));
-    this.timeline.upsert({ ...base, ...supplied, id, kind: "tool", opId: this.opId });
+    const supplied = Object.fromEntries(
+      Object.entries(patch).filter(([, value]) => value !== undefined),
+    );
+    this.timeline.upsert({
+      ...base,
+      ...supplied,
+      id,
+      kind: "tool",
+      opId: this.opId,
+    });
   }
 }

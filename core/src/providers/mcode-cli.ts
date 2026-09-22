@@ -102,8 +102,7 @@ export async function runMcode(
     "--model",
     op.expected.model!,
   ];
-  if (op.expected.effort)
-    command.push("--effort", op.expected.effort);
+  if (op.expected.effort) command.push("--effort", op.expected.effort);
   command.push(
     ...permissionModePolicy("mcode-cli", op.expected.permission_mode).arguments,
     "--output-format",

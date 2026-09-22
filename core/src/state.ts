@@ -438,10 +438,7 @@ export function normalizeTask(raw: unknown): Task {
     } catch {
       return corrupt("MCode task contract has an invalid model");
     }
-    if (
-      contract.read_only ||
-      contract.permission_mode !== "dangerously_bypass"
-    )
+    if (contract.read_only || contract.permission_mode !== "dangerously_bypass")
       return corrupt(
         "MCode task contract has an unsupported permission posture",
       );

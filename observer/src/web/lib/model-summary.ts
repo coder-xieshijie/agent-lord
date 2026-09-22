@@ -13,20 +13,32 @@ export interface ScheduledModelSummary {
 
 /** Split a recorded model route into its final name segment and inline `#variant`.
  * Purely textual: it never infers a runtime-reported value. */
-export function parseModelRoute(raw: string | null | undefined): { name: string | null; variant: string | null } {
+export function parseModelRoute(raw: string | null | undefined): {
+  name: string | null;
+  variant: string | null;
+} {
   const value = raw?.trim();
   if (!value) return { name: null, variant: null };
   const hash = value.indexOf("#");
   const route = hash >= 0 ? value.slice(0, hash) : value;
   const variant = hash >= 0 ? value.slice(hash + 1).trim() || null : null;
   const segments = route.split(/[/:]/).filter((segment) => segment.length > 0);
-  return { name: segments.length ? segments[segments.length - 1] : null, variant };
+  return {
+    name: segments.length ? segments[segments.length - 1] : null,
+    variant,
+  };
 }
 
 /** Summarize the scheduled (requested) model for the always-visible task header.
  * Requested values only — an unverified runtime model or effort is never invented. */
-export function summarizeScheduledModel(meta: Pick<TaskMeta, "provider" | "model" | "effort" | "execution"> | null | undefined): ScheduledModelSummary {
-  if (!meta) return { name: null, full: null, strength: null, strengthSource: null };
+export function summarizeScheduledModel(
+  meta:
+    | Pick<TaskMeta, "provider" | "model" | "effort" | "execution">
+    | null
+    | undefined,
+): ScheduledModelSummary {
+  if (!meta)
+    return { name: null, full: null, strength: null, strengthSource: null };
   const execution = meta.execution;
   const full = execution?.requestedModel ?? meta.model ?? null;
   const { name, variant } = parseModelRoute(full);
@@ -37,5 +49,10 @@ export function summarizeScheduledModel(meta: Pick<TaskMeta, "provider" | "model
     ["variant", requestedVariant],
   ];
   const picked = order.find(([, value]) => Boolean(value));
-  return { name, full, strength: picked?.[1] ?? null, strengthSource: picked?.[0] ?? null };
+  return {
+    name,
+    full,
+    strength: picked?.[1] ?? null,
+    strengthSource: picked?.[0] ?? null,
+  };
 }

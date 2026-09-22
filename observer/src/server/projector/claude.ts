@@ -9,7 +9,13 @@
  * Thinking blocks are omitted with a content-free marker.
  */
 
-import { clip, MESSAGE_CLIP, toolInputText, toolOutputText, toolTitle } from "../sanitize.js";
+import {
+  clip,
+  MESSAGE_CLIP,
+  toolInputText,
+  toolOutputText,
+  toolTitle,
+} from "../sanitize.js";
 import { OpProjector } from "./common.js";
 
 export class ClaudeProjector extends OpProjector {
@@ -43,7 +49,8 @@ export class ClaudeProjector extends OpProjector {
   }
 
   private handleSystem(event: Record<string, unknown>): void {
-    const subtype = typeof event.subtype === "string" ? event.subtype : "unknown";
+    const subtype =
+      typeof event.subtype === "string" ? event.subtype : "unknown";
     if (subtype === "init") {
       this.lifecycle("system.init", "会话开始");
       return;
@@ -62,7 +69,9 @@ export class ClaudeProjector extends OpProjector {
     if (type === "message_start") {
       const message = record.message;
       const id =
-        message && typeof message === "object" && typeof (message as Record<string, unknown>).id === "string"
+        message &&
+        typeof message === "object" &&
+        typeof (message as Record<string, unknown>).id === "string"
           ? ((message as Record<string, unknown>).id as string)
           : null;
       this.streamingMessageId = id;
@@ -72,7 +81,11 @@ export class ClaudeProjector extends OpProjector {
       const delta = record.delta;
       if (delta && typeof delta === "object") {
         const deltaRecord = delta as Record<string, unknown>;
-        if (deltaRecord.type === "text_delta" && typeof deltaRecord.text === "string" && this.streamingMessageId) {
+        if (
+          deltaRecord.type === "text_delta" &&
+          typeof deltaRecord.text === "string" &&
+          this.streamingMessageId
+        ) {
           this.appendMessage(this.streamingMessageId, deltaRecord.text);
         }
         // thinking_delta / input_json_delta are intentionally not rendered.
@@ -80,7 +93,8 @@ export class ClaudeProjector extends OpProjector {
       return;
     }
     if (type === "message_stop") {
-      if (this.streamingMessageId) this.finishMessage(this.streamingMessageId, undefined);
+      if (this.streamingMessageId)
+        this.finishMessage(this.streamingMessageId, undefined);
       this.streamingMessageId = null;
       return;
     }
@@ -101,17 +115,28 @@ export class ClaudeProjector extends OpProjector {
       if (block === null || typeof block !== "object") continue;
       const blockRecord = block as Record<string, unknown>;
       const blockType = blockRecord.type;
-      if (blockType === "text" && typeof blockRecord.text === "string" && blockRecord.text) {
+      if (
+        blockType === "text" &&
+        typeof blockRecord.text === "string" &&
+        blockRecord.text
+      ) {
         textParts.push(blockRecord.text);
       } else if (blockType === "tool_use") {
-        const toolId = typeof blockRecord.id === "string" ? blockRecord.id : `tool-${this.opId}`;
+        const toolId =
+          typeof blockRecord.id === "string"
+            ? blockRecord.id
+            : `tool-${this.opId}`;
         this.upsertTool(toolId, {
-          name: typeof blockRecord.name === "string" ? blockRecord.name : "tool",
+          name:
+            typeof blockRecord.name === "string" ? blockRecord.name : "tool",
           title: toolTitle(blockRecord.input),
           inputText: toolInputText(blockRecord.input),
           state: "running",
         });
-      } else if (blockType === "thinking" || blockType === "redacted_thinking") {
+      } else if (
+        blockType === "thinking" ||
+        blockType === "redacted_thinking"
+      ) {
         this.omitted("thinking（内容不展示）");
       }
     }
@@ -132,13 +157,18 @@ export class ClaudeProjector extends OpProjector {
       if (block === null || typeof block !== "object") continue;
       const blockRecord = block as Record<string, unknown>;
       if (blockRecord.type !== "tool_result") continue;
-      const toolUseId = typeof blockRecord.tool_use_id === "string" ? blockRecord.tool_use_id : null;
+      const toolUseId =
+        typeof blockRecord.tool_use_id === "string"
+          ? blockRecord.tool_use_id
+          : null;
       const isError = blockRecord.is_error === true;
       if (!toolUseId) continue;
       this.upsertTool(toolUseId, {
         state: isError ? "error" : "completed",
         outputText: isError ? undefined : toolOutputText(blockRecord.content),
-        errorText: isError ? (toolOutputText(blockRecord.content) ?? "工具失败") : undefined,
+        errorText: isError
+          ? (toolOutputText(blockRecord.content) ?? "工具失败")
+          : undefined,
       });
     }
   }
@@ -155,7 +185,8 @@ export class ClaudeProjector extends OpProjector {
         isError && typeof event.result === "string" && event.result
           ? clip(event.result, MESSAGE_CLIP)
           : undefined,
-      durationMs: typeof event.duration_ms === "number" ? event.duration_ms : undefined,
+      durationMs:
+        typeof event.duration_ms === "number" ? event.duration_ms : undefined,
       opId: this.opId,
       ord: 0,
     });

@@ -49,17 +49,28 @@ export class CallerSessionReader {
   private readonly projects = new Map<string, ProjectCache>();
 
   /** Best-effort {name, projectName}; every unverifiable input yields nulls. */
-  read(caller: CallerIdentity | undefined): { name: string | null; projectName: string | null } {
+  read(caller: CallerIdentity | undefined): {
+    name: string | null;
+    projectName: string | null;
+  } {
     if (caller?.kind === "mcode" || caller?.kind === "claude") {
       const { name, projectName } = this.native.read(caller);
       return { name, projectName };
     }
-    if (caller?.kind !== "codex" || !caller.session_id || !caller.data_root
-      || !path.isAbsolute(caller.data_root) || !SESSION_ID_PATTERN.test(caller.session_id))
+    if (
+      caller?.kind !== "codex" ||
+      !caller.session_id ||
+      !caller.data_root ||
+      !path.isAbsolute(caller.data_root) ||
+      !SESSION_ID_PATTERN.test(caller.session_id)
+    )
       return { name: null, projectName: null };
     const state = this.stateTitle(caller.data_root, caller.session_id);
     return {
-      name: state.name ?? this.indexName(caller.data_root, caller.session_id) ?? state.fallback,
+      name:
+        state.name ??
+        this.indexName(caller.data_root, caller.session_id) ??
+        state.fallback,
       projectName: this.projectName(caller.data_root, caller.session_id),
     };
   }
@@ -69,22 +80,44 @@ export class CallerSessionReader {
     const now = Date.now();
     const cached = this.stateTitles.get(key);
     if (cached && now - cached.checkedAt < RETRY_MS) return cached;
-    const entry: StateTitleCache = { checkedAt: now, name: null, fallback: null };
+    const entry: StateTitleCache = {
+      checkedAt: now,
+      name: null,
+      fallback: null,
+    };
     this.stateTitles.set(key, entry);
     let db: DatabaseSync | undefined;
     try {
       const file = readdirSync(root, { withFileTypes: true })
-        .filter((file) => file.isFile() && /^state_\d+\.sqlite$/.test(file.name))
-        .sort((a, b) => Number(b.name.split("_")[1].split(".")[0]) - Number(a.name.split("_")[1].split(".")[0]))[0];
+        .filter(
+          (file) => file.isFile() && /^state_\d+\.sqlite$/.test(file.name),
+        )
+        .sort(
+          (a, b) =>
+            Number(b.name.split("_")[1].split(".")[0]) -
+            Number(a.name.split("_")[1].split(".")[0]),
+        )[0];
       if (!file) return entry;
       // Never create or migrate Codex state. Reopen on each retry so renames
       // committed only to the WAL are visible without a main-file mtime change.
       db = new DatabaseSync(path.join(root, file.name), { readOnly: true });
-      const columns = new Set(db.prepare("PRAGMA table_info(threads)").all().map((column) => column.name));
-      const fields = ["name", "preview", "title"].filter((field) => columns.has(field));
+      const columns = new Set(
+        db
+          .prepare("PRAGMA table_info(threads)")
+          .all()
+          .map((column) => column.name),
+      );
+      const fields = ["name", "preview", "title"].filter((field) =>
+        columns.has(field),
+      );
       if (!columns.has("id") || !fields.length) return entry;
-      const row = db.prepare(`SELECT ${fields.join(", ")} FROM threads WHERE id = ? LIMIT 1`).get(session);
-      const title = (value: unknown): string | null => typeof value === "string" ? clipTitle(value) || null : null;
+      const row = db
+        .prepare(
+          `SELECT ${fields.join(", ")} FROM threads WHERE id = ? LIMIT 1`,
+        )
+        .get(session);
+      const title = (value: unknown): string | null =>
+        typeof value === "string" ? clipTitle(value) || null : null;
       entry.name = title(row?.name);
       entry.fallback = title(row?.preview) ?? title(row?.title);
     } catch {
@@ -108,7 +141,11 @@ export class CallerSessionReader {
       }
       if (!stat || stat.size > MAX_INDEX_BYTES) {
         cache = { mtimeMs: -1, size: -1, checkedAt: now, names: new Map() };
-      } else if (cache && cache.mtimeMs === stat.mtimeMs && cache.size === stat.size) {
+      } else if (
+        cache &&
+        cache.mtimeMs === stat.mtimeMs &&
+        cache.size === stat.size
+      ) {
         cache.checkedAt = now;
       } else {
         const names = new Map<string, string>();
@@ -122,7 +159,11 @@ export class CallerSessionReader {
               continue; // half-written trailing line
             }
             const record = value as Record<string, unknown>;
-            if (record && typeof record.id === "string" && typeof record.thread_name === "string") {
+            if (
+              record &&
+              typeof record.id === "string" &&
+              typeof record.thread_name === "string"
+            ) {
               const title = clipTitle(record.thread_name);
               if (title) names.set(record.id, title); // later lines win
             }
@@ -130,7 +171,12 @@ export class CallerSessionReader {
         } catch {
           // Unreadable index: honest empty result, retried next interval.
         }
-        cache = { mtimeMs: stat.mtimeMs, size: stat.size, checkedAt: now, names };
+        cache = {
+          mtimeMs: stat.mtimeMs,
+          size: stat.size,
+          checkedAt: now,
+          names,
+        };
       }
       this.index.set(root, cache);
     }
@@ -140,8 +186,13 @@ export class CallerSessionReader {
   private projectName(root: string, session: string): string | null {
     const key = `${root}\0${session}`;
     const cached = this.projects.get(key);
-    if (cached && (cached.settled || Date.now() - cached.lookupAt < RETRY_MS)) return cached.value;
-    const entry: ProjectCache = { lookupAt: Date.now(), value: null, settled: false };
+    if (cached && (cached.settled || Date.now() - cached.lookupAt < RETRY_MS))
+      return cached.value;
+    const entry: ProjectCache = {
+      lookupAt: Date.now(),
+      value: null,
+      settled: false,
+    };
     this.projects.set(key, entry);
     try {
       const file = locateRolloutFile(root, session);
@@ -159,7 +210,8 @@ export class CallerSessionReader {
         entry.settled = true;
         // Never label a group with another session's project.
         if (payload.id !== session) return null;
-        const base = typeof payload.cwd === "string" ? path.basename(payload.cwd) : "";
+        const base =
+          typeof payload.cwd === "string" ? path.basename(payload.cwd) : "";
         entry.value = base && base !== path.sep ? clipTitle(base) : null;
         return entry.value;
       }

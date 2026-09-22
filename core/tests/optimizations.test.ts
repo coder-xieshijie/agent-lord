@@ -167,10 +167,7 @@ describe("O4: batched checkpoint supervision", () => {
     const b = await h.lord.start("b", "claude-cli", otherTarget, "other");
     deadController(String(b.operation_id));
     const spy = vi
-      .spyOn(
-        h.lord as unknown as { superviseClaude: () => Promise<Envelope> },
-        "superviseClaude",
-      )
+      .spyOn(h.lord.claude, "superviseClaude")
       .mockRejectedValue(new Error("transient supervision failure"));
     try {
       const [result, quiet] = await h.lord.checkpoint(["a", "b"], 2);

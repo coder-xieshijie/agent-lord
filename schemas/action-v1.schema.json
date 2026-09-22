@@ -17,17 +17,19 @@
     "updated_at"
   ],
   "properties": {
-    "version": {"const": 1},
-    "action_id": {"type": "string"},
-    "operation_id": {"type": "string"},
-    "task_id": {"type": "string"},
-    "provider": {"const": "codex-app"},
-    "kind": {"enum": ["codex.create", "codex.send", "codex.read", "codex.list"]},
-    "tool": {"type": "string"},
-    "arguments": {"type": "object"},
-    "status": {"enum": ["pending", "accepted", "failed", "uncertain"]},
-    "created_at": {"type": "string"},
-    "updated_at": {"type": "string"}
+    "version": { "const": 1 },
+    "action_id": { "type": "string" },
+    "operation_id": { "type": "string" },
+    "task_id": { "type": "string" },
+    "provider": { "const": "codex-app" },
+    "kind": {
+      "enum": ["codex.create", "codex.send", "codex.read", "codex.list"]
+    },
+    "tool": { "type": "string" },
+    "arguments": { "type": "object" },
+    "status": { "enum": ["pending", "accepted", "failed", "uncertain"] },
+    "created_at": { "type": "string" },
+    "updated_at": { "type": "string" }
   },
   "additionalProperties": true
 }

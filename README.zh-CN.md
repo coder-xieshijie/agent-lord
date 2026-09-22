@@ -22,11 +22,11 @@ Agent Lord 由三部分组成：指导主会话的 **Skill**、负责执行与�
 
 ![Agent Lord 总体架构：主会话、Runtime、CLI 执行端、Codex App、持久化状态与 Observer](assets/diagrams/overview.svg)
 
-[交互版 HTML](assets/diagrams/overview.html) · [图源与验证记录](assets/diagrams/README.md)
+[图源与验证记录](assets/diagrams/README.md)
 
 主会话负责整个流程：确定角色和依赖、派发任务、交换产物、判断是否通过验收。Runtime 负责冻结执行配置、管理 worktree 与租约、保存记录，并核验执行结果及声明的交付项。执行端接收具体任务，可以使用原生工具和子 agent，但不能递归调用 Agent Lord。
 
-Codex App 任务由主会话通过宿主工具派发，Observer 展示其任务状态；本地 CLI 任务经由 Runtime 执行，Observer 还能展示对话和工具活动。所有图均由 Archify 生成，README 内嵌 SVG；交互版 HTML 下载后用浏览器打开即可，GitHub 文件页只展示 HTML 源码。
+Codex App 任务由主会话通过宿主工具派发，Observer 展示其任务状态；本地 CLI 任务经由 Runtime 执行，Observer 还能展示对话和工具活动。所有图均由 Archify 生成，README 内嵌 SVG；交互版 HTML 可按[图源 README](assets/diagrams/README.md) 的步骤在本地重新生成，不随仓库分发。
 
 ## Pipelines
 
@@ -40,7 +40,7 @@ Codex App 任务由主会话通过宿主工具派发，Observer 展示其任务�
 
 ![交叉审查流程：独立初审、并发互审、有界收敛、新 MCode 会话独立复核](assets/diagrams/cross-review.svg)
 
-[交互版 HTML](assets/diagrams/cross-review.html) · [完整规则](references/pipelines/cross-review.md)
+[完整规则](references/pipelines/cross-review.md)
 
 1. 固定同一仓库的 head/base SHA。MCode 与 Codex 在各自 worktree 中**并发独立初审**，初审时互不接触对方的结果。
 2. 交换脱敏后的产物，**并发互审**。分别核对每个问题的事实证据、严重程度，以及最小修复是否完整。
@@ -59,7 +59,7 @@ Codex App 任务由主会话通过宿主工具派发，Observer 展示其任务�
 
 ![计划到实现流程：核验计划、派发就绪模块、核验提交、统一整合、发布并关闭运行](assets/diagrams/plan-to-implement.svg)
 
-[交互版 HTML](assets/diagrams/plan-to-implement.html) · [完整规则](references/pipelines/plan-to-implement.md)
+[完整规则](references/pipelines/plan-to-implement.md)
 
 1. **Planner** 将已有实现计划转为模块计划，明确职责、验收标准、互不重叠的写入路径与依赖。Runtime 只接纳由成功且已核验的 planner 交付的计划文件。
 2. 主会话派发**全部 ready 模块，不设 worker 数量上限**。每个 worker 使用独立 worktree 和分支，只修改所属路径并在本地提交。经过核验的上游提交才会解锁下游模块；这一阶段随依赖满足分批推进。
@@ -76,7 +76,7 @@ Planner、worker 和 integrator 默认使用 MCode 配置中解析出的模型�
 
 ![交接流程：可见上下文、脱敏交接包、派发前核验、新 CLI 执行端与来源记录](assets/diagrams/handoff.svg)
 
-[交互版 HTML](assets/diagrams/handoff.html) · [完整规则](references/pipelines/handoff.md)
+[完整规则](references/pipelines/handoff.md)
 
 主会话根据自身可见上下文编写脱敏的 `handoff-v1` 交接包。启动前，Runtime 校验交接包与冻结契约、获取工作区租约，并为 HEAD 和变更文件内容生成快照。新的 Claude Code、Codex CLI 或 MCode 执行端在**原指定工作区**继续工作，支持保留未提交改动。
 
@@ -132,7 +132,7 @@ Observer 展示任务状态、请求、工具活动、结果和可用的模型�
 
 _截图使用合成的示例数据，当前界面使用中文标签。_
 
-Observer 不派发 prompt，也不推进 pipeline。你显式要求时，它可以在 Orca 或 iTerm 中打开 allowlist 内保存的 CLI 会话。原执行进程会继续运行，执行端可能拒绝或排队处理忙碌期间的新 prompt。详见 [Observer 指南](observer/README.md)。
+Observer 不派发 prompt，也不推进 pipeline。你显式要求时，它可以在 Orca 或 iTerm 中打开 allowlist 内保存的 CLI 会话。原执行进程会继续运行，执行端可能拒绝或排队处理忙碌期间的新 prompt。详见 [Observer 指南](observer/README.zh-CN.md)。
 
 ## 支持的执行端
 
@@ -150,7 +150,7 @@ MCode 要求 **0.4.9+**。`--model provider/model[#variant]` 选择模型身份�
 ## 持久化与能力边界
 
 - **跨轮次继续。** 每个任务保存一个执行端，同一时刻最多有一个操作在执行。派发命令返回后，持久化控制器继续运行 CLI；checkpoint 收集进展并处理支持的恢复。
-- **恢复监督。** [持久化任务集合](references/protocol.md#persistent-task-sets)保存选中的任务和结果确认状态。[请求收件箱](references/scheduling-updates.md)保存暂时不能执行的指令；登记请求不会启动任务，也不会向运行中的 CLI 插入指令。
+- **恢复监督。** [持久化任务集合](references/supervision.md#persistent-task-sets)保存选中的任务和结果确认状态。[请求收件箱](references/scheduling-updates.md)保存暂时不能执行的指令；登记请求不会启动任务，也不会向运行中的 CLI 插入指令。
 - **保护并行工作。** 仓库管理模式下，并发 CLI 使用隔离 worktree 与独占工作区/分支租约。计划整合另有持久化 claims；handoff 则校验精确的现有工作区。
 - **区分执行与验收。** `SUCCEEDED`、文件/提交交付已核验、测试结果、审查结论和发布状态是不同事实。缺失证据保持未知。可选的输入文件预检能在启动前发现材料缺失，但不能证明内容正确。
 
@@ -158,15 +158,17 @@ MCode 要求 **0.4.9+**。`--model provider/model[#variant]` 选择模型身份�
 
 ## 文档导航
 
-| 文档                                                           | 内容                                        |
-| -------------------------------------------------------------- | ------------------------------------------- |
-| [Agent Skill](SKILL.md)                                        | 主会话职责、派发、监督与续聊                |
-| [CLI 上手示例](references/cli-quickstart.md)                   | 从命令行走通完整任务生命周期                |
-| [Pipeline 公共契约](references/pipelines/common.md)            | 共享执行和验收规则，各 pipeline 规则见上文  |
-| [Runtime 协议](references/protocol.md)                         | 命令、状态、执行契约、请求收件箱与恢复      |
-| [Observer 指南](observer/README.md)                            | 启动、任务绑定、界面行为与隐私边界          |
-| [开发指南](references/development.md)                          | Runtime 结构、构建、测试与兼容性            |
-| [架构图源文件](assets/diagrams/README.md)                      | Archify JSON、交互 HTML、SVG 导出与验证记录 |
-| [Python → TypeScript 迁移](references/python-to-typescript.md) | 切换、回滚与共享状态注意事项                |
+| 文档                                                           | 内容                                             |
+| -------------------------------------------------------------- | ------------------------------------------------ |
+| [Agent Skill](SKILL.md)                                        | 主会话职责、派发、监督与续聊                     |
+| [CLI 上手示例](references/cli-quickstart.md)                   | 从命令行走通完整任务生命周期                     |
+| [Pipeline 公共契约](references/pipelines/common.md)            | 共享执行和验收规则，各 pipeline 规则见上文       |
+| [Runtime 协议](references/protocol.md)                         | 结果信封、命令、状态、执行契约与恢复             |
+| [监督参考](references/supervision.md)                          | 持久化任务集合、plan run、工作区占用与请求收件箱 |
+| [Provider 传输层](references/transports.md)                    | Codex CLI/App 与 MCode 的传输行为与配置归属      |
+| [Observer 指南](observer/README.zh-CN.md)                      | 启动、任务绑定、界面行为与隐私边界               |
+| [开发指南](references/development.md)                          | Runtime 结构、构建、测试与兼容性                 |
+| [架构图源文件](assets/diagrams/README.md)                      | Archify JSON、SVG 导出、验证记录与本地再生成     |
+| [Python → TypeScript 迁移](references/python-to-typescript.md) | 切换、回滚与共享状态注意事项                     |
 
 修改任一语言的 README 时，请同步更新另一份。

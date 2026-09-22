@@ -1,23 +1,29 @@
 # Agent Lord deterministic protocol
 
-Read this reference when supervising multiple tasks, diagnosing stalls, errors, or recovery, or changing an adapter or state record. Ordinary single-task `RUNNING` supervision follows the loop in [SKILL.md](../SKILL.md).
+The deterministic contract is split by concern:
+
+- **This file** — result envelopes, invocation metadata, declared inputs, state ownership, execution contracts, source and workspace verification, error taxonomy, and recovery semantics.
+- **[supervision.md](supervision.md)** — multi-task checkpoint supervision, persistent task sets, durable plan runs, durable workspace claims, and the passive request inbox.
+- **[transports.md](transports.md)** — provider transport details for Codex CLI, Codex App, and MCode.
+
+Ordinary single-task `RUNNING` supervision follows the loop in [SKILL.md](../SKILL.md).
 
 ## Public result envelope
 
 Every command prints one JSON object. `schemas/result-v1.schema.json` is the maintained shape.
 
-| Status | Meaning | Caller action |
-|---|---|---|
-| `ACTION_REQUIRED` | A Codex App host-tool action is durably pending | Invoke the exact tool and arguments, then `accept` its raw result |
-| `RUNNING` | The provider operation is preparing, progressing, waiting, stalled, or recovering | Continue bounded `checkpoint` supervision; use `check` for full-state diagnosis or the next App read |
-| `SUCCEEDED` | Endpoint, execution contract, and final artifact passed the available checks | Consume the artifact; assess `delivery` separately |
-| `ERROR` | Deterministic validation or provider execution failed | Evaluate emitted safe recovery, the caller-owned replacement policy, or Claude `RESULT_INVALID` retry in `SKILL.md` |
-| `NEEDS_DECISION` | Recovery changes identity, authority, source, or delivery semantics | Resolve from existing authorization and Skill policy; ask only for missing authority |
-| `CHECKPOINT_ACTIONABLE` | One or more selected tasks have durable actionable state | Process every envelope in `actionable` |
-| `CHECKPOINT_QUIET` | No actionable state change occurred in the bounded interval | Exit `124`; resume the foreground checkpoint loop later |
-| `REQUEST_RECORD` | One registered inbox request, after `request-add`, `request-get`, or `request-cancel` | Report it as pending, dispatched, or cancelled; registration alone dispatched nothing |
-| `REQUEST_LIST` | Compact discovery of registered requests with per-status counts | Read the full instruction of a specific one with `request-get` |
-| `REQUEST_PENDING` | A consumed request could not be dispatched because its target is busy | Keep it pending and retry after the current operation is terminal |
+| Status                  | Meaning                                                                               | Caller action                                                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `ACTION_REQUIRED`       | A Codex App host-tool action is durably pending                                       | Invoke the exact tool and arguments, then `accept` its raw result                                                   |
+| `RUNNING`               | The provider operation is preparing, progressing, waiting, stalled, or recovering     | Continue bounded `checkpoint` supervision; use `check` for full-state diagnosis or the next App read                |
+| `SUCCEEDED`             | Endpoint, execution contract, and final artifact passed the available checks          | Consume the artifact; assess `delivery` separately                                                                  |
+| `ERROR`                 | Deterministic validation or provider execution failed                                 | Evaluate emitted safe recovery, the caller-owned replacement policy, or Claude `RESULT_INVALID` retry in `SKILL.md` |
+| `NEEDS_DECISION`        | Recovery changes identity, authority, source, or delivery semantics                   | Resolve from existing authorization and Skill policy; ask only for missing authority                                |
+| `CHECKPOINT_ACTIONABLE` | One or more selected tasks have durable actionable state                              | Process every envelope in `actionable`                                                                              |
+| `CHECKPOINT_QUIET`      | No actionable state change occurred in the bounded interval                           | Exit `124`; resume the foreground checkpoint loop later                                                             |
+| `REQUEST_RECORD`        | One registered inbox request, after `request-add`, `request-get`, or `request-cancel` | Report it as pending, dispatched, or cancelled; registration alone dispatched nothing                               |
+| `REQUEST_LIST`          | Compact discovery of registered requests with per-status counts                       | Read the full instruction of a specific one with `request-get`                                                      |
+| `REQUEST_PENDING`       | A consumed request could not be dispatched because its target is busy                 | Keep it pending and retry after the current operation is terminal                                                   |
 
 An `ACTION_REQUIRED` record is idempotent. Re-running the same `start`, `turn`, or checkpoint returns the already-pending action instead of creating a second provider operation.
 
@@ -25,38 +31,38 @@ Dispatch is serialized by a per-task filesystem lock. The journal is written bef
 
 ## Invocation metadata
 
-`start`、`turn`、`recover`、`handoff` 接受可选的 `--invocation-file <private-json>`，在派发前校验并把调用来源冻结在本次 `operation.invocation`。它不修改 task 的执行契约，也不会在重试、重复 start 或查询时覆盖原调用者。旧 operation 保持可读，缺失来源显示为未记录。
+`start`, `turn`, `recover`, and `handoff` accept an optional `--invocation-file <private-json>`, validated before dispatch, which freezes the invocation source into this `operation.invocation`. It does not modify the task's execution contract and is never overwritten by a retry, a repeated start, or a query. Old operations stay readable; a missing source is shown as unrecorded.
 
 ```json
 {
   "trigger": "user_request",
-  "user_request": "这里逐字保存本次用户原始请求，包括换行。"
+  "user_request": "The user's original request for this dispatch, saved verbatim, including newlines."
 }
 ```
 
-`--message-file` 仍是实际交给执行端的任务正文。`user_request` 是另存的用户原话；二者不相互推断或替代。调度方自行补充的后续轮次使用 `trigger: "caller_followup"` 和 `reason`，不伪装成用户新消息；`recover` 强制记为 `recovery`。没有来源信息时使用 `unspecified`。输入文件由调用者在结果收取后清理；durable operation 保留请求用于只读回放。
+`--message-file` remains the actual task body handed to the execution endpoint. `user_request` is the separately saved user wording; neither is inferred from nor substituted for the other. Caller-authored follow-up turns use `trigger: "caller_followup"` with a `reason` instead of masquerading as a new user message; `recover` is always recorded as `recovery`. Use `unspecified` when no source information exists. The caller removes its input files after result retrieval; the durable operation keeps the request for read-only replay.
 
-| 输入字段 | 约束与来源 |
-|---|---|
-| `user_request` | 可省略或为 null；非空字符串，最多 1,000,000 字符，逐字保存 |
-| `reason` | 可省略或为 null；补充或恢复的原因，最多 16,000 字符 |
-| `trigger` | `user_request` / `caller_followup` / `recovery` / `unspecified` |
-| `caller` | 可选对象；显式填写时必须含 `kind`，可含 `session_id`、`turn_id`、`data_root` |
+| Input field    | Constraint and source                                                                                      |
+| -------------- | ---------------------------------------------------------------------------------------------------------- |
+| `user_request` | Optional or null; nonempty string, at most 1,000,000 characters, saved verbatim                            |
+| `reason`       | Optional or null; the reason for a follow-up or recovery, at most 16,000 characters                        |
+| `trigger`      | `user_request` / `caller_followup` / `recovery` / `unspecified`                                            |
+| `caller`       | Optional object; when explicit it must contain `kind` and may contain `session_id`, `turn_id`, `data_root` |
 
-省略 `caller` 时，脚本从宿主的 `CODEX_THREAD_ID`（兼容 `CODEX_SESSION_ID`）、可选 `CODEX_TURN_ID` 和 `CODEX_HOME` 捕获来源；数据根默认 `~/.codex`。`identity_source: "runtime-env"` 表示宿主环境来源，不是密码学身份验证。显式 caller 标记为 `caller-declared`，不会借用当前宿主的 Session、Turn 或数据根；没有 Session 则标为 `unavailable`。不要从 prompt 或最近活跃会话猜测身份。
+When `caller` is omitted, the script captures the source from the host's `CODEX_THREAD_ID` (with `CODEX_SESSION_ID` compatibility), optional `CODEX_TURN_ID`, and `CODEX_HOME`; the data root defaults to `~/.codex`. `identity_source: "runtime-env"` records a host-environment origin, not cryptographic identity verification. An explicit caller is marked `caller-declared` and never borrows the current host's Session, Turn, or data root; without a Session it is marked `unavailable`. Never guess identity from the prompt or from the most recently active session.
 
-`kind` 与非空 id 只允许 `[A-Za-z0-9][A-Za-z0-9._:-]*`，最多 160 字符；Turn 必须同时提供 Session。显式 `data_root` 必须是绝对路径，所有调度客户端均保留它。输入不接受自行声称的 `identity_source` 或其他未知字段。调用者身份变量不会传入 provider 子进程，避免后续嵌套调用误认父 Session；子运行时应提供自己的身份，否则保持未知。
+`kind` and nonempty ids allow only `[A-Za-z0-9][A-Za-z0-9._:-]*`, at most 160 characters; a Turn requires its Session. An explicit `data_root` must be an absolute path, preserved for every scheduling client. Input rejects a self-asserted `identity_source` and any unknown field. Caller identity variables are not passed into provider child processes, so a later nested invocation cannot mistake the parent Session for its own; a child runtime supplies its own identity or stays unknown.
 
-### CLI 调度身份与展示绑定
+### CLI scheduling identity and display binding
 
-支持 `caller.kind` 为 `codex`、`claude`、`mcode`；`codex-cli`、`claude-cli` / `claude-code`、`mcode-cli` 归一化为对应名称。这描述谁在调度，与被启动的 provider 无关。
+Supported `caller.kind` values are `codex`, `claude`, and `mcode`; `codex-cli`, `claude-cli` / `claude-code`, and `mcode-cli` normalize to those names. This describes who is scheduling, independently of the provider being launched.
 
-Claude Code 和 MCode 在每次 `--invocation-file` 中显式填写当前客户端提供的 Session 身份。数据根使用当前客户端实际配置的绝对目录：Codex 通常是 `~/.codex`，Claude Code 通常是 `~/.claude`，MCode 通常是 `~/.minimax`。JSON 中必须展开 `~`。例如：
+Claude Code and MCode explicitly fill in the Session identity supplied by the current client in every `--invocation-file`. The data root uses the client's actually configured absolute directory: Codex is usually `~/.codex`, Claude Code usually `~/.claude`, and MCode usually `~/.minimax`. Expand `~` in the JSON. For example:
 
 ```json
 {
   "trigger": "user_request",
-  "user_request": "用户本次的原始任务",
+  "user_request": "The user's original task for this turn",
   "caller": {
     "kind": "mcode",
     "session_id": "mvs_CURRENT_SESSION_ID",
@@ -65,151 +71,35 @@ Claude Code 和 MCode 在每次 `--invocation-file` 中显式填写当前客户�
 }
 ```
 
-Session 身份必须来自当前客户端上下文、明确匹配的运行时记录或客户端 hook；不能按工作目录、标题或最近更新时间挑一个会话。已知 Turn 时可传 `turn_id`；MCode 使用 ingress 的 turn id，Claude Code 使用对应用户输入记录的 uuid；不知道则省略，以操作创建时间推断并在页面标注。显式 caller 不借用宿主的其他身份字段。
+The Session identity must come from the current client context, an exactly matching runtime record, or a client hook; never pick a session by working directory, title, or most recent update time. Pass `turn_id` when the Turn is known: MCode uses the ingress turn id and Claude Code uses the uuid of the corresponding user-input record. Omit it when unknown — the operation creation time is used instead and the page labels that. An explicit caller does not borrow the host's other identity fields.
 
-也可通过宿主集成在工具命令环境中设置 `AGENT_LORD_CALLER_KIND`、`AGENT_LORD_CALLER_SESSION_ID`、可选的 `AGENT_LORD_CALLER_TURN_ID`、`AGENT_LORD_CALLER_DATA_ROOT`。这是 Agent Lord 的集成契约，不声称 Claude/MCode 原生自动导出这些变量。优先级为显式 `caller` > 这组环境变量 > 原 Codex 自动识别。派发的子进程会清除这组父身份变量；根目录等客户端配置仍保留。历史 unknown 记录不自动回填。
+Host integrations may instead set `AGENT_LORD_CALLER_KIND`, `AGENT_LORD_CALLER_SESSION_ID`, optional `AGENT_LORD_CALLER_TURN_ID`, and `AGENT_LORD_CALLER_DATA_ROOT` in the tool-command environment. This is Agent Lord's integration contract; it does not claim that Claude/MCode natively export these variables. Precedence is explicit `caller` > this environment group > the original Codex auto-detection. Dispatched child processes clear this parent identity group; client configuration such as the data root remains. Historical unknown records are not backfilled.
 
-**所有客户端派发后均执行 observer 的 `preview:attach`，新增任务时合并本次任务集合并检查 `binding_verified`。** `start` 不会自动公开任务。只有用户明确要求不打开观察页时跳过。CLI 没有 Codex 宿主打开链接工具时，返回绑定后的本机链接即可；不因此省略绑定。
+**After every dispatch, every scheduling client runs the observer's `preview:attach`; when adding tasks, merge the current task set and check `binding_verified`.** `start` does not publish a task automatically. Skip this only when the user explicitly declines an observation page. A CLI without the Codex host link-opening tool returns the bound local link instead; that never justifies skipping the binding.
 
-### 调度会话元数据与生命周期
+### Scheduling-session metadata and lifecycle
 
-观察页按首次 operation 与当前 operation 分别显示最初调度者、本轮调用者，并按轮次展示原始请求和实际派发正文。仅读取已绑定身份的数据根：
+The observation page shows the original scheduler and the current turn's caller separately, from the first and current operations, and presents the original request and the actually dispatched body per turn. Only the data root of a bound identity is read:
 
-- Codex Desktop / CLI：唯一匹配的 rollout，校验 `session_meta`，读取 Session 标题、项目、Turn 开始结束及结构化工具回执。
-- MCode：只读打开 `v2/sqlite/runtime-state.sqlite`，按精确 Session ID 读取 `local_runtime_sessions` 标题/项目及 `local_runtime_turn_ingress` 的回合开始结束。最多最近 1000 个回合；展示消息时间不是工具完成时间，因此不伪造回执时间。
-- Claude Code：只定位 `projects/*/<session-id>.jsonl`，排除 sidechain 和其他 Session 的历史。读取 `custom-title`（缺失时使用首条用户输入摘要）、cwd、用户输入 uuid 与 `system/turn_duration` 结束事件，以及工具结果中的结构化回执。仅有模型 `end_turn` 而没有客户端结束事件时，明确显示生命周期未完整观测；不把 hook 运行期间误报为已完成。
+- Codex Desktop / CLI: the uniquely matching rollout, verifying `session_meta` and reading the Session title, project, Turn start/end, and structured tool receipts.
+- MCode: opens `v2/sqlite/runtime-state.sqlite` read-only, reading `local_runtime_sessions` title/project and turn start/end from `local_runtime_turn_ingress` by exact Session ID. At most the most recent 1000 turns; displayed message times are not tool completion times, so no receipt times are fabricated.
+- Claude Code: locates only `projects/*/<session-id>.jsonl`, excluding sidechains and other Sessions' history. Reads `custom-title` (falling back to a summary of the first user input), cwd, user-input uuids, the `system/turn_duration` end event, and structured receipts inside tool results. When only a model `end_turn` exists without a client end event, the lifecycle is explicitly shown as incompletely observed; a hook still running is not misreported as completed.
 
-未观测、日志不支持、身份不匹配均显示未知，不把执行端结束当成主调度结束。宿主正文除标题摘要外不投影，推理内容不进入页面；`data_root` 只留在本地服务端。
+Unobserved, unsupported-log, and identity-mismatch cases all display as unknown; an execution endpoint's end is never treated as the scheduler's end. Host bodies are not projected beyond title summaries, reasoning content never reaches the page, and `data_root` stays on the local server side.
 
 ## Inline terminal response
 
-`start`、`turn`、`recover`、`handoff`、`accept`、`check`、`checkpoint` 支持可选的 `--include-response`。成功 envelope 增加 `response: {"text": "完整最终正文", "read_at_ms": 1788928363000}`；checkpoint 对每个成功 `actionable` 项应用同一规则。默认仍不返回正文，非成功项不附加正文。
+`start`, `turn`, `recover`, `handoff`, `accept`, `check`, and `checkpoint` support an optional `--include-response`. A successful envelope adds `response: {"text": "<complete final text>", "read_at_ms": 1788928363000}`; checkpoint applies the same rule to each successful `actionable` item. The default still returns no text, and unsuccessful items never carry one.
 
-读取只接受当前 task/operation 的 canonical artifact，核对真实路径、SHA-256、字节数与 UTF-8。文件被改写、丢失或符号链接越界时返回 `ARTIFACT_INVALID`，不改变已成功的 operation。原有 `artifact` 和 `delivery` 含义不变；正文不是语义验收证明。
+The read accepts only the current task/operation's canonical artifact, verifying the real path, SHA-256, byte count, and UTF-8. A rewritten, missing, or symlink-escaping file returns `ARTIFACT_INVALID` without changing an already-successful operation. The existing `artifact` and `delivery` meanings are unchanged; the returned text is not semantic-acceptance proof.
 
-普通 operation envelope 同时带 `provider_return_code`（未记录则 null）与 `timing.created_at_ms`、`timing.completed_at_ms`。`response.read_at_ms` 是脚本完成读取的时刻，不能替代宿主真正收到结果的时刻。观察页分别展示执行端结束、产物发布、主调度收到结果、主调度结束；缺少任一时间点时不计算对应耗时。收尾使用一次终态 envelope 和正文读取，复用已绑定的观察页，收取尚未回收的控制器句柄并清理私有输入，不再增加浏览器核验或重复状态查询。
+An ordinary operation envelope also carries `provider_return_code` (null when unrecorded) and `timing.created_at_ms` / `timing.completed_at_ms`. `response.read_at_ms` is when the script finished reading; it cannot substitute for when the host actually received the result. The observation page shows endpoint completion, artifact publication, scheduler receipt, and scheduler completion separately, and computes no duration whose endpoints are missing. Closing uses one terminal envelope plus its text read, reuses the bound observation page, collects any unretrieved controller handle, and cleans up private inputs — with no extra browser verification or duplicate status query.
 
 ## Declared input preflight
 
 `start`, `turn`, and `request-add` accept repeatable `--require-input <workspace-relative-file>`. For repository-managed tasks, checks run against the prepared checkout. A declared path must resolve to a readable, nonempty regular file inside that workspace; missing, empty, unreadable, directory, and escaping paths prevent provider launch. `INPUT_INCOMPLETE` lists file-level issues. Omit this option when there are no required local files. No document topic, writing length, implementation choice, or extra review step is imposed.
 
 Successful dispatch records `input_evidence` (path, byte count, SHA-256) in the operation and envelope. These are historical receipts, not immutable-file restrictions: a new explicit turn checks its declared inputs afresh. Same-start idempotency includes the declared path set; retrying the same start does not revalidate or relaunch a completed operation. `recover` retains the parent's original input receipt as history and lets the CLI inspect saved work. Pending requests check inputs when dispatched, not when registered. Input bytes are not copied into Agent Lord state or automatically injected into the prompt; the caller supplies relevant paths/context to the CLI.
-
-## Persistent task sets
-
-Task sets hold caller-selected membership and received-result acknowledgements under the private state directory's `task-sets/`. They are passive: no automatic dispatch, graph expansion, content review, or Git integration.
-
-```sh
-node core/dist/cli.js run-create --run-id book --task-id chapter-1 --task-id chapter-2 --nodes-file /tmp/book-nodes.json
-node core/dist/cli.js checkpoint --run-id book --seconds 120 --include-response
-# After receiving and processing a terminal actionable item's result:
-node core/dist/cli.js run-ack --run-id book --receipt <receipt-from-that-item>
-node core/dist/cli.js run-status --run-id book
-# Explicitly add a new assignment, then dispatch it through the usual start command:
-node core/dist/cli.js run-add --run-id book --task-id chapter-3 --nodes-file /tmp/chapter-3-node.json
-```
-
-For new ordinary multi-endpoint work, use [node provenance and reporting](scheduling-updates.md) to register role sources before `start --run-id`. Existing task sets without node metadata remain readable and report `provenance_status: unavailable`; they are not retroactively authorized.
-
-Registration may precede dispatch. Unobserved members appear as `not_observed`; they are not silently marked complete or failed. Repeating `run-create` with identical members is idempotent; use `run-add` for additions. `--run-id` is mutually exclusive with explicit `--task-id` / `--starting-task-id` checkpoint selectors. Membership for a running checkpoint is fixed at entry; additions join the next checkpoint.
-
-A terminal actionable result includes a durable `receipt`. Returning it does **not** consume the result. After a caller restart, an unacknowledged result is delivered again. `run-ack` is idempotent and accepts only receipts already issued by that set. Acknowledgement suppresses that exact operation/result on subsequent checkpoints, while other tasks remain supervised. A later turn, recovery operation, or changed terminal delivery/artifact/error produces a new receipt. Pending host actions are never suppressed by terminal acknowledgements. Receipt writes use the existing state lock and atomic-file primitives; concurrent readers may see duplicates, so this is at-least-once delivery with explicit acknowledgement, not exactly-once execution.
-
-`run-status` reads current operation/delivery states; it never consumes a result. `all_terminal` and `all_results_acknowledged` do not imply success or semantic acceptance: failed results can also be acknowledged. A fully acknowledged terminal set returns quiet immediately instead of waiting out the window. Existing task-ID checkpoints retain their snapshot behavior.
-
-### 执行与等待分离
-
-CLI 的 `start`、`turn`、`handoff` 和触发新 turn 的 `recover` 先持久化 operation，再启动独立 `execution-worker` 并返回 `RUNNING` 回执。后台控制器负责 provider、执行写锁、最终结果和退出凭据；调用 CLI 或 checkpoint 的进程退出不停止执行。`--include-response` 在终态才携带正文，使用 `checkpoint` 收取结果。回执后的任务不依赖宿主保留原 start handle；仅继续收取仍在运行的 checkpoint handle。
-
-控制器 PID 在启动 provider 前写入 operation，worker 校验自己就是已登记的 owner；重复派发复用 operation。交接写锁的间隙由非终态 operation 阻止其他 writer。控制器本身失败仍由现有 checkpoint 恢复，不自动重放原 prompt。直接使用 TypeScript `AgentLord` / `main` 的嵌入式调用保持同步兼容，可显式选择 background；生产 CLI 默认启用后台控制器。
-
-## Durable plan runs
-
-A plan run holds the frozen module plan and barrier state for the [plan-to-implement pipeline](pipelines/plan-to-implement.md) under the private state directory's `plan-runs/`. Like task sets it never dispatches: it accepts a plan, computes the ready set, refuses a transition that would break a barrier, and journals what happened.
-
-```sh
-node core/dist/cli.js plan-validate --plan-file /tmp/run/plan.json
-node core/dist/cli.js plan-create --run-id feature-x --plan-file /tmp/run/plan.json --planner-task-id feature-x-planner
-node core/dist/cli.js plan-status --run-id feature-x
-node core/dist/cli.js plan-dispatch --run-id feature-x --module-id auth-core --task-id feature-x-auth-core
-node core/dist/cli.js plan-deliver --run-id feature-x --module-id auth-core --state delivered
-node core/dist/cli.js plan-integrate --run-id feature-x --task-id feature-x-integrator
-node core/dist/cli.js plan-merge-request --run-id feature-x --repo /path/repo --mr-url <url> --head-sha <sha> --verification-file /tmp/run/verification.json
-node core/dist/cli.js plan-report --run-id feature-x --report-file /tmp/run/report.md
-```
-
-`plan-validate` checks an [implementation-plan-v1](../schemas/implementation-plan-v1.schema.json) document and returns `PLAN_INVALID` with the offending detail. It is a pre-check and creates nothing.
-
-**Completion is verified against endpoint records.** `plan-create` requires a successful planner task whose verified delivery files include the plan file, so a run cannot start from an arbitrary JSON document. `plan-deliver --state delivered` requires the module's task to exist, its current operation to have succeeded, and its declared delivery to be verified with a commit; that verified commit is adopted, and a disagreeing `--commit-sha` is rejected. Because the task's *current* operation is used, an older success never covers a failed retry. `plan-merge-request` and `plan-report` require the integrator's current operation to have succeeded. Failures return `ENDPOINT_UNVERIFIED` with the task, operation, and observed status.
-
-`plan-status` returns every module's state, the complete `ready` set, remaining blockers, integration state with its claimed workspaces, the stored report, live claims, and the journal. The ready set has no concurrency cap — it lists every pending module whose dependencies are all delivered, and workspace leases remain the only limit.
-
-Barriers are enforced, not advisory. `plan-dispatch` rejects unmet dependencies, a non-pending module, and a `task_id` already bound to another module; it binds the endpoint to the same `run_id` task set, so `checkpoint --run-id` and the observer cover the whole pipeline. A `task_id` may be bound before its endpoint exists, which is why delivery is where the endpoint is verified. `plan-reset` returns a failed module to pending for a replacement endpoint and keeps both attempts in the journal. `plan-integrate` opens the single final integrator only after every module is delivered, and a second distinct integrator task is refused. `plan-merge-request` verifies `--head-sha` against the repository's real local delivery-branch head, and keeps one MR URL per repository, returning `MR_CONFLICT` for a second. `plan-integration-reset` releases the run's claims and allows a replacement integrator.
-
-Replaying `plan-create` with the same plan and planner is idempotent and keeps recorded progress; a changed plan or a different planner under the same `run_id` returns `RUN_EXISTS`.
-
-`plan-report` closes the run only with a non-empty report and an MR recorded for every declared repository. It copies the report into `plan-reports/<run_id>.md` inside the state directory and records `canonical_path`, `bytes` and `sha256`, so the run keeps a readable copy after the caller's temporary file is gone; `plan-status` also reports whether that file is still `available`. Re-submitting an identical report is idempotent; a different report for a closed run returns `REPORT_CONFLICT`.
-
-The journal records shareable decisions, actions, and results — planner identity and plan digest, module dispatch and provider identity, dependency waits, verified delivery commits, failures and resets, integration with its claimed workspaces, MRs and the heads they were checked against, and the closing report digest. It stores no hidden reasoning or raw provider logs.
-
-`plan-integration-resume --run-id ... --task-id <replacement> --reason ...` 保留整合工作区、提交和 MR，核验旧执行已停止后才交接 claims；不要用 reset 代替恢复。已登记的 worker/integrator 自动继承角色交付要求，跨 attempt 的 commit 基线使用原计划 SHA。`plan-report` 除报告和 MR 登记外，还核验最终工作区、模块整合历史、绑定 SHA 的验证记录，并用已认证的 GitHub/GitLab API 回读 MR 的项目、分支和 SHA。验证记录格式、豁免边界和恢复步骤以 [plan-to-implement](pipelines/plan-to-implement.md#final-integration) 为准。
-
-## Durable workspace claims
-
-A workspace claim is a durable reservation of one repository checkout branch by one task, stored in the state directory's `workspace-claims/`. Per-operation leases and the unfenced-operation scan already exclude a second writer, but both are bound to a single `op.target`. A claim expresses the same exclusion independently of any one operation, so one task can own the delivery worktree of several repositories at once — which is what lets the plan-to-implement pipeline run a single integrator across repositories without giving it unleased write access.
-
-Claims are created by `plan-integrate` and released by `plan-report` or `plan-integration-reset`. Any writable `start`, `turn`, `handoff`, or recovery whose worktree identity, or whose repository and checkout branch, matches a claim held by a *different* task fails with a retryable `WORKSPACE_CLAIM_CONFLICT` naming the owning task and run. The claim owner is never blocked by its own claim, and read-only operations are unaffected. No other start/turn behavior changes: a run with no claims behaves exactly as before.
-
-Claim acquisition, checking, and release are atomic against both another plan run and an ordinary writer, because they use the same per-resource locks in the same order rather than a separate lock domain. Acquiring a claim holds `workspace-prepare`, then the target's `workspace-write` lease, then the repository branch's `branch-write` lease, and checks for an existing claim inside that innermost section before preparing the worktree and writing the record. A writable operation checks the worktree dimension only after it owns that worktree's `workspace-write` lease and the branch dimension only after it owns `branch-write`, so no writer can observe an empty result and then be overtaken. Release re-reads each claim under its `branch-write` lock and removes it only while it still belongs to the releasing run, so a replacement owner's claim on the same deterministic path survives a late cleanup. Repositories are claimed in a deterministic identity order and a failure releases the run's claims, so a multi-repository acquisition is all-or-cleanup. Contention surfaces as a retryable `STATE_BUSY` instead of a silent overwrite.
-
-## `check` versus `checkpoint`
-
-The two commands are not interchangeable:
-
-- `check --task-id <id>` reconstructs one task's full current envelope and never supervises. For a `codex-app` task it also creates the next polling read action. When the recorded controller process for a non-terminal local CLI operation is gone, the envelope adds `observed.supervision = {"controller_state": "exited", "recovery_command": "checkpoint"}`; that hint is advice, not recovery.
-- `checkpoint` fences, recovers terminal facts, terminalizes a dead controller's operation, or waits. It returns compact `active` entries rather than full envelopes. The separate `recover` command consumes an emitted MCode continuation action and starts a bounded new turn on the same Session.
-
-So a `RUNNING` envelope from `check` never becomes terminal by itself: run `checkpoint` when the hint appears or when the caller asked for supervision.
-
-## Actionable-only checkpoint supervision
-
-Repeat `--task-id` to supervise a caller-selected set in one checkpoint; omit it to freeze the set of active tasks observed when the call starts. Actionable wake returns `CHECKPOINT_ACTIONABLE` with every currently terminal or pending-action envelope for the selected tasks. This is a durable snapshot, not a destructive dequeue: repeated calls may return a previously seen envelope, and a later actionable task is returned alongside it instead of being lost or starved. Task selection is the seam for a caller-owned dependency or next-dispatch policy; checkpoint itself neither evaluates dependencies nor dispatches another operation.
-
-### Starting supervision window
-
-`--task-id` requires the id to be known already and still fails with `TASK_UNKNOWN` and exit `2` on a typo. Repeat `--starting-task-id` for a task the caller has just dispatched: that id alone may have no operation and no task record yet, and the same id must not appear in both lists. Once its operation appears inside the window it is scanned, fenced, recovered, and returned exactly like any other selected task, including an operation that is already terminal when first observed. Other selected tasks stay supervised throughout.
-
-Every return that used `--starting-task-id` carries `starting[]`, one entry per declared id, so a starting task is never silently pending:
-
-| `phase` | Meaning |
-|---|---|
-| `not_observed` | Neither an operation nor a task record exists. Worktree preparation runs before the operation record is created, so this window is real. |
-| `operation_recorded` | The operation record exists; the provider endpoint identity is not durable yet. |
-| `task_established` | A task record exists, so the endpoint identity was persisted (MCode at its first session event, Claude and Codex CLI at publication). |
-
-`not_observed` reports only what the state directory shows. It is not evidence that the dispatch process died, never started, or failed; a `task_id` cannot carry that information. The dispatch command's own exit status and error envelope remain the authority on dispatch failure, and checkpoint never fabricates one.
-
-Actionable means exactly:
-
-- an already-pending or newly-created `ACTION_REQUIRED` action;
-- `SUCCEEDED`, `ERROR`, or `NEEDS_DECISION` terminal state;
-- failure to preserve the saved identity during automatic recovery, including exhausted provider or recovery-controller budget.
-
-`updated_at`, progress sequence changes, provider output, tool activity, and other benign progress update durable state without returning. `suspected_stall` and `recovering` are also internal while the saved retry plan and session identity permit automatic handling. The TypeScript control plane polls process/log/journal state at a short interval using Node.js timers and filesystem APIs; this polling runs inside the checkpoint command and consumes no Agent token. Portable event notification can replace that polling behind the same interface later.
-
-The quiet deadline comes from `control.checkpoint_seconds`, whose default is 120 seconds; `--seconds` overrides one call. Codex callers follow the explicit duration policy in [Waiting and reporting](../SKILL.md#waiting-and-reporting), independently of host-tool wait/yield windows. Deadline expiry returns `CHECKPOINT_QUIET` and exit `124`. An automatic selection with no active task returns quiet immediately. Each `active` item contains task/operation/provider identity, status and progress sequence, plus content-free activity fields when available: last event/tool, active tool names/count, last progress timestamp and its age in seconds. MCode removes completed tools from that active set and clears it at terminal state. Full operation state stays in the journal and remains available through `check`.
-
-One checkpoint parses each task, operation, and action record at most once per tick, and skips records it has already attributed to a task outside the selection. Across ticks of the same checkpoint call, a record whose file stat identity (mtime, size, inode) is unchanged reuses the previously parsed value instead of being re-read; atomic replacement of any record changes that identity, so cross-process updates are always observed. Attribution uses only `task_id` and `operation_id`, which exclusive record creation writes once and never rewrites; it is never inferred from an identifier prefix, because identifiers are caller-supplied.
-
-Claude controller-death retry recovery is launched as a private Node.js worker using the same compiled TypeScript runtime. A kernel-managed controller lease spans operation preparation and the entire retry loop and is released automatically when its process exits. Checkpoint takes over only after that lease is obtainable and the durable owner is no longer live; retry state and ownership are updated in one journal mutation. The launch count plus frozen retry plan bounds takeover, so a long healthy recovery may outlive one quiet interval without duplicate dispatch.
-
-Before Claude retry recovery, POSIX supervision fences the complete process group with TERM, then KILL after the grace interval, and confirms the group disappeared. Windows uses the platform process-tree termination command and confirms process exit. Failure to complete the fence is terminal and no recovery attempt starts. A prompt is `not-delivered` only after a definite launch failure. Once Claude delivery is `delivery-unknown` or `stdin-attached`, recovery uses one uniquely marked continuation on the same session UUID after a successful fence; if the possible provider process cannot be identified and fenced, recovery fails closed. Every exhausted retry path emits `retryable=false`, no `safe_recovery`, and `details.retry_exhausted=true`.
-
-MCode uses no automatic prompt replay. The first `session.started` or `session.resumed` event durably records Session, Turn, and Run identity and creates the task handle, so `check` can expose live progress. If its controller dies while the dedicated operation process group remains, `checkpoint` fences only that group and then evaluates the operation's own stream. A complete non-success terminal record is failure; a complete success is publishable only with a durably recorded zero exit code. Missing terminal facts, an unknown exit code, or an unfenceable delivery becomes `DELIVERY_UNKNOWN` with the saved Session retained. No checkpoint sends the prompt again or creates a replacement Session.
-
-A Codex or MCode CLI operation can also die in `preparing`, before any provider pid exists. Checkpoint terminalizes that window from the journal, without guessing: when `provider_command` was never recorded the launch definitely did not happen, so the operation fails with retryable `PROCESS_EXITED_WITHOUT_RESULT` and `RETRY_SAME_COMMAND`; when `provider_command` was already recorded the launch may have happened and cannot be fenced, so the operation becomes `DELIVERY_UNKNOWN` as `NEEDS_DECISION`. A live controller pid keeps the operation quiet.
-
-Codex App host tools remain model-mediated. Checkpoint returns an existing action promptly but does not synthesize a polling read at the quiet deadline; call `check`, or pass `--auto-read` to the preceding `accept`, when a new App read action is intended.
 
 ## State ownership
 
@@ -236,34 +126,6 @@ Current state comes from task, operation, and provider truth. `events/*.jsonl` i
 Task handles follow `schemas/task-v2.schema.json`. Version 1 records are normalized for inspection, but another turn is blocked until `node core/dist/task-store.js upgrade` attaches an explicit model, effort, retry, permission, and optional source contract. Operations and actions follow their corresponding schemas.
 
 A `handoff` operation is a third initial-operation kind beside `start` and `turn`-continued work: it consumes one validated `handoff-v1` packet (`schemas/handoff-v1.schema.json`), stores the canonical packet as an input artifact, freezes the workspace snapshot in its `handoff` manifest, and writes an immutable `lineage` record into the continuation task it creates. Lineage means `continues_user_task` on a brand-new endpoint; source-session identity stays `caller-declared` or `unavailable`, never `verified`. Policy, authorization, and the packet contract live in `references/pipelines/handoff.md`.
-
-## Passive request inbox
-
-`request-add`, `request-get`, `request-list`, `request-cancel`, and `request-dispatch` give the scheduling caller a durable place for an instruction it is not ready to dispatch. The inbox is passive by construction: it has no scheduler, no dependency evaluation, no background wakeup, and no daemon. Registration starts nothing, and only an explicit `request-dispatch` becomes a `start` or a `turn`.
-
-A request record follows `schemas/request-v1.schema.json` and lives in the same private state directory under the same atomic-write and per-record lease rules as every other record. `--intent start` freezes the provider, target or repository, and the same dispatch options `start` accepts; `--intent turn` continues a saved endpoint and accepts only delivery requirements. Those options are validated against the live execution contract, source identity, workspace policy, and recovery boundary at dispatch, exactly as a direct `start` or `turn` would be — registration performs no contract validation and grants no authorization.
-
-Identity and re-entrancy:
-
-- `intent_sha256` covers the intent, the message digest, and the original user request. The same `request_id` registered again with the same digest returns the original record unchanged; a different digest is `REQUEST_CONFLICT` with exit `2` and never overwrites what was registered.
-- Two different `request_id` values may carry identical text. They are two legitimate requests.
-- `source` is descriptive provenance for filtering only. It is never an identity claim, never an authorization, and never widens the Observer allowlist.
-
-Consumption is single-operation by construction:
-
-- The consumed `request_id` is written inside the operation record's own atomic creation. The operation log — not a second index file — is the authority for the association, so nothing depends on two JSON files committing together.
-- `request-dispatch` holds the request lease for the whole dispatch, so a concurrent second consumer gets a retryable `STATE_BUSY` instead of racing into a second operation.
-- Before dispatching, and after any dispatch failure, the operation log is searched for that `request_id`. A consumer that crashed after journaling its operation, or whose provider then failed, therefore adopts the existing operation on retry rather than opening a new turn. `request-get` and `request-list` rebuild the same association, so a request record left at `pending` by a crash is repaired from the operation log.
-- `request-cancel` on a request that already has an operation is `REQUEST_CONFLICT`; `request-dispatch` on a cancelled request is `REQUEST_CANCELLED`. Whichever holds the lease first wins, and the outcome is always one of those two.
-- When the target task is busy, `request-dispatch` returns `REQUEST_PENDING` with the underlying `pending_reason` and leaves the request pending. Nothing is injected into the running operation, no endpoint is substituted, and no retry is scheduled.
-
-Three claims stay separate and must not be collapsed in a report:
-
-1. `status: "pending"` — the instruction is registered and durable.
-2. `status: "dispatched"` with `operation_id` — a logical operation exists for it.
-3. The operation envelope's own status, artifact, and `delivery` — whether the provider actually received or completed the message.
-
-An operation record does not prove provider receipt. `DELIVERY_UNKNOWN` keeps its existing recovery and decision boundary; the inbox neither bypasses it nor re-sends the message, and it makes no exactly-once claim about provider-side effects.
 
 ## Execution contract
 
@@ -351,32 +213,32 @@ Missing, inconsistent, premature, or target-branch parallel metadata returns `PA
 
 ## Error taxonomy
 
-| Code | Meaning | Default disposition |
-|---|---|---|
-| `CONFIG_INVALID` | Invalid task input or unsupported configured value | Correct input |
-| `TASK_EXISTS` / `TASK_UNKNOWN` | Logical identity conflict or missing task | Correct identity; do not guess |
-| `EXECUTION_CONTRACT_REQUIRED` | A legacy handle lacks model, effort, permission, or source truth | Explicitly upgrade the same handle before continuing |
-| `OPERATION_IN_FLIGHT` | Previous turn is not terminal | Check the same operation |
-| `SOURCE_MISMATCH` / `SOURCE_UNVERIFIED` | Fixed source cannot be proven | Correct the checkout or obtain a decision |
-| `WORKSPACE_WRITE_CONFLICT` / `BRANCH_WRITE_CONFLICT` | Another live or unfenced writable local task owns the worktree or checkout branch | Wait for it, run `checkpoint` to fence it, or use an isolated worktree for the authorized task |
-| `PARALLEL_WRITE_PLAN_INCOMPLETE` | Same-MR parallel write metadata, barrier, or order is incomplete or not unique | `NEEDS_DECISION`; correct the caller-owned plan |
-| `HANDOFF_PACKET_INVALID` | Handoff packet fails schema, bounds, sanitization, integrity, or secret checks | Fix the packet; nothing was dispatched |
-| `HANDOFF_CONFLICT` | Handoff arguments, packet binding, or an existing continuation task disagree | Fail closed; a different continuation needs a new `task_id` or corrected inputs |
-| `MODEL_UNRECOGNIZED` | Provider did not recognize the requested main model and no valid matching main result exists | Retry the same endpoint with the saved contract |
-| `MODEL_MISMATCH` / `MODEL_UNVERIFIED` | Observed result does not prove the requested model | Invalidate a non-terminal operation; retry the same endpoint |
-| `EFFORT_MISMATCH` / `EFFORT_UNVERIFIED` | Provider log contradicts saved effort, or a format that could prove it did not | Invalidate a non-terminal operation and retry the same endpoint |
-| `ENDPOINT_ROUTE_STALE` | Codex host routing changed | Resolve the same `threadId`, update route history, retry once |
-| `ENDPOINT_GONE` | Same endpoint cannot be rediscovered | `NEEDS_DECISION`; the caller may resolve it under the Skill replacement policy with a new identity and context handoff |
-| `DELIVERY_UNKNOWN` | Send lacks a trustworthy receipt or durable exit status | Preserve the endpoint; do not resend without provider-specific proof or an explicit decision |
-| `ENDPOINT_MISMATCH` | Provider result belongs to another endpoint | Fail closed |
-| `RESULT_INVALID` | Provider output lacks the required result shape | Fail closed and preserve private logs; a terminal `claude-cli` one additionally allows the caller-owned bounded retry in `SKILL.md` |
-| `PROCESS_EXITED_WITHOUT_RESULT` | Local provider process disappeared before terminal publication | Inspect private logs, then retry the same endpoint if safe |
-| `PROVIDER_STALLED` | Claude stayed alive but produced no stream progress before the saved control deadline | Fence the old process group, then resume the same session with a continuation query |
-| `IDENTITY_CONFLICT` / `STATE_CONFLICT` | Durable records disagree about endpoint or terminal identity | Stop and repair explicitly |
-| `REQUEST_UNKNOWN` | No request is registered under that `request_id` | Correct the identity; do not guess |
-| `REQUEST_CONFLICT` | The same `request_id` was registered with a different intent, or a dispatched request cannot be cancelled | Use a new `request_id`, or accept the existing operation |
-| `REQUEST_CANCELLED` | The request was cancelled before it was dispatched | Register a new request if the work is still wanted |
-| `STATE_BUSY` / `STATE_CORRUPT` | Concurrent writer or invalid durable state | Retry the same command or repair state explicitly |
+| Code                                                 | Meaning                                                                                                   | Default disposition                                                                                                                 |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `CONFIG_INVALID`                                     | Invalid task input or unsupported configured value                                                        | Correct input                                                                                                                       |
+| `TASK_EXISTS` / `TASK_UNKNOWN`                       | Logical identity conflict or missing task                                                                 | Correct identity; do not guess                                                                                                      |
+| `EXECUTION_CONTRACT_REQUIRED`                        | A legacy handle lacks model, effort, permission, or source truth                                          | Explicitly upgrade the same handle before continuing                                                                                |
+| `OPERATION_IN_FLIGHT`                                | Previous turn is not terminal                                                                             | Check the same operation                                                                                                            |
+| `SOURCE_MISMATCH` / `SOURCE_UNVERIFIED`              | Fixed source cannot be proven                                                                             | Correct the checkout or obtain a decision                                                                                           |
+| `WORKSPACE_WRITE_CONFLICT` / `BRANCH_WRITE_CONFLICT` | Another live or unfenced writable local task owns the worktree or checkout branch                         | Wait for it, run `checkpoint` to fence it, or use an isolated worktree for the authorized task                                      |
+| `PARALLEL_WRITE_PLAN_INCOMPLETE`                     | Same-MR parallel write metadata, barrier, or order is incomplete or not unique                            | `NEEDS_DECISION`; correct the caller-owned plan                                                                                     |
+| `HANDOFF_PACKET_INVALID`                             | Handoff packet fails schema, bounds, sanitization, integrity, or secret checks                            | Fix the packet; nothing was dispatched                                                                                              |
+| `HANDOFF_CONFLICT`                                   | Handoff arguments, packet binding, or an existing continuation task disagree                              | Fail closed; a different continuation needs a new `task_id` or corrected inputs                                                     |
+| `MODEL_UNRECOGNIZED`                                 | Provider did not recognize the requested main model and no valid matching main result exists              | Retry the same endpoint with the saved contract                                                                                     |
+| `MODEL_MISMATCH` / `MODEL_UNVERIFIED`                | Observed result does not prove the requested model                                                        | Invalidate a non-terminal operation; retry the same endpoint                                                                        |
+| `EFFORT_MISMATCH` / `EFFORT_UNVERIFIED`              | Provider log contradicts saved effort, or a format that could prove it did not                            | Invalidate a non-terminal operation and retry the same endpoint                                                                     |
+| `ENDPOINT_ROUTE_STALE`                               | Codex host routing changed                                                                                | Resolve the same `threadId`, update route history, retry once                                                                       |
+| `ENDPOINT_GONE`                                      | Same endpoint cannot be rediscovered                                                                      | `NEEDS_DECISION`; the caller may resolve it under the Skill replacement policy with a new identity and context handoff              |
+| `DELIVERY_UNKNOWN`                                   | Send lacks a trustworthy receipt or durable exit status                                                   | Preserve the endpoint; do not resend without provider-specific proof or an explicit decision                                        |
+| `ENDPOINT_MISMATCH`                                  | Provider result belongs to another endpoint                                                               | Fail closed                                                                                                                         |
+| `RESULT_INVALID`                                     | Provider output lacks the required result shape                                                           | Fail closed and preserve private logs; a terminal `claude-cli` one additionally allows the caller-owned bounded retry in `SKILL.md` |
+| `PROCESS_EXITED_WITHOUT_RESULT`                      | Local provider process disappeared before terminal publication                                            | Inspect private logs, then retry the same endpoint if safe                                                                          |
+| `PROVIDER_STALLED`                                   | Claude stayed alive but produced no stream progress before the saved control deadline                     | Fence the old process group, then resume the same session with a continuation query                                                 |
+| `IDENTITY_CONFLICT` / `STATE_CONFLICT`               | Durable records disagree about endpoint or terminal identity                                              | Stop and repair explicitly                                                                                                          |
+| `REQUEST_UNKNOWN`                                    | No request is registered under that `request_id`                                                          | Correct the identity; do not guess                                                                                                  |
+| `REQUEST_CONFLICT`                                   | The same `request_id` was registered with a different intent, or a dispatched request cannot be cancelled | Use a new `request_id`, or accept the existing operation                                                                            |
+| `REQUEST_CANCELLED`                                  | The request was cancelled before it was dispatched                                                        | Register a new request if the work is still wanted                                                                                  |
+| `STATE_BUSY` / `STATE_CORRUPT`                       | Concurrent writer or invalid durable state                                                                | Retry the same command or repair state explicitly                                                                                   |
 
 ## Safe recovery line
 
@@ -406,7 +268,7 @@ When that verified recoverable error contains `stream ended before message_stop`
 
 `retry-invalid --task-id <id> --operation-id <failed-id>` is the single control-plane entry for the bounded Claude `RESULT_INVALID` retry. The caller still invokes it explicitly per attempt; the command owns all budget, fingerprint, and lineage bookkeeping, so no second hand-maintained ledger exists.
 
-The ledger is persisted on the lineage-root operation record as `invalid_retry_ledger` and updated atomically under the operation lock. Policy is frozen at creation: only terminal `claude-cli` `RESULT_INVALID` qualifies, and at most 3 retries follow the original failure, shared across every session in the lineage; a success ends the lineage immediately. The failure fingerprint is `sha256(code, message)`; a changed fingerprint resets the consecutive streak, and a replacement session starts a fresh streak counted only from its own failures (SKILL.md "Replacement trigger").
+The ledger is persisted on the lineage-root operation record as `invalid_retry_ledger` and updated atomically under the operation lock. Policy is frozen at creation: only terminal `claude-cli` `RESULT_INVALID` qualifies, and at most 3 retries follow the original failure, shared across every session in the lineage; a success ends the lineage immediately. The failure fingerprint is `sha256(code, message)`; a changed fingerprint resets the consecutive streak, and a replacement session starts a fresh streak counted only from its own failures (see the retry placement rules below).
 
 Retry placement follows the frozen rules. While the streak of identical fingerprints is below 2 and the failed operation has a durable task, the retry is a `turn` on the same session carrying a uniquely marked continuation of the original message. After two consecutive identical fingerprints the next retry must be a new task and session: the replacement records `replacement_for`, never rebinds the original `task_id`, and freezes the same provider, model, effort, retry plan, permission mode, source/workspace binding, role, and input contract from the root operation. When the original failure never published a durable task, the same-session path is unavailable and the session identity cannot be trusted for a same-endpoint replay; that missing identity is not a silent replacement trigger. Without a replacement id, the command refuses with `RECOVERY_UNAVAILABLE` and `requires_authorization`. The caller may supply a fresh `--replacement-task-id` under the Skill replacement policy without asking the user again; the command records `forced_new_session`. A declared parallel-group member retries and replaces like any other role; its `parallel_role` is persisted in the ledger, the dispatch event, and the `invalid_retry` block so pipeline identity-continuity checks can re-evaluate the replacement, and workspace write-lease conflicts surface as the usual structured lease errors.
 
@@ -414,42 +276,6 @@ Every retry operation is stamped with its root operation, attempt number, mode, 
 
 ## Declared delivery evidence
 
-For ordinary local CLI `start`/`turn`, repeated `--require-file <workspace-relative-path>` checks that every declared file exists, is non-empty and resolves inside the workspace. `--require-commit` checks a new descendant of the dispatch-time HEAD and a clean worktree. Requirements are operation-scoped and inherited by `recover`; an ordinary new turn declares its own requirements. Repeating an in-flight request cannot silently change them. 已绑定 plan 的实现角色始终要求 commit，基线固定为计划原始 SHA；恢复仅完成验证时，已有交付 commit 仍然有效。
+For ordinary local CLI `start`/`turn`, repeated `--require-file <workspace-relative-path>` checks that every declared file exists, is non-empty and resolves inside the workspace. `--require-commit` checks a new descendant of the dispatch-time HEAD and a clean worktree. Requirements are operation-scoped and inherited by `recover`; an ordinary new turn declares its own requirements. Repeating an in-flight request cannot silently change them. A plan-bound implementation role always requires a commit, with the baseline fixed at the plan's original SHA; when a recovery only completes verification, an existing delivery commit remains valid.
 
 `SUCCEEDED` continues to mean execution success. Its separate `delivery` record has scope `declared-files-and-commit` and status `verified`, `incomplete`, or `unverified` (no requirements, including old operations). Checks record files and optional commit evidence; the observer displays these separately. No semantic tests, browser behavior, or license correctness are inferred from a provider's final prose. A missing declared file keeps delivery incomplete even if the CLI exited successfully.
-
-## Codex transports
-
-Codex CLI is the default Codex transport. It runs non-interactively, extracts the endpoint from `thread.started`, and resumes only by the exact saved session UUID. The operation marker remains in the prompt so an exported rollout can be tied to one operation.
-
-## MCode Exec transport
-
-The first phase is the non-interactive `mcode exec` adapter; ACP history, steer, queue, delegation, and long-lived control are outside this transport. The binary honors `AGENT_LORD_MCODE_BIN`. Each operation invokes `--input -`, the exact `--cwd`, frozen `--model`, `--permission full`, `--output-format stream-json`, and an operation-specific `--output-last-message`; later turns add only the saved `--session` and never use `--continue`.
-
-Every non-empty stream record must be a supported `schemaVersion=1` event with contiguous sequence and one consistent Run/Session/Turn tuple. Success requires exit zero, exactly one final `exec.completed`, a schema-version-1 `exec.result` with `status=succeeded`, matching Turn terminal and model metadata, any explicit variant, and a fresh final file equal to `output`. String output compares literally; structured output compares with the parsed JSON file value. The only accepted non-success statuses are `failed`, `timeout`, `cancelled`, and `limit_exceeded`; unknown statuses are protocol errors. Artifacts contain only the verified final file.
-
-### Codex App transport seam
-
-The current adapter emits model-mediated actions because no verified shell bridge owns the same Desktop-visible endpoint lifecycle. Tool results may be JSON objects, JSON strings, or plain errors; `accept` unwraps and classifies them.
-
-The route-recovery sequence is deterministic:
-
-```text
-send/read -> No AppServerManager
-          -> list_threads(limit=50)
-          -> find exact threadId client-side
-          -> append route history
-          -> retry the original action with the same operation id and prompt marker
-```
-
-A `list_threads` action that itself fails transiently (a timeout, a transport error) does not end route recovery. The same listing is re-issued, carrying the original `resume_action_id` and `resume_kind`, for a bounded three attempts counted from the operation's own failed `codex.list` actions; only the last one terminalizes with `PROVIDER_FAILED`.
-
-A `codex.read` whose result is not ready yet is not an error either: `accept` keeps the operation non-terminal and returns the next read. `accept --auto-read` returns that read in the same envelope instead of requiring a separate `check`. The flag is opt-in and changes no field of the default envelope; without it, an accepted send stays `submitted` and quiet exactly as before.
-
-App routing is independent of the CLI session namespace. Never migrate an existing `codex-app` task handle to `codex-cli` implicitly.
-
-`config/providers.json` owns provider capabilities, Claude default-resolution and child-environment policy, plus checkpoint, stall, termination grace, progress poll, dead-process grace, and lock retry constants. Dynamic facts such as `hostId`, PID, process group, Session/Turn/Run, controller lease/launch count, recovery marker, operation state, and observed model never belong in configuration.
-
-## MCode tool phase display
-
-Core progress and Observer use the same schema-v1 tool state mapping. Observed states 4/5 remain pending preparation/ready states, 1 is executing, 2 completed, and 3 or an explicit error is failed. Unknown values stay unclassified until a terminal event; they are never inferred to be successful. Successful MCode updates explicitly clear stale error text. The Observer separates parameter-preparation duration (first observed state 4 to first state 1) from execution duration (first state 1 to terminal success/failure), using provider event timestamps. Missing or invalid timestamps leave a duration absent rather than guessing. A provider stream ending before tool execution is not evidence of a slow filesystem write.

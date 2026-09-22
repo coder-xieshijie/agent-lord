@@ -8,10 +8,10 @@ The scheduling caller directly starts the reviewers, exchanges their final artif
 
 Unless the user overrides them, freeze these three roles at one repository and fixed review head/base:
 
-| Role | Provider | Model | Effort | Workspace |
-| --- | --- | --- | --- | --- |
-| MCode reviewer | `mcode-cli` | `custom_provider:mafia-claude/claude-opus-5` | `xhigh` | `isolated` |
-| Codex reviewer | `codex-cli` | `gpt-6-astra` | `max` | `isolated` |
+| Role                      | Provider    | Model                                        | Effort  | Workspace  |
+| ------------------------- | ----------- | -------------------------------------------- | ------- | ---------- |
+| MCode reviewer            | `mcode-cli` | `custom_provider:mafia-claude/claude-opus-5` | `xhigh` | `isolated` |
+| Codex reviewer            | `codex-cli` | `gpt-6-astra`                                | `max`   | `isolated` |
 | Independent MCode checker | `mcode-cli` | `custom_provider:mafia-claude/claude-opus-5` | `xhigh` | `isolated` |
 
 Pass these pipeline-specific model and effort choices explicitly, including `--effort xhigh` for MCode and `--effort max` for Codex. A MCode `#variant` remains model identity and is never used as reasoning effort. These choices do not change ordinary provider defaults.
@@ -48,10 +48,10 @@ After both initial artifacts pass the barrier, send the MCode reviewer the sanit
 
 Maintain one finding ledger outside the repository. Adjudicate these dimensions separately for each reviewer:
 
-| Dimension | Question |
-| --- | --- |
-| `fact_evidence` | Does the cited code and failure scenario prove a real issue at the pinned source? |
-| `severity` | Is the proposed impact and priority proportionate? |
+| Dimension                  | Question                                                                                |
+| -------------------------- | --------------------------------------------------------------------------------------- |
+| `fact_evidence`            | Does the cited code and failure scenario prove a real issue at the pinned source?       |
+| `severity`                 | Is the proposed impact and priority proportionate?                                      |
 | `minimal_fix_dependencies` | Is the smallest fix correct, and are all affected symbols/callers/contracts identified? |
 
 Each reviewer returns `ACCEPT`, `REJECT`, or `NEEDS_EVIDENCE` plus a source-grounded reason for every dimension. Classify a candidate as:

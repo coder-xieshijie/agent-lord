@@ -22,16 +22,27 @@
     "updated_at"
   ],
   "properties": {
-    "version": {"const": 1},
-    "operation_id": {"type": "string"},
-    "task_id": {"type": "string"},
-    "provider": {"enum": ["claude-cli", "codex-cli", "mcode-cli", "codex-app"]},
-    "kind": {"enum": ["start", "turn", "handoff"]},
-    "target": {"type": "string"},
-    "status": {
-      "enum": ["preparing", "running", "recovering", "awaiting_action", "submitted", "succeeded", "failed", "needs_decision"]
+    "version": { "const": 1 },
+    "operation_id": { "type": "string" },
+    "task_id": { "type": "string" },
+    "provider": {
+      "enum": ["claude-cli", "codex-cli", "mcode-cli", "codex-app"]
     },
-    "message": {"type": "string"},
+    "kind": { "enum": ["start", "turn", "handoff"] },
+    "target": { "type": "string" },
+    "status": {
+      "enum": [
+        "preparing",
+        "running",
+        "recovering",
+        "awaiting_action",
+        "submitted",
+        "succeeded",
+        "failed",
+        "needs_decision"
+      ]
+    },
+    "message": { "type": "string" },
     "invocation": {
       "type": "object",
       "required": ["caller", "trigger", "user_request", "reason"],
@@ -40,61 +51,96 @@
           "type": "object",
           "required": ["kind", "session_id", "turn_id", "identity_source"],
           "properties": {
-            "kind": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$", "maxLength": 160},
-            "session_id": {"type": ["string", "null"], "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$", "maxLength": 160},
-            "turn_id": {"type": ["string", "null"], "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$", "maxLength": 160},
-            "identity_source": {"enum": ["runtime-env", "caller-declared", "unavailable"]},
-            "data_root": {"type": "string", "description": "Private absolute Codex data root; never projected to the web client."}
+            "kind": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+              "maxLength": 160
+            },
+            "session_id": {
+              "type": ["string", "null"],
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+              "maxLength": 160
+            },
+            "turn_id": {
+              "type": ["string", "null"],
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+              "maxLength": 160
+            },
+            "identity_source": {
+              "enum": ["runtime-env", "caller-declared", "unavailable"]
+            },
+            "data_root": {
+              "type": "string",
+              "description": "Private absolute Codex data root; never projected to the web client."
+            }
           },
           "additionalProperties": false
         },
-        "trigger": {"enum": ["user_request", "caller_followup", "recovery", "unspecified"]},
-        "user_request": {"type": ["string", "null"], "minLength": 1, "maxLength": 1000000},
-        "reason": {"type": ["string", "null"], "minLength": 1, "maxLength": 16000}
+        "trigger": {
+          "enum": ["user_request", "caller_followup", "recovery", "unspecified"]
+        },
+        "user_request": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 1000000
+        },
+        "reason": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 16000
+        }
       },
       "additionalProperties": false
     },
-    "message_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "message_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "request_id": {
       "type": "string",
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$",
       "description": "The inbox request consumed by this dispatch. Written in this record's own atomic creation, so the association survives a consumer crash and a second consume adopts this operation instead of creating another."
     },
-    "expected": {"type": "object"},
+    "expected": { "type": "object" },
     "observed": {
       "type": "object",
       "properties": {
-        "main_model": {"type": "string"},
-        "main_model_verified": {"type": "boolean"},
-        "main_model_evidence": {"type": "array", "items": {"type": "string"}},
-        "auxiliary_models": {"type": "array", "items": {"type": "object"}},
-        "warnings": {"type": "array", "items": {"type": "object"}},
-        "models": {"type": "array", "items": {"type": "string"}},
-        "model": {"type": "string"},
-        "model_verification": {"type": "string"},
-        "variant": {"type": ["string", "null"]},
-        "variant_verification": {"type": "string"},
-        "run_id": {"type": "string"},
-        "session_id": {"type": "string"},
-        "turn_id": {"type": "string"},
-        "terminal_status": {"type": "string"},
-        "provider_completed_at_ms": {"type": "number"},
-        "progress_seq": {"type": "integer", "minimum": 0}
+        "main_model": { "type": "string" },
+        "main_model_verified": { "type": "boolean" },
+        "main_model_evidence": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "auxiliary_models": { "type": "array", "items": { "type": "object" } },
+        "warnings": { "type": "array", "items": { "type": "object" } },
+        "models": { "type": "array", "items": { "type": "string" } },
+        "model": { "type": "string" },
+        "model_verification": { "type": "string" },
+        "variant": { "type": ["string", "null"] },
+        "variant_verification": { "type": "string" },
+        "run_id": { "type": "string" },
+        "session_id": { "type": "string" },
+        "turn_id": { "type": "string" },
+        "terminal_status": { "type": "string" },
+        "provider_completed_at_ms": { "type": "number" },
+        "progress_seq": { "type": "integer", "minimum": 0 }
       },
       "additionalProperties": true
     },
-    "source": {"type": "object"},
-    "read_only": {"type": "boolean"},
-    "workspace": {"type": "object"},
-    "parallel_plan": {"type": "object"},
+    "source": { "type": "object" },
+    "read_only": { "type": "boolean" },
+    "workspace": { "type": "object" },
+    "parallel_plan": { "type": "object" },
     "continuation": {
       "type": "object",
-      "required": ["parent_operation_id", "root_operation_id", "attempt", "limit"],
+      "required": [
+        "parent_operation_id",
+        "root_operation_id",
+        "attempt",
+        "limit"
+      ],
       "properties": {
-        "parent_operation_id": {"type": "string"},
-        "root_operation_id": {"type": "string"},
-        "attempt": {"type": "integer", "minimum": 1, "maximum": 5},
-        "limit": {"type": "integer", "minimum": 1, "maximum": 5}
+        "parent_operation_id": { "type": "string" },
+        "root_operation_id": { "type": "string" },
+        "attempt": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 5 }
       },
       "additionalProperties": true
     },
@@ -102,9 +148,13 @@
       "type": "object",
       "required": ["files", "require_commit", "base_head"],
       "properties": {
-        "files": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
-        "require_commit": {"type": "boolean"},
-        "base_head": {"type": ["string", "null"]}
+        "files": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "require_commit": { "type": "boolean" },
+        "base_head": { "type": ["string", "null"] }
       },
       "additionalProperties": false
     },
@@ -112,29 +162,37 @@
       "type": "object",
       "required": ["status", "scope", "checks"],
       "properties": {
-        "status": {"enum": ["verified", "incomplete", "unverified"]},
-        "scope": {"const": "declared-files-and-commit"},
-        "checks": {"type": "array", "items": {"type": "object"}},
-        "commit_sha": {"type": ["string", "null"]}
+        "status": { "enum": ["verified", "incomplete", "unverified"] },
+        "scope": { "const": "declared-files-and-commit" },
+        "checks": { "type": "array", "items": { "type": "object" } },
+        "commit_sha": { "type": ["string", "null"] }
       },
       "additionalProperties": false
     },
-    "last_attempt": {"type": ["object", "null"]},
+    "last_attempt": { "type": ["object", "null"] },
     "handoff": {
       "type": "object",
-      "required": ["version", "schema", "handoff_id", "relationship", "source_session", "packet", "workspace_snapshot"],
+      "required": [
+        "version",
+        "schema",
+        "handoff_id",
+        "relationship",
+        "source_session",
+        "packet",
+        "workspace_snapshot"
+      ],
       "properties": {
-        "version": {"const": 1},
-        "schema": {"const": "handoff-v1"},
-        "handoff_id": {"type": "string"},
-        "relationship": {"const": "continues_user_task"},
+        "version": { "const": 1 },
+        "schema": { "const": "handoff-v1" },
+        "handoff_id": { "type": "string" },
+        "relationship": { "const": "continues_user_task" },
         "source_session": {
           "type": "object",
           "required": ["kind", "opaque_id", "identity_assurance"],
           "properties": {
-            "kind": {"type": "string"},
-            "opaque_id": {"type": ["string", "null"]},
-            "identity_assurance": {"enum": ["caller-declared", "unavailable"]}
+            "kind": { "type": "string" },
+            "opaque_id": { "type": ["string", "null"] },
+            "identity_assurance": { "enum": ["caller-declared", "unavailable"] }
           },
           "additionalProperties": false
         },
@@ -142,9 +200,9 @@
           "type": "object",
           "required": ["path", "sha256", "bytes"],
           "properties": {
-            "path": {"type": "string"},
-            "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-            "bytes": {"type": "integer", "minimum": 1}
+            "path": { "type": "string" },
+            "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "bytes": { "type": "integer", "minimum": 1 }
           },
           "additionalProperties": false
         },
@@ -152,48 +210,50 @@
           "type": "object",
           "required": ["head_sha", "dirty", "changed_path_count", "sha256"],
           "properties": {
-            "head_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
-            "dirty": {"type": "boolean"},
-            "changed_path_count": {"type": "integer", "minimum": 0},
-            "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+            "head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+            "dirty": { "type": "boolean" },
+            "changed_path_count": { "type": "integer", "minimum": 0 },
+            "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
           },
           "additionalProperties": false
         }
       },
       "additionalProperties": false
     },
-    "artifact": {"type": ["object", "null"]},
-    "error": {"type": ["object", "null"]},
-    "controller_pid": {"type": ["integer", "null"]},
-    "execution_worker_pid": {"type": ["integer", "null"]},
-    "pid": {"type": ["integer", "null"]},
-    "provider_return_code": {"type": ["integer", "null"]},
-    "run_id": {"type": "string"},
-    "turn_id": {"type": "string"},
-    "stdout_path": {"type": "string"},
-    "stderr_path": {"type": "string"},
-    "result_path": {"type": "string"},
-    "result_reset_at_ns": {"type": "integer", "minimum": 1},
-    "recovery_controller_pid": {"type": ["integer", "null"]},
+    "artifact": { "type": ["object", "null"] },
+    "error": { "type": ["object", "null"] },
+    "controller_pid": { "type": ["integer", "null"] },
+    "execution_worker_pid": { "type": ["integer", "null"] },
+    "pid": { "type": ["integer", "null"] },
+    "provider_return_code": { "type": ["integer", "null"] },
+    "run_id": { "type": "string" },
+    "turn_id": { "type": "string" },
+    "stdout_path": { "type": "string" },
+    "stderr_path": { "type": "string" },
+    "result_path": { "type": "string" },
+    "result_reset_at_ns": { "type": "integer", "minimum": 1 },
+    "recovery_controller_pid": { "type": ["integer", "null"] },
     "active_attempt": {
       "type": ["object", "null"],
       "properties": {
-        "controller_pid": {"type": ["integer", "null"]},
-        "pid": {"type": ["integer", "null"]},
-        "process_group_id": {"type": ["integer", "null"]},
-        "run_id": {"type": "string"},
-        "session_id": {"type": "string"},
-        "turn_id": {"type": "string"},
-        "result_path": {"type": "string"},
-        "result_reset_at_ns": {"type": "integer", "minimum": 1},
-        "progress_seq": {"type": "integer", "minimum": 0},
-        "last_event_type": {"type": "string"},
-        "prompt_delivery": {"enum": ["not-delivered", "delivery-unknown", "stdin-attached"]}
+        "controller_pid": { "type": ["integer", "null"] },
+        "pid": { "type": ["integer", "null"] },
+        "process_group_id": { "type": ["integer", "null"] },
+        "run_id": { "type": "string" },
+        "session_id": { "type": "string" },
+        "turn_id": { "type": "string" },
+        "result_path": { "type": "string" },
+        "result_reset_at_ns": { "type": "integer", "minimum": 1 },
+        "progress_seq": { "type": "integer", "minimum": 0 },
+        "last_event_type": { "type": "string" },
+        "prompt_delivery": {
+          "enum": ["not-delivered", "delivery-unknown", "stdin-attached"]
+        }
       },
       "additionalProperties": true
     },
-    "created_at": {"type": "string"},
-    "updated_at": {"type": "string"}
+    "created_at": { "type": "string" },
+    "updated_at": { "type": "string" }
   },
   "additionalProperties": true
 }
