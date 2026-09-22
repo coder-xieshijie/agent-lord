@@ -33,7 +33,7 @@ The two initial reviews are one concurrent ready set. The two cross-exams are a 
 Give both initial reviewers the same pinned source scope and acceptance lens, but neither receives the other's output:
 
 - prefer the smallest change and reuse existing capability;
-- keep core implementation in V2 and minimize V1 changes;
+- respect the architecture boundaries established by the target repository and confirmed task requirements;
 - reject complexity introduced only for a narrow local case when its cost exceeds the risk;
 - retain sufficient extension seams without speculative abstractions;
 - minimize context required by the next change;
