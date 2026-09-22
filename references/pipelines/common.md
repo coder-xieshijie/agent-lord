@@ -2,7 +2,7 @@
 
 Load this reference when one request selects multiple Agent Lord endpoints or names a documented pipeline. It defines orchestration policy only; `node core/dist/cli.js` remains the durable endpoint runtime.
 
-Every step below belongs to the originating [scheduling caller](../../SKILL.md#scheduling-ownership). Assign concrete execution roles to CLI endpoints, and include the executor constraint in each assignment. Keep the manifest, dispatch, barriers, artifact exchange, supervision, recovery, and convergence in this caller; a pipeline is not a task to hand to another coordinator CLI.
+Every step below belongs to the originating [scheduling caller](../../SKILL.md#scheduling-ownership). Assign concrete execution roles to CLI endpoints and author their prompts using [task context preparation](../../SKILL.md#task-context-preparation), retaining the named pipeline's required inputs, reading, and deliverables. Keep the manifest, dispatch, barriers, artifact exchange, supervision, recovery, and convergence in this caller; a pipeline is not a task to hand to another coordinator CLI.
 
 User-facing explanations and reports follow the shared [explain-as-fool rules](../explain-as-fool.md). Pass this bundled reference or its wording to the authoring endpoint; each named pipeline defines its report content and delivery requirements.
 
