@@ -8,12 +8,11 @@
 
 可以从单个任务开始，也可以直接选择内置 pipeline：
 
-| 你想完成什么                | Pipeline                                       | 最终得到什么                             |
-| --------------------------- | ---------------------------------------------- | ---------------------------------------- |
-| 从独立视角审查一份改动      | [交叉审查](#交叉审查cross-review)              | 有源码证据的发现、双向质证和独立终审     |
-| 交叉审查后重写完整方案      | [方案交叉审查](#方案交叉审查plan-cross-review) | 四个 CLI 角色、完整 plan、作者逐项自查   |
-| 把已有实现计划落成代码      | [计划到实现](#计划到实现plan-to-implement)     | 模块并行交付、统一整合、每仓库一个 PR/MR |
-| 让新 CLI 会话接着做现有工作 | [交接](#交接handoff)                           | 带脱敏上下文和来源记录的新执行端         |
+| 你想完成什么           | Pipeline                                       | 最终得到什么                             |
+| ---------------------- | ---------------------------------------------- | ---------------------------------------- |
+| 从独立视角审查一份改动 | [交叉审查](#交叉审查cross-review)              | 有源码证据的发现、双向质证和独立终审     |
+| 交叉审查后重写完整方案 | [方案交叉审查](#方案交叉审查plan-cross-review) | 四个 CLI 角色、完整 plan、作者逐项自查   |
+| 把已有实现计划落成代码 | [计划到实现](#计划到实现plan-to-implement)     | 模块并行交付、统一整合、每仓库一个 PR/MR |
 
 [快速开始](#快速开始) · [Observer](#observer) · [支持的执行端](#支持的执行端) · [文档导航](#文档导航)
 
@@ -51,6 +50,8 @@ Codex App 任务由主会话通过宿主工具派发，Observer 展示其任务�
 默认 MCode reviewer 与 checker 使用 **Opus 5 / xhigh**，Codex 使用 **GPT-6 Astra / high**。常规路径共五次计划内执行；增加收敛轮后共七次。运行时恢复不会增加语义上的审查轮次。
 
 最终分开报告 **Pipeline Check**（流程与独立审计是否经过核验）和 **Review Result**（是否仍有已确认的问题）。流程有效但发现了 Bug 时，结果可以是 `Pipeline Check: PASS`、`Review Result: FAIL`。
+
+这些 Pipeline 依赖 [dev-skills](https://github.com/coder-xieshijie/dev-skills) 中单独安装的 `review-rules`、`plan-for-agents` 和 `explain-as-fool`。使用前请先完成[依赖安装](#2-安装依赖-skill)；Agent Lord 不内置这些规则，也不会自动安装。
 
 ### 方案交叉审查：Plan-cross-review
 
@@ -95,22 +96,6 @@ flowchart LR
 
 Planner、worker 和 integrator 默认使用 MCode 配置中解析出的模型与 effort，目前为 **Opus 5 / xhigh**；可以全局或按角色改用 Codex CLI、Claude Code。`plan-status` 将 ready 集合、屏障和过程日志保存在会话之外，主会话重启后可继续监督；整合恢复会保留已有工作和记录。**这条 pipeline 负责发布 PR/MR，不负责合入。**
 
-### 交接：Handoff
-
-适合让一个新的本地 CLI 会话带着必要上下文，在现有工作区继续未完成的任务。
-
-> 使用 Agent Lord 的 handoff pipeline，把当前任务交给 MCode 继续，在当前工作区执行。带上目标、已完成工作、剩余事项、证据和验收标准，沿用现有的写入边界。
-
-![交接流程：可见上下文、脱敏交接包、派发前核验、新 CLI 执行端与来源记录](assets/diagrams/handoff.svg)
-
-[完整规则](references/pipelines/handoff.md)
-
-主会话根据自身可见上下文编写脱敏的 `handoff-v1` 交接包。启动前，Runtime 校验交接包与冻结契约、获取工作区租约，并为 HEAD 和变更文件内容生成快照。新的 Claude Code、Codex CLI 或 MCode 执行端在**原指定工作区**继续工作，支持保留未提交改动。
-
-一次 handoff 只启动**一个续做角色**，调度权仍留在原主会话。重复提交相同请求会复用已有操作；交接包或契约冲突则拒绝执行。后续通过普通的 `turn` / `checkpoint` / 恢复流程继续同一执行端。
-
-交付结果包含新的 task/endpoint 身份和来源关系。这是**上下文交接，不是原生 Session 或 transcript 迁移**；源会话身份只记为调用方声明或不可用，不宣称已经核验。Codex App 不是 handoff 的目标执行端。
-
 ## 快速开始
 
 ### 1. 安装并构建
@@ -126,7 +111,53 @@ pnpm build
 
 这会同时构建运行时和 Observer。升级旧 Python 安装时，请先按[迁移指南](references/python-to-typescript.md)操作，再切换正在使用的状态目录。
 
-### 2. 将 Skill 接入 Codex
+### 2. 安装依赖 Skill
+
+Agent Lord 和 dev-skills 是独立仓库。Agent Lord 定义流程，dev-skills 维护通用质量标准：
+
+| 必需 Skill        | 用途                        |
+| ----------------- | --------------------------- |
+| `review-rules`    | 评审、交叉质证和独立检查    |
+| `plan-for-agents` | Plan 内容、修订和完整性检查 |
+| `explain-as-fool` | 面向用户的解释和报告        |
+
+完整 clone dev-skills 仓库，再把其中的 Skill 目录软链接到共享安装目录。如果已有 checkout，将 `dev_skills_dir` 改为已有路径，保持唯一维护源。以下命令保留已有文件、目录和软链接，包括失效的软链接。
+
+```sh
+# 已安装时，将此变量改为已有 dev-skills checkout 的路径。
+dev_skills_dir="$HOME/code/github/skills/dev-skills"
+if [ ! -e "$dev_skills_dir" ] && [ ! -L "$dev_skills_dir" ]; then
+  mkdir -p "$(dirname "$dev_skills_dir")"
+  git clone https://github.com/coder-xieshijie/dev-skills.git "$dev_skills_dir"
+fi
+
+(
+  set -eu
+  mkdir -p "$HOME/.agents/skills"
+  for skill in review-rules plan-for-agents explain-as-fool; do
+    source_dir="$dev_skills_dir/skills/$skill"
+    entry="$HOME/.agents/skills/$skill"
+    if [ ! -r "$source_dir/SKILL.md" ]; then
+      printf 'Missing or unreadable source: %s\n' "$source_dir/SKILL.md" >&2
+      exit 1
+    fi
+    if [ ! -e "$entry" ] && [ ! -L "$entry" ]; then
+      ln -s "$source_dir" "$entry"
+    fi
+    ls -ld "$entry"
+    if [ ! -r "$entry/SKILL.md" ]; then
+      printf 'Missing or unreadable Skill: %s\n' "$entry/SKILL.md" >&2
+      exit 1
+    fi
+  done
+)
+```
+
+检查命令打印的安装入口：已有安装保持原位，应指向你打算维护的来源。入口缺失或不可读时，先修复安装，再使用受影响的阶段，不要直接覆盖已有链接。其他宿主可以使用各自的 Skill 注册位置，但必须提供实际可读路径。每个执行端都需要能读取所需 Skill 及其引用文件，跨机器执行也不例外。
+
+调度方按[依赖约定](SKILL.md#skill-dependencies)把解析后的绝对路径写入任务提示词，运行时不会自动加载 Skill。依赖缺失时说明具体 Skill，并停止受影响的任务；不会回退到仓库副本，也不会自动安装或更新。需要更新规则时，在已有 dev-skills checkout 中 fetch、检查变更、安全 fast-forward，并运行受影响 Skill 的自检。进行中的 run 保持原来记录的规则版本。
+
+### 3. 将 Skill 接入 Codex
 
 首次安装时，在刚克隆的仓库根目录执行：
 
@@ -139,7 +170,7 @@ ln -s "$PWD" "$HOME/.agents/skills/agent-lord"
 
 **执行权限：** Skill 会以跳过权限确认的模式启动新的 CLI 任务。“只做审查”和外部写入限制仍由任务指令约束，不会让执行进程变成只读。首次派发前，请阅读[执行契约](references/protocol.md#execution-contract)。
 
-### 3. 发起一个任务
+### 4. 发起一个任务
 
 在 Codex Desktop 中打开你要处理的仓库，然后说：
 
@@ -178,7 +209,7 @@ MCode 要求 **0.4.9+**。`--model provider/model[#variant]` 选择模型身份�
 
 - **跨轮次继续。** 每个任务保存一个执行端，同一时刻最多有一个操作在执行。派发命令返回后，持久化控制器继续运行 CLI；checkpoint 收集进展并处理支持的恢复。
 - **恢复监督。** [持久化任务集合](references/supervision.md#persistent-task-sets)保存选中的任务和结果确认状态。[请求收件箱](references/scheduling-updates.md)保存暂时不能执行的指令；登记请求不会启动任务，也不会向运行中的 CLI 插入指令。
-- **保护并行工作。** 仓库管理模式下，并发 CLI 使用隔离 worktree 与独占工作区/分支租约。计划整合另有持久化 claims；handoff 则校验精确的现有工作区。
+- **保护并行工作。** 仓库管理模式下，并发 CLI 使用隔离 worktree 与独占工作区/分支租约。计划整合另有持久化 claims。
 - **区分执行与验收。** `SUCCEEDED`、文件/提交交付已核验、测试结果、审查结论和发布状态是不同事实。缺失证据保持未知。可选的输入文件预检能在启动前发现材料缺失，但不能证明内容正确。
 
 状态默认位于 `~/.codex/state/agent-lord`，可通过 `AGENT_LORD_STATE_DIR` 覆盖；其他执行端配置可用 `AGENT_LORD_PROVIDER_CONFIG` 指定。本地验证平台为 macOS；CI 配置覆盖 Node 24 下的 macOS 与 Linux，不宣称 Windows 已完成端到端验证。

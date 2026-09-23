@@ -4,6 +4,12 @@
 
 Run the commands below from the repository root. The runtime and the read-only Observer are TypeScript packages in one pnpm workspace.
 
+## Shared Skill dependencies
+
+Maintain `review-rules`, `plan-for-agents`, and `explain-as-fool` in [dev-skills](https://github.com/coder-xieshijie/dev-skills). Agent Lord references installed Skills through the [dependency contract](../SKILL.md#skill-dependencies); see the [installation instructions](../README.md#2-install-the-required-skills). Do not copy their bodies into this repository or add a synchronization/export step. Pipeline files own roles, barriers, review disposition audits, and delivery; the dependency Skills own content quality.
+
+For an explicit Skill update, fetch and inspect changes in the existing dev-skills checkout, fast-forward only when local state permits, and run the affected Skill's self-check. Preserve local modifications and existing installation links. Apply updated rules to new runs; active runs retain their recorded input versions. A content hash establishes input identity, not semantic quality or successful provider execution.
+
 ## Runtime structure
 
 The CLI dispatches, supervises, and validates results. The Observer reads execution records and displays them; host link-opening tools only present the page. Agent Lord does not use or depend on Computer Use, CUA, or browser automation, including for fallback verification.

@@ -144,7 +144,7 @@ export class AgentLord {
         "RUN_UNKNOWN",
         "task set does not exist",
       );
-      const nodes = workflowNodes(run.nodes);
+      const nodes = workflowNodes(run.nodes, { stored: true });
       if (
         run.run_id !== runId ||
         !Array.isArray(run.task_ids) ||

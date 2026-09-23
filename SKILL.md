@@ -7,7 +7,25 @@ description: Dispatch and supervise external Codex CLI/App, Claude Code, or MCod
 
 Manage multiple related or independent tasks from one scheduling session, with one logical task per durable endpoint. Treat `node core/dist/cli.js` as the control plane: the model supplies intent and performs Codex App host-tool actions when requested, while the script owns provider defaults, validation, retries, state, recovery, and artifact extraction.
 
-For explanations and reports addressed to the user, read and apply the shared [explain-as-fool rules](references/explain-as-fool.md). Include the rules or an accessible reference in the prompt of any endpoint writing that material, including later turns and handoffs. All pipelines reuse this bundled reference.
+For explanations and reports addressed to the user, read and apply the installed `explain-as-fool` Skill under the [dependency contract](#skill-dependencies). Include its resolved readable path in the prompt of any endpoint writing that material, including later turns. Pipeline-specific review and plan standards are named at their point of use.
+
+## Skill dependencies
+
+Agent Lord depends on three Skills maintained in [dev-skills](https://github.com/coder-xieshijie/dev-skills). Install them before use following the [quick start](README.md#2-install-the-required-skills). Agent Lord owns scheduling and pipeline stages; dev-skills owns the shared content standards. This repository does not maintain copies of those standards.
+
+| Skill             | Apply when                                                           | Default installed entry                     |
+| ----------------- | -------------------------------------------------------------------- | ------------------------------------------- |
+| `review-rules`    | Reviewing findings, proposed fixes, cross-exams, and checker results | `~/.agents/skills/review-rules/SKILL.md`    |
+| `plan-for-agents` | Writing or checking a plan's content and completeness                | `~/.agents/skills/plan-for-agents/SKILL.md` |
+| `explain-as-fool` | Writing explanations and reports for the user                        | `~/.agents/skills/explain-as-fool/SKILL.md` |
+
+Before the affected assignment, the scheduling caller resolves each required Skill from an explicit user-provided location or the host's registered Skill path, otherwise from the default entry above. Resolve symlinks to actual absolute paths and verify that the execution endpoint can read the Skill and any required relative references. A path readable by the caller alone is insufficient; another machine or sandbox needs its own accessible installation or a run-local snapshot retaining the Skill's relative layout.
+
+Read and apply these files as the assignment's content standards. Pass their absolute paths, required reading, and scope in the prompt; naming a Skill alone does not load it. This does not automatically invoke a separate workflow, add roles, or change a Skill's explicit-invocation setting. The runtime delivers the caller-authored prompt; it does not discover or install these dependencies.
+
+Record resolved paths and content hashes in the run's input versions, with the dev-skills commit when available. Keep the same content for later turns and replacement endpoints. If an installed source changes during a run, use the recorded revision or a retained run-local snapshot, including required supporting files; do not silently continue with new rules. Run snapshots are execution inputs, not maintained rule copies in this repository.
+
+If a required Skill or reference is missing or unreadable, name it and the affected assignment and stop that assignment until resolved. Do not substitute a repository copy or automatically install/update Skills during a task. Unaffected work may continue within the existing workflow.
 
 ## Scheduling ownership
 
@@ -104,7 +122,6 @@ For an existing Python installation, drain its running controllers and provider 
 - For `plan-cross-review`, or a request to cross-review and rewrite an existing complete plan, read [references/pipelines/plan-cross-review.md](references/pipelines/plan-cross-review.md). Execute two reviewers → fresh independent checker → fresh MCode writer, then writer self-check and final confirmation. This specific route takes precedence over generic cross-review; it delivers a complete plan, not implementation code.
 - Otherwise, when the request says “交叉 Review”, “交叉审查”, or `cross-review`, also read [references/pipelines/cross-review.md](references/pipelines/cross-review.md) and execute its MCode Opus 5 `xhigh` + Codex `gpt-6-astra` / `high` mutual-review → independent new-session MCode Opus 5 `xhigh` check policy. The phrase authorizes only the nodes documented there; explicit user overrides still win.
 - When the request says `plan-to-implement`, or asks to turn an existing implementation plan into merged code through multiple CLIs, read [references/pipelines/plan-to-implement.md](references/pipelines/plan-to-implement.md) and execute its planner → uncapped parallel module workers → single final integration CLI policy. Accept the plan from the verified planner with `plan-create`, dispatch each `plan-status` ready set in full, and let the runtime hold the dependency, delivery-verification, and integration barriers. The phrase authorizes only the nodes documented there; explicit user overrides still win.
-- When the request says “handoff” or “交接”, or asks to hand the current session's work to a new local CLI that continues a user-named task, read [references/pipelines/handoff.md](references/pipelines/handoff.md) as the complete handoff authoring and execution contract, then use the `handoff` command with a sanitized `handoff-v1` packet. The phrase authorizes exactly one new local CLI continuation endpoint — a sanitized context transfer with new-endpoint lineage, never a session migration; explicit user overrides still win.
 
 ## Deterministic loop
 
@@ -129,7 +146,7 @@ The scheduling caller may replace an agent after repeated failures, a lost or un
 
 - Give the new agent a self-contained, sanitized handoff: objective and acceptance criteria; source/workspace and constraints; completed work and artifact paths; decisions already made; failures and attempted recovery; remaining work; and uncertain execution or delivery. Transfer only inputs permitted for that role, preserving review independence.
 - Confirm the old operation has ended or is fenced before a replacement writes to its workspace. Reconcile uncertain side effects before replaying them; `DELIVERY_UNKNOWN` alone does not authorize duplicate execution.
-- Use a fresh `task_id`, preserving the old binding. Dispatch with `start` and the handoff as its prompt; use the documented `handoff` pipeline when an exact dirty workspace must continue. Record old/new task and endpoint identities, `replacement_for`, reason, and context artifact in the caller's run manifest or task recovery record outside the repository. For a provenance-bound run, register the replacement source with `run-add --nodes-file` and pass `start --run-id`; the operation preserves that declared lineage. Refresh supervision and observer selection after dispatch.
+- Use a fresh `task_id`, preserving the old binding. Dispatch with `start` and the context packet as its prompt. For an authorized replacement that must continue an exact dirty workspace, the [legacy handoff command](references/protocol.md#legacy-handoff-command) retains snapshot validation; it does not select a named pipeline. Record old/new task and endpoint identities, `replacement_for`, reason, and context artifact in the caller's run manifest or task recovery record outside the repository. For a provenance-bound run, register the replacement source with `run-add --nodes-file` and pass `start --run-id`; the operation preserves that declared lineage. Refresh supervision and observer selection after dispatch.
 - Preserve provider, model, effort, source/workspace contract, permissions, task scope, and role unless a change is separately authorized. Recheck artifacts and role independence against the new identity. Replacement occupies the existing workflow node and retains its progress and retry/convergence bounds. Where no recovery bound exists, set a finite attempt bound before dispatch; stop and report unresolved work when it is exhausted.
 - Qualifying Claude `RESULT_INVALID` retries use `retry-invalid` and its shared budget below. Its replacement replays the original authorized prompt; include the context a fresh session needs when authoring that prompt. A new session never resets the logical operation's retry budget.
 

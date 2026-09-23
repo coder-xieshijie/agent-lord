@@ -183,7 +183,7 @@ describe("frozen node provenance", () => {
     }
   });
 
-  it.each(["cross-review", "plan-to-implement", "handoff"])(
+  it.each(["cross-review", "plan-to-implement"])(
     "retains the existing %s pipeline source",
     (reference) => {
       const declared = {
@@ -193,6 +193,59 @@ describe("frozen node provenance", () => {
       expect(workflowNodes({ existing: declared }).existing).toEqual(declared);
     },
   );
+
+  it("rejects new handoff pipeline registrations while existing runs remain readable and resumable", async () => {
+    const sets = new TaskSets(h.lord);
+    const retired = {
+      role: "continuation",
+      source: { kind: "pipeline" as const, reference: "handoff" },
+    };
+    expect(() =>
+      sets.create("new-handoff", ["a"], false, { a: retired }),
+    ).toThrow("unknown pipeline");
+    const nodesFile = path.join(h.base, "retired-nodes.json");
+    writeFileSync(nodesFile, JSON.stringify({ a: retired }));
+    let output = "";
+    expect(
+      await main(
+        [
+          "run-create",
+          "--run-id",
+          "new-handoff",
+          "--task-id",
+          "a",
+          "--nodes-file",
+          nodesFile,
+        ],
+        (s) => {
+          output += s;
+        },
+      ),
+    ).toBe(2);
+    expect(JSON.parse(output).status).toBe("ERROR");
+    expect(h.calls()).toHaveLength(0);
+
+    // Simulate a persisted pre-retirement run; do not create new retired roles.
+    sets.create("old-handoff", ["a"]);
+    const file = path.join(h.lord.root, "task-sets", "old-handoff.json");
+    const record = JSON.parse(readFileSync(file, "utf8"));
+    record.nodes = { a: retired };
+    writeFileSync(file, JSON.stringify(record));
+    expect((sets.status("old-handoff").run as any).tasks[0].node).toEqual(
+      retired,
+    );
+    const result = await h.lord.start("a", "mcode", h.target, "continue", {
+      workflow_run_id: "old-handoff",
+    });
+    const next = await h.lord.turn("a", "finish");
+    for (const operation of [result, next])
+      expect(
+        h.lord.store.operation(operation.operation_id!).workflow,
+      ).toMatchObject({
+        run_id: "old-handoff",
+        node: retired,
+      });
+  });
 
   it("rejects invented pipeline names and cyclic replacement lineage", () => {
     expect(() =>

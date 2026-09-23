@@ -37,7 +37,8 @@ The caller preserves readable, immutable snapshots of:
 - the core `spec.md` (or explicitly designated specification), original complete plan, and confirmed user decisions;
 - all existing review artifacts and proposed solutions supplied for this scope, including rejected and unresolved items;
 - repository identity, complete source head/base SHAs, and the baseline refresh time; for a request using the latest target branch, fetch it before freezing;
-- authorized scope, output locations, write/publication boundaries, role contracts, and the round limits below.
+- authorized scope, output locations, write/publication boundaries, role contracts, and the round limits below;
+- the installed `review-rules`, `plan-for-agents`, and `explain-as-fool` Skills, resolved and frozen under the [dependency contract](../../SKILL.md#skill-dependencies).
 
 Record content hashes and paths in the run manifest outside the target repository. Declare workspace-relative inputs with `--require-input`; verify access to external snapshots separately. Supply complete documents rather than replacing them with summaries. Identify conflicts between spec and user decisions explicitly; seek a current-session decision only where existing instructions do not resolve them. A missing required input or undecided material scope prevents the affected downstream stage.
 
@@ -65,19 +66,9 @@ Completion: a verified successful C result accepts the review audit, with no unr
 
 ## 4. Fresh-session complete rewrite
 
-Only after step 3 passes, start D with a new task/session that participated in none of A, B, or C, including their replacements. Give D the full original plan, spec, pinned source, both initial reviews, cross-exams, complete ledger, C's result, and confirmed user decisions. A caller summary may index these inputs but cannot replace them. Also supply the shared [explanation rules](../explain-as-fool.md).
+Only after step 3 passes, start D with a new task/session that participated in none of A, B, or C, including their replacements. Give D the full original plan, spec, pinned source, both initial reviews, cross-exams, complete ledger, C's result, and confirmed user decisions. A caller summary may index these inputs but cannot replace them. Supply the frozen `plan-for-agents` and `explain-as-fool` Skills as readable references.
 
-D rewrites one complete `plan.md` in the user's language. The document states the final chosen design and all context needed to implement it. Include applicable details of:
-
-- objectives, scope, non-goals, current implementation, and reusable capabilities;
-- architecture, ownership, module/file changes, interfaces, data/schema contracts, and lifecycle transitions;
-- normal paths, failure paths, concurrency, idempotence, recovery, and consistency boundaries;
-- compatibility, migration, rollout/rollback, and accepted limitations;
-- dependency-ordered implementation work, verification scenarios, and acceptance criteria.
-
-Scale these sections to the actual scope; do not invent features or speculative abstractions to fill a template. Preserve still-valid detail from the old plan or replace it with an equally actionable design. Remove obsolete or rejected behavior with a recorded rationale in the separate audit.
-
-The plan is a standalone implementation document. Its meaning must not depend on applying historical amendments, combining old and new plans, or reading the review transcript. Normal implementation steps and source references are useful; historical patch instructions such as “follow the old section, then apply this correction” are not. Record review history outside the plan. There is no target line count, word count, or compression goal; a concise user summary is a separate artifact.
+D reads and applies `plan-for-agents` to rewrite one complete `plan.md` in the user's language. That reference owns the plan's content, executable granularity, revision preservation, and general completeness criteria. This pipeline additionally requires the new text to implement the checked review dispositions and account for the original plan's valid details through the audit below. Keep review history in run artifacts; the plan must be independently usable. No caller-added compression target may replace those standards.
 
 Declare non-empty workspace-relative writer outputs with `--require-file` on each relevant turn; verify externally stored artifacts separately. Keep the original snapshots and completed review artifacts available throughout the run.
 
@@ -85,7 +76,7 @@ Completion: D produces the whole new plan and a draft coverage audit, with no im
 
 ## 5. Writer self-check
 
-Continue D's saved session in a separate turn after the full draft exists. D rereads the actual draft and all original inputs, checking semantics against the frozen source, not just headings or readability. The self-check must reconcile both reviewer inventories with the original documents and catch omissions that neither inventory noticed.
+Continue D's saved session in a separate turn after the full draft exists. D applies the frozen `plan-for-agents` self-check to the actual draft, diff, and original inputs. In addition, reconcile both reviewer inventories with the original documents and checked review dispositions; neither inventory substitutes for reading the original sources.
 
 The audit maps every applicable item to precise locations in the final plan:
 

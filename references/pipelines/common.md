@@ -4,7 +4,9 @@ Load this reference when one request selects multiple Agent Lord endpoints or na
 
 Every step below belongs to the originating [scheduling caller](../../SKILL.md#scheduling-ownership). Assign concrete execution roles to CLI endpoints and author their prompts using [task context preparation](../../SKILL.md#task-context-preparation), retaining the named pipeline's required inputs, reading, and deliverables. Keep the manifest, dispatch, barriers, artifact exchange, supervision, recovery, and convergence in this caller; a pipeline is not a task to hand to another coordinator CLI.
 
-User-facing explanations and reports follow the shared [explain-as-fool rules](../explain-as-fool.md). Pass this bundled reference or its wording to the authoring endpoint; each named pipeline defines its report content and delivery requirements.
+User-facing explanations and reports follow the installed `explain-as-fool` Skill. Resolve dependencies and supply their readable absolute paths under the [Skill dependency contract](../../SKILL.md#skill-dependencies); each named pipeline defines its report content and delivery requirements.
+
+Freeze the required Skills and their supporting references in the run's input versions under that contract. Keep the same rule content for later turns and replacements. These are content standards, not permission to add roles or outputs. Review audits stay in the run artifacts unless repository publication of those records is requested.
 
 ## Resolve the contract before dispatch
 
@@ -29,7 +31,7 @@ For ordinary task sets, persist these role sources with `run-create --nodes-file
 2. Hold each downstream barrier until all required upstream artifacts are terminal and validated.
 3. Exchange sanitized final artifacts. Never pass raw logs, hidden reasoning, or an unverified summary of another endpoint's result.
 4. Prefer `turn` on the saved task for later rounds. When replacement is necessary, transfer the current round and progress under the replacement policy; a fresh session does not restart the graph or its bounds.
-5. Never bypass repository/source validation with a manually prepared worktree plus `--target`. Let the runtime create or reuse the contract workspace. The single documented exception is the exact-target dirty continuation in [handoff.md](handoff.md), where the runtime itself fingerprints the workspace under its write lease.
+5. Never bypass repository/source validation with a manually prepared worktree plus `--target`. Let the runtime create or reuse the contract workspace. An authorized exact-target dirty continuation uses the [legacy handoff command](../protocol.md#legacy-handoff-command), where the runtime itself fingerprints the workspace under its write lease; this is not a named pipeline.
 
 ## Supervise and recover
 
