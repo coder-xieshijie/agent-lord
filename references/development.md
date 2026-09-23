@@ -43,6 +43,8 @@ See the [runtime protocol](protocol.md) for state formats and execution contract
 
 ## Development and validation
 
+See the [scheduling and CLI optimization backlog](scheduling-optimization-backlog.md) for the September 2026 execution audit, open questions, and proposed follow-up work.
+
 ```sh
 # Focused iteration:
 pnpm --filter @agent-lord/core exec vitest run tests/engine.test.ts
