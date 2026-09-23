@@ -7,7 +7,25 @@ description: Dispatch and supervise external Codex CLI/App, Claude Code, or MCod
 
 Manage multiple related or independent tasks from one scheduling session, with one logical task per durable endpoint. Treat `node core/dist/cli.js` as the control plane: the model supplies intent and performs Codex App host-tool actions when requested, while the script owns provider defaults, validation, retries, state, recovery, and artifact extraction.
 
-For explanations and reports addressed to the user, read and apply the shared [explain-as-fool rules](references/explain-as-fool.md). Include the rules or an accessible reference in the prompt of any endpoint writing that material, including later turns. Pipeline-specific review and plan standards are linked at their point of use. These bundled rules come from pinned upstream Skills; read them as reference files, without requiring a separate Skill installation. See [maintenance](references/development.md#bundled-skill-rules).
+For explanations and reports addressed to the user, read and apply the installed `explain-as-fool` Skill under the [dependency contract](#skill-dependencies). Include its resolved readable path in the prompt of any endpoint writing that material, including later turns. Pipeline-specific review and plan standards are named at their point of use.
+
+## Skill dependencies
+
+Agent Lord depends on three Skills maintained in [dev-skills](https://github.com/coder-xieshijie/dev-skills). Install them before use following the [quick start](README.md#2-install-the-required-skills). Agent Lord owns scheduling and pipeline stages; dev-skills owns the shared content standards. This repository does not maintain copies of those standards.
+
+| Skill             | Apply when                                                           | Default installed entry                     |
+| ----------------- | -------------------------------------------------------------------- | ------------------------------------------- |
+| `review-rules`    | Reviewing findings, proposed fixes, cross-exams, and checker results | `~/.agents/skills/review-rules/SKILL.md`    |
+| `plan-for-agents` | Writing or checking a plan's content and completeness                | `~/.agents/skills/plan-for-agents/SKILL.md` |
+| `explain-as-fool` | Writing explanations and reports for the user                        | `~/.agents/skills/explain-as-fool/SKILL.md` |
+
+Before the affected assignment, the scheduling caller resolves each required Skill from an explicit user-provided location or the host's registered Skill path, otherwise from the default entry above. Resolve symlinks to actual absolute paths and verify that the execution endpoint can read the Skill and any required relative references. A path readable by the caller alone is insufficient; another machine or sandbox needs its own accessible installation or a run-local snapshot retaining the Skill's relative layout.
+
+Read and apply these files as the assignment's content standards. Pass their absolute paths, required reading, and scope in the prompt; naming a Skill alone does not load it. This does not automatically invoke a separate workflow, add roles, or change a Skill's explicit-invocation setting. The runtime delivers the caller-authored prompt; it does not discover or install these dependencies.
+
+Record resolved paths and content hashes in the run's input versions, with the dev-skills commit when available. Keep the same content for later turns and replacement endpoints. If an installed source changes during a run, use the recorded revision or a retained run-local snapshot, including required supporting files; do not silently continue with new rules. Run snapshots are execution inputs, not maintained rule copies in this repository.
+
+If a required Skill or reference is missing or unreadable, name it and the affected assignment and stop that assignment until resolved. Do not substitute a repository copy or automatically install/update Skills during a task. Unaffected work may continue within the existing workflow.
 
 ## Scheduling ownership
 

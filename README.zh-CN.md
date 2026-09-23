@@ -51,7 +51,7 @@ Codex App 任务由主会话通过宿主工具派发，Observer 展示其任务�
 
 最终分开报告 **Pipeline Check**（流程与独立审计是否经过核验）和 **Review Result**（是否仍有已确认的问题）。流程有效但发现了 Bug 时，结果可以是 `Pipeline Check: PASS`、`Review Result: FAIL`。
 
-评审角色读取随包提供的 [review-rules](references/review-rules.md)，Plan 作者读取 [plan-for-agents](references/plan-for-agents.md)，面向用户的说明使用 [explain-as-fool](references/explain-as-fool.md)。这些规则从 dev-skills 的固定版本同步，见[来源与维护方式](references/development.md#bundled-skill-rules)；无需额外安装 Skill。
+这些 Pipeline 依赖 [dev-skills](https://github.com/coder-xieshijie/dev-skills) 中单独安装的 `review-rules`、`plan-for-agents` 和 `explain-as-fool`。使用前请先完成[依赖安装](#2-安装依赖-skill)；Agent Lord 不内置这些规则，也不会自动安装。
 
 ### 方案交叉审查：Plan-cross-review
 
@@ -111,7 +111,53 @@ pnpm build
 
 这会同时构建运行时和 Observer。升级旧 Python 安装时，请先按[迁移指南](references/python-to-typescript.md)操作，再切换正在使用的状态目录。
 
-### 2. 将 Skill 接入 Codex
+### 2. 安装依赖 Skill
+
+Agent Lord 和 dev-skills 是独立仓库。Agent Lord 定义流程，dev-skills 维护通用质量标准：
+
+| 必需 Skill        | 用途                        |
+| ----------------- | --------------------------- |
+| `review-rules`    | 评审、交叉质证和独立检查    |
+| `plan-for-agents` | Plan 内容、修订和完整性检查 |
+| `explain-as-fool` | 面向用户的解释和报告        |
+
+完整 clone dev-skills 仓库，再把其中的 Skill 目录软链接到共享安装目录。如果已有 checkout，将 `dev_skills_dir` 改为已有路径，保持唯一维护源。以下命令保留已有文件、目录和软链接，包括失效的软链接。
+
+```sh
+# 已安装时，将此变量改为已有 dev-skills checkout 的路径。
+dev_skills_dir="$HOME/code/github/skills/dev-skills"
+if [ ! -e "$dev_skills_dir" ] && [ ! -L "$dev_skills_dir" ]; then
+  mkdir -p "$(dirname "$dev_skills_dir")"
+  git clone https://github.com/coder-xieshijie/dev-skills.git "$dev_skills_dir"
+fi
+
+(
+  set -eu
+  mkdir -p "$HOME/.agents/skills"
+  for skill in review-rules plan-for-agents explain-as-fool; do
+    source_dir="$dev_skills_dir/skills/$skill"
+    entry="$HOME/.agents/skills/$skill"
+    if [ ! -r "$source_dir/SKILL.md" ]; then
+      printf 'Missing or unreadable source: %s\n' "$source_dir/SKILL.md" >&2
+      exit 1
+    fi
+    if [ ! -e "$entry" ] && [ ! -L "$entry" ]; then
+      ln -s "$source_dir" "$entry"
+    fi
+    ls -ld "$entry"
+    if [ ! -r "$entry/SKILL.md" ]; then
+      printf 'Missing or unreadable Skill: %s\n' "$entry/SKILL.md" >&2
+      exit 1
+    fi
+  done
+)
+```
+
+检查命令打印的安装入口：已有安装保持原位，应指向你打算维护的来源。入口缺失或不可读时，先修复安装，再使用受影响的阶段，不要直接覆盖已有链接。其他宿主可以使用各自的 Skill 注册位置，但必须提供实际可读路径。每个执行端都需要能读取所需 Skill 及其引用文件，跨机器执行也不例外。
+
+调度方按[依赖约定](SKILL.md#skill-dependencies)把解析后的绝对路径写入任务提示词，运行时不会自动加载 Skill。依赖缺失时说明具体 Skill，并停止受影响的任务；不会回退到仓库副本，也不会自动安装或更新。需要更新规则时，在已有 dev-skills checkout 中 fetch、检查变更、安全 fast-forward，并运行受影响 Skill 的自检。进行中的 run 保持原来记录的规则版本。
+
+### 3. 将 Skill 接入 Codex
 
 首次安装时，在刚克隆的仓库根目录执行：
 
@@ -124,7 +170,7 @@ ln -s "$PWD" "$HOME/.agents/skills/agent-lord"
 
 **执行权限：** Skill 会以跳过权限确认的模式启动新的 CLI 任务。“只做审查”和外部写入限制仍由任务指令约束，不会让执行进程变成只读。首次派发前，请阅读[执行契约](references/protocol.md#execution-contract)。
 
-### 3. 发起一个任务
+### 4. 发起一个任务
 
 在 Codex Desktop 中打开你要处理的仓库，然后说：
 

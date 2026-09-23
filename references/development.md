@@ -4,21 +4,11 @@
 
 Run the commands below from the repository root. The runtime and the read-only Observer are TypeScript packages in one pnpm workspace.
 
-## Bundled Skill rules
+## Shared Skill dependencies
 
-The canonical content for [review-rules](review-rules.md), [plan-for-agents](plan-for-agents.md), and [explain-as-fool](explain-as-fool.md) lives in the corresponding Skills in [dev-skills](https://github.com/coder-xieshijie/dev-skills). Agent Lord ships generated body-only copies so execution endpoints can read the standards without installing or invoking other Skills. Pipeline files own roles, barriers, review disposition audits, and delivery; the bundled rules own content quality.
+Maintain `review-rules`, `plan-for-agents`, and `explain-as-fool` in [dev-skills](https://github.com/coder-xieshijie/dev-skills). Agent Lord references installed Skills through the [dependency contract](../SKILL.md#skill-dependencies); see the [installation instructions](../README.md#2-install-the-required-skills). Do not copy their bodies into this repository or add a synchronization/export step. Pipeline files own roles, barriers, review disposition audits, and delivery; the dependency Skills own content quality.
 
-To update, fetch and inspect the desired dev-skills revision, then run:
-
-```sh
-node scripts/sync-skill-rules.mjs --source /path/to/dev-skills --revision <reviewed-commit>
-pnpm docs:check
-pnpm test:skill-rules
-```
-
-The exporter reads committed blobs, never dirty checkout contents. [skill-rules.json](skill-rules.json) records the upstream commit, source hashes, and generated file hashes; source links point to that commit. Edit the canonical Skill and resync instead of editing a generated copy. Review the resulting diff and commit the three references and manifest together. `docs:check` verifies the local copies without network access or an upstream installation. Formatting tools exclude these generated Markdown files to preserve their bytes.
-
-Only review roles read review-rules; only a plan author/checker reads plan-for-agents; user-facing authors read explain-as-fool. Supply each applicable reference with the task and freeze its content hash in the run inputs. Updating the installed package does not authorize changing the rules of an active run; retain its input snapshots. Source/byte checks establish provenance, not semantic quality or successful provider execution.
+For an explicit Skill update, fetch and inspect changes in the existing dev-skills checkout, fast-forward only when local state permits, and run the affected Skill's self-check. Preserve local modifications and existing installation links. Apply updated rules to new runs; active runs retain their recorded input versions. A content hash establishes input identity, not semantic quality or successful provider execution.
 
 ## Runtime structure
 

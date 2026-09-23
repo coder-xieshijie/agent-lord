@@ -23,7 +23,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm format:check
       - run: pnpm docs:check
-      - run: pnpm test:skill-rules
       - run: pnpm build
       - run: pnpm typecheck
       - run: pnpm test

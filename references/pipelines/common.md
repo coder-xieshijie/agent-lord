@@ -4,9 +4,9 @@ Load this reference when one request selects multiple Agent Lord endpoints or na
 
 Every step below belongs to the originating [scheduling caller](../../SKILL.md#scheduling-ownership). Assign concrete execution roles to CLI endpoints and author their prompts using [task context preparation](../../SKILL.md#task-context-preparation), retaining the named pipeline's required inputs, reading, and deliverables. Keep the manifest, dispatch, barriers, artifact exchange, supervision, recovery, and convergence in this caller; a pipeline is not a task to hand to another coordinator CLI.
 
-User-facing explanations and reports follow the shared [explain-as-fool rules](../explain-as-fool.md). Pass this bundled reference or its wording to the authoring endpoint; each named pipeline defines its report content and delivery requirements.
+User-facing explanations and reports follow the installed `explain-as-fool` Skill. Resolve dependencies and supply their readable absolute paths under the [Skill dependency contract](../../SKILL.md#skill-dependencies); each named pipeline defines its report content and delivery requirements.
 
-Use the bundled rule files selected by the pipeline, with the upstream revision recorded in [skill-rules.json](../skill-rules.json). Include their actual content hashes in the run's input versions and ensure every relevant endpoint can read them. Keep that rule version for later turns and replacements; do not refresh it during an active run. These are content standards, not permission to add roles or outputs. Review audits stay in the run artifacts unless repository publication of those records is requested.
+Freeze the required Skills and their supporting references in the run's input versions under that contract. Keep the same rule content for later turns and replacements. These are content standards, not permission to add roles or outputs. Review audits stay in the run artifacts unless repository publication of those records is requested.
 
 ## Resolve the contract before dispatch
 

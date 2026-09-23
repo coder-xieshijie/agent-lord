@@ -38,7 +38,7 @@ The caller preserves readable, immutable snapshots of:
 - all existing review artifacts and proposed solutions supplied for this scope, including rejected and unresolved items;
 - repository identity, complete source head/base SHAs, and the baseline refresh time; for a request using the latest target branch, fetch it before freezing;
 - authorized scope, output locations, write/publication boundaries, role contracts, and the round limits below;
-- the bundled [review-rules](../review-rules.md), [plan-for-agents](../plan-for-agents.md), and [explanation rules](../explain-as-fool.md), under the [common rule-version contract](common.md).
+- the installed `review-rules`, `plan-for-agents`, and `explain-as-fool` Skills, resolved and frozen under the [dependency contract](../../SKILL.md#skill-dependencies).
 
 Record content hashes and paths in the run manifest outside the target repository. Declare workspace-relative inputs with `--require-input`; verify access to external snapshots separately. Supply complete documents rather than replacing them with summaries. Identify conflicts between spec and user decisions explicitly; seek a current-session decision only where existing instructions do not resolve them. A missing required input or undecided material scope prevents the affected downstream stage.
 
@@ -66,7 +66,7 @@ Completion: a verified successful C result accepts the review audit, with no unr
 
 ## 4. Fresh-session complete rewrite
 
-Only after step 3 passes, start D with a new task/session that participated in none of A, B, or C, including their replacements. Give D the full original plan, spec, pinned source, both initial reviews, cross-exams, complete ledger, C's result, and confirmed user decisions. A caller summary may index these inputs but cannot replace them. Supply the frozen [plan-for-agents](../plan-for-agents.md) and [explanation rules](../explain-as-fool.md) as readable references.
+Only after step 3 passes, start D with a new task/session that participated in none of A, B, or C, including their replacements. Give D the full original plan, spec, pinned source, both initial reviews, cross-exams, complete ledger, C's result, and confirmed user decisions. A caller summary may index these inputs but cannot replace them. Supply the frozen `plan-for-agents` and `explain-as-fool` Skills as readable references.
 
 D reads and applies `plan-for-agents` to rewrite one complete `plan.md` in the user's language. That reference owns the plan's content, executable granularity, revision preservation, and general completeness criteria. This pipeline additionally requires the new text to implement the checked review dispositions and account for the original plan's valid details through the audit below. Keep review history in run artifacts; the plan must be independently usable. No caller-added compression target may replace those standards.
 

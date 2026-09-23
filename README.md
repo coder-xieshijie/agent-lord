@@ -51,7 +51,7 @@ Defaults: MCode reviewer and checker use **Opus 5 / xhigh**; Codex uses **GPT-6 
 
 The result separates **Pipeline Check** (whether the workflow and independent audit were verified) from **Review Result** (whether confirmed problems remain). A correctly completed pipeline can find bugs: `Pipeline Check: PASS`, `Review Result: FAIL`.
 
-Review assignments apply the bundled [review-rules](references/review-rules.md). Plan writers apply [plan-for-agents](references/plan-for-agents.md); user-facing authors apply [explain-as-fool](references/explain-as-fool.md). These rules are pinned copies from dev-skills, with [source and update instructions](references/development.md#bundled-skill-rules); no extra Skill installation is needed.
+These pipelines depend on the separately installed `review-rules`, `plan-for-agents`, and `explain-as-fool` Skills from [dev-skills](https://github.com/coder-xieshijie/dev-skills). Complete the [dependency installation](#2-install-the-required-skills) before use; Agent Lord does not bundle or automatically install these rules.
 
 ### Plan-cross-review
 
@@ -111,7 +111,53 @@ pnpm build
 
 This builds both the runtime and the Observer. When upgrading a Python installation, follow the [migration guide](references/python-to-typescript.md) before switching its live state directory.
 
-### 2. Add the Skill to Codex
+### 2. Install the required Skills
+
+Agent Lord and dev-skills are separate repositories. Agent Lord defines the workflow; dev-skills maintains the shared standards:
+
+| Required Skill    | Used for                                        |
+| ----------------- | ----------------------------------------------- |
+| `review-rules`    | Reviews, cross-exams, and independent checking  |
+| `plan-for-agents` | Plan content, revision, and completeness checks |
+| `explain-as-fool` | Explanations and reports addressed to the user  |
+
+Clone the full dev-skills repository and link its Skill directories into the shared installation directory. If you already have a checkout, set `dev_skills_dir` to that location instead of creating another maintenance source. The commands below preserve existing files, directories, and symlinks, including broken links.
+
+```sh
+# Use your existing dev-skills checkout here, if already installed.
+dev_skills_dir="$HOME/code/github/skills/dev-skills"
+if [ ! -e "$dev_skills_dir" ] && [ ! -L "$dev_skills_dir" ]; then
+  mkdir -p "$(dirname "$dev_skills_dir")"
+  git clone https://github.com/coder-xieshijie/dev-skills.git "$dev_skills_dir"
+fi
+
+(
+  set -eu
+  mkdir -p "$HOME/.agents/skills"
+  for skill in review-rules plan-for-agents explain-as-fool; do
+    source_dir="$dev_skills_dir/skills/$skill"
+    entry="$HOME/.agents/skills/$skill"
+    if [ ! -r "$source_dir/SKILL.md" ]; then
+      printf 'Missing or unreadable source: %s\n' "$source_dir/SKILL.md" >&2
+      exit 1
+    fi
+    if [ ! -e "$entry" ] && [ ! -L "$entry" ]; then
+      ln -s "$source_dir" "$entry"
+    fi
+    ls -ld "$entry"
+    if [ ! -r "$entry/SKILL.md" ]; then
+      printf 'Missing or unreadable Skill: %s\n' "$entry/SKILL.md" >&2
+      exit 1
+    fi
+  done
+)
+```
+
+Inspect the printed entries: existing installations stay where they are and must point to the source you intend to maintain. If an entry is missing or unreadable, repair that installation before using the affected stage. Do not replace existing links blindly. Other hosts may register Skills differently; provide their actual readable paths. Every execution endpoint must be able to read the required Skill and its supporting references, including when it runs on another machine.
+
+The scheduling caller passes resolved absolute paths in task prompts under the [dependency contract](SKILL.md#skill-dependencies); the runtime does not automatically load Skills. Missing dependencies stop the affected assignment with the missing Skill identified. There is no bundled fallback or automatic install/update. To update rules, fetch and inspect changes in the existing dev-skills checkout, fast-forward when safe, and run the affected Skill's self-check. Active runs retain their recorded rule version.
+
+### 3. Add the Skill to Codex
 
 For a new installation, run this from the cloned repository root:
 
@@ -124,7 +170,7 @@ If that skill path already exists, use and rebuild its checkout instead of runni
 
 **Execution permissions:** the Skill starts new CLI tasks with permission bypass enabled. Review-only and external-write limits remain task instructions; they do not make the provider process read-only. Read the [execution contract](references/protocol.md#execution-contract) before your first dispatch.
 
-### 3. Run a task
+### 4. Run a task
 
 Open the repository you want to work on in Codex Desktop and ask:
 
