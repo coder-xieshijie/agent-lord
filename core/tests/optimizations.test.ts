@@ -337,7 +337,7 @@ describe("O2: scripted Claude RESULT_INVALID retry", () => {
     expect(h.lord.store.hasTask("task-r3")).toBe(true);
     expect(h.lord.store.hasTask("task")).toBe(true); // original never rebound
     const last = h.calls().at(-1)!;
-    expect(last.args).toContain("claude-opus-5"); // frozen contract model
+    expect(last.args).toContain("claude-opus-5[1m]"); // frozen contract model
     expect(last.prompt).toContain("agent-lord-invalid-retry:fail-1:3");
   });
   it("a dispatched-and-failed retry consumes budget until exhaustion", async () => {
@@ -541,7 +541,7 @@ describe("O2: scripted Claude RESULT_INVALID retry", () => {
     ).rejects.toMatchObject({ code: "RESULT_INVALID" });
     const failed = h.lord.store.operations("original")[0]!;
     expect(failed.expected.retry_plan).toEqual([
-      { model: "claude-opus-5", attempts: 1 },
+      { model: "claude-opus-5[1m]", attempts: 1 },
     ]);
     h.options({});
     const replacement = await retryResultInvalid(

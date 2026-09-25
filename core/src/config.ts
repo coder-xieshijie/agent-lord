@@ -340,7 +340,23 @@ export function resolveExecutionDefaults(
     (string(settings[String(policy.effort_key)])?.trim() ||
       string(config.default_effort));
   if (resolvedEffort) validateEffort(provider, resolvedEffort);
-  return [resolvedModel, resolvedEffort];
+  return [withLongContext(provider, resolvedModel), resolvedEffort];
+}
+/**
+ * Claude Code assumes a 200K window behind a gateway unless the model name
+ * carries a context modifier, so models that support 1M get it by default.
+ */
+export function withLongContext(
+  provider: Provider,
+  model: string | null,
+): string | null {
+  if (provider !== "claude-cli" || !model?.trim()) return model;
+  const policy = object(providerConfig(provider).long_context);
+  const modifier = string(policy.modifier);
+  const [base, window] = modelReference(model);
+  if (!modifier || window !== null || !strings(policy.models).includes(base))
+    return model;
+  return `${model.trim()}${modifier}`;
 }
 export function resolveRetryPlan(
   provider: Provider,
@@ -371,7 +387,10 @@ export function resolveRetryPlan(
         integer(fallback.attempts) &&
         fallback.attempts > 0
       ) {
-        plan.push({ model: fallbackModel, attempts: fallback.attempts });
+        plan.push({
+          model: withLongContext(provider, fallbackModel)!,
+          attempts: fallback.attempts,
+        });
         break;
       }
     }
