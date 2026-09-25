@@ -48,7 +48,28 @@
 
 **第 7 项不加钩子的原因：** MCode 的 `PostToolUse` 钩子来自插件或项目级 agent（`.harness/reins/`）。Agent Lord 派发的 worker 用 `mcode exec` 的默认 agent，仓库里放一个钩子文件不会对它生效；要生效就得安装插件或改 worker 的 agent 配置，改动更大，也会影响本机其他会话。第 1 项修正了指引，下次运行先看 lint 首次执行时间是否提前。
 
-**第 9 项 effort 对照：** 用 storage 模块（不依赖其他模块，验证清单最完整），在同一基线、同一 prompt 下依次运行 Fable 5 `high` 和 `medium`，避免同时运行时每轮等待互相干扰。基线是 `62e88814` 加一个只添加 `.agent-lord/setup.sh` 的本地提交；prompt 按本次修改后的写法，不要求完整阅读，也不带子 agent 模型句。MCode 配置中 Fable 5 原本只允许 `max`、`xhigh`、`high`，实验期间临时加入 `medium`。结果：进行中。
+**第 9 项 effort 对照：** 用 storage 模块（不依赖其他模块，验证清单最完整），在同一基线、同一 prompt 下依次运行 Fable 5 `high` 和 `medium`，避免同时运行时每轮等待互相干扰。基线是 `62e88814` 加一个只添加 `.agent-lord/setup.sh` 的本地提交；prompt 按本次修改后的写法，不要求完整阅读，也不带子 agent 模型句。MCode 配置中 Fable 5 原本只允许 `max`、`xhigh`、`high`，实验期间临时加入 `medium`，结束后已删除。
+
+| 指标                       |                    high |                                   medium |
+| -------------------------- | ----------------------: | ---------------------------------------: |
+| 总耗时                     |               59.9 分钟 |                                33.0 分钟 |
+| 模型响应轮次               |                     123 |                                       96 |
+| 平均每轮                   |                 29.2 秒 |                                  20.6 秒 |
+| 输入 / 输出 token          |      2,297 万 / 12.6 万 |                        1,274 万 / 8.5 万 |
+| 最大上下文                 |                 28.3 万 |                                  18.3 万 |
+| 第一次写代码 / 第一次 lint |     第 13.5 / 47.2 分钟 |                      第 12.2 / 23.5 分钟 |
+| 改动                       | 13 个文件，+2,076 / −65 |                  11 个文件，+1,541 / −67 |
+| 新增测试                   |          4 个文件 69 项 | 2 个文件 15 项，另跑 5 个已有文件 102 项 |
+
+质量对比：
+
+- 两份在独立重跑模块验证清单时都通过（focused 测试、`check:architecture`、`test:architecture`、lint、两个 typecheck）。
+- 盲评（评审者不知道哪份对应哪个 effort）认为 high 更严谨：迁移检查完整的列定义，schema-consistency 能发现漂移，测试覆盖了启动路径。但 high 有一个会让运行时无法启动的缺陷：它把 5 张新表登记进了必需表清单，而布局迁移先于 0041 运行、按 v1 schema 检查这些表，结果失败。已有测试 `packages/local-runtime/test/unit/v2-migration.test.ts` 在 high 上 14 项挂 11 项，在 medium 上全部通过。模块验证清单没有包含这个测试，所以两个 worker 都没跑到。
+- medium 没有确认的缺陷；迁移只核对列类型，漂移检测较弱，负面用例较少。
+- 两份的 `schema-consistency.ts` 都超过 1,200 行上限（high 1,291 行，medium 1,203 行，基线 1,193 行），`pnpm check:local-runtime-layout` 都失败。两个 worker 都没有运行真正的 layout 检查，因为实验基线里的 AGENTS.md 仍是第 1 项修正前的错误指引。这和 effort 无关。
+- 两轮都没有自行安装依赖，也没有出现 `tsc` 找不到的情况；第 4 项的 setup 在真实派发中执行了 16.5 秒。
+
+结论：这一组样本里，medium 用时少 45%，输入 token 少 45%。质量互有长短：high 更严谨，但带着一个模块验证没发现的启动缺陷；medium 没有确认的缺陷，但检查和测试更少。每档只有一个样本，两轮在不同时段依次运行，不能据此改默认 effort；值得在更多模块上重复对比。
 
 **第 9 项取消 TDD 试点的原因：** TDD 是在规定开发方法；业务仓库 AGENTS.md 明确不强制测试先行；这次的后期返工主要来自 lint、layout 和缺依赖，TDD 解决不了。
 
