@@ -1,10 +1,11 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import {
   type Contract,
   type Data,
+  type Operation,
   type ParallelPlan,
   type Source,
   type StartOptions,
@@ -16,9 +17,10 @@ import {
   strings,
 } from "./contracts.js";
 import { type Control } from "./config.js";
-import { AgentLordError, usageError } from "./errors.js";
+import { AgentLordError, errorMessage, usageError } from "./errors.js";
 import { sha256 } from "./json.js";
 import { resolvePath } from "./paths.js";
+import { terminateProcess } from "./process.js";
 import {
   type Lease,
   StateStore,
@@ -61,6 +63,69 @@ export function git(
     stdout: result.stdout ?? "",
     stderr: result.stderr ?? "",
   };
+}
+export const SETUP_SCRIPT = ".agent-lord/setup.sh";
+const SETUP_TIMEOUT_MS = 30 * 60 * 1000;
+/**
+ * Runs the repository's own setup script before a new endpoint starts, so a
+ * fresh worktree has the untracked dependencies its checks need. The script
+ * may create ignored files only; tracked and untracked Git status must match.
+ */
+export async function runWorkspaceSetup(
+  root: string,
+  op: Operation,
+): Promise<{ log_path: string; exit_code: number } | null> {
+  if (op.read_only || !existsSync(path.join(op.target, SETUP_SCRIPT)))
+    return null;
+  const status = () =>
+    git(op.target, ["status", "--porcelain", "--untracked-files=normal"], false)
+      .stdout;
+  const before = status();
+  const log_path = path.join(root, "logs", `${op.operation_id}.setup.log`);
+  const fd = openSync(log_path, "w", 0o600);
+  let exit_code: number;
+  let timed_out = false;
+  try {
+    exit_code = await new Promise<number>((resolve, reject) => {
+      const child = spawn("bash", [SETUP_SCRIPT], {
+        cwd: op.target,
+        stdio: ["ignore", fd, fd],
+        detached: process.platform !== "win32",
+        windowsHide: true,
+      });
+      const timer = setTimeout(() => {
+        timed_out = true;
+        void terminateProcess(child.pid, child.pid, 5).catch(() => undefined);
+      }, SETUP_TIMEOUT_MS);
+      child.once("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+      child.once("exit", (code) => {
+        clearTimeout(timer);
+        resolve(code ?? 1);
+      });
+    });
+  } catch (error) {
+    throw new AgentLordError("SETUP_FAILED", "cannot run the setup script", {
+      details: { script: SETUP_SCRIPT, log_path, error: errorMessage(error) },
+    });
+  } finally {
+    closeSync(fd);
+  }
+  if (exit_code !== 0)
+    throw new AgentLordError(
+      "SETUP_FAILED",
+      timed_out ? "the setup script timed out" : "the setup script failed",
+      { details: { script: SETUP_SCRIPT, log_path, exit_code, timed_out } },
+    );
+  if (status() !== before)
+    throw new AgentLordError(
+      "SETUP_FAILED",
+      "the setup script changed files Git tracks or reports as untracked",
+      { details: { script: SETUP_SCRIPT, log_path } },
+    );
+  return { log_path, exit_code };
 }
 export function validateSource(head?: string, base?: string): Source {
   const source: Source = {};

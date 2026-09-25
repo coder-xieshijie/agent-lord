@@ -182,6 +182,12 @@ The policies below describe runtime capabilities; `shared-readonly` remains a lo
 
 The resolved worktree path becomes the operation and durable task target. A dirty worktree, conflicting branch head, unavailable fixed commit, ambiguous binding, or occupied destination fails with `SOURCE_MISMATCH` or `SOURCE_UNVERIFIED`. Existing `--target` starts keep their original source behavior and receive an exact-target workspace contract. Preparation runs under a per-`(repository, checkout branch)` lease and lists worktrees once; brief lease contention uses the configured bounded lock retry budget before returning retryable `STATE_BUSY`. The final proof is the target's own clean status and head, not a repeated listing.
 
+#### Repository setup script
+
+When a writable `start` runs in a checkout containing `.agent-lord/setup.sh`, the execution controller runs `bash .agent-lord/setup.sh` from the checkout root before launching the provider. The repository owns the script, for example installing dependencies into ignored directories; Agent Lord needs no flag or caller instruction. Output goes to `logs/<operation_id>.setup.log` under the state directory, and success records a `workspace-setup` task event. Later turns and same-session recovery do not run it again; a retried or replacement `start` does, so the script must be safe to repeat.
+
+A nonzero exit, a 30-minute timeout, or any change to what `git status --porcelain --untracked-files=normal` reports fails the operation with `SETUP_FAILED` before the provider launches. Fix the cause shown in the log and repeat the same `start`.
+
 #### Source verification across turns
 
 `start` freezes `contract.source.head_sha`, which never changes. What a later `turn` must prove depends on the contract:
@@ -249,6 +255,7 @@ Missing, inconsistent, premature, or target-branch parallel metadata returns `PA
 | `REQUEST_UNKNOWN`                                    | No request is registered under that `request_id`                                                          | Correct the identity; do not guess                                                                                                  |
 | `REQUEST_CONFLICT`                                   | The same `request_id` was registered with a different intent, or a dispatched request cannot be cancelled | Use a new `request_id`, or accept the existing operation                                                                            |
 | `REQUEST_CANCELLED`                                  | The request was cancelled before it was dispatched                                                        | Register a new request if the work is still wanted                                                                                  |
+| `SETUP_FAILED`                                       | The repository setup script failed, timed out, or changed files Git reports                               | Read the setup log, fix the cause, and repeat the same `start`; the provider was not launched                                       |
 | `STATE_BUSY` / `STATE_CORRUPT`                       | Concurrent writer or invalid durable state                                                                | Retry the same command or repair state explicitly                                                                                   |
 
 ## Safe recovery line
