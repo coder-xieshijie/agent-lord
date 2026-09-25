@@ -26,31 +26,36 @@ beforeEach(() => {
 afterEach(() => h.cleanup());
 describe("frozen configuration", () => {
   it.each([
-    [{}, undefined, undefined, ["claude-fable-5", "xhigh"]],
+    [{}, undefined, undefined, ["claude-fable-5[1m]", "xhigh"]],
     [
       { model: "fable", effortLevel: "xhigh" },
       undefined,
       undefined,
-      ["fable", "xhigh"],
+      ["fable[1m]", "xhigh"],
     ],
     [
       { model: "fable", effortLevel: "xhigh" },
       "opus",
       undefined,
-      ["opus", "xhigh"],
+      ["opus[1m]", "xhigh"],
     ],
     [
       { model: "fable", effortLevel: "xhigh" },
       undefined,
       "low",
-      ["fable", "low"],
+      ["fable[1m]", "low"],
     ],
-    [{ model: "fable", effortLevel: "xhigh" }, "opus", "max", ["opus", "max"]],
+    [
+      { model: "fable", effortLevel: "xhigh" },
+      "opus",
+      "max",
+      ["opus[1m]", "max"],
+    ],
     [
       { model: "   ", effortLevel: "   " },
       undefined,
       undefined,
-      ["claude-fable-5", "xhigh"],
+      ["claude-fable-5[1m]", "xhigh"],
     ],
   ] as const)(
     "resolves model and effort independently: %j",
@@ -66,10 +71,10 @@ describe("frozen configuration", () => {
     },
   );
   it.each([
-    [undefined, undefined, ["claude-fable-5", "xhigh"]],
-    ["opus", undefined, ["opus", "xhigh"]],
-    [undefined, "low", ["claude-fable-5", "low"]],
-    ["opus", "max", ["opus", "max"]],
+    [undefined, undefined, ["claude-fable-5[1m]", "xhigh"]],
+    ["opus", undefined, ["opus[1m]", "xhigh"]],
+    [undefined, "low", ["claude-fable-5[1m]", "low"]],
+    ["opus", "max", ["opus[1m]", "max"]],
   ] as const)(
     "provider defaults override user settings while explicit fields win: %j %j",
     (model, effort, expected) => {
@@ -151,7 +156,7 @@ describe("frozen configuration", () => {
     config.providers["claude-cli"].permissions.default = "read_only";
     writeFileSync(file, JSON.stringify(config));
     await h.lord.turn("task", "next");
-    expect(h.calls()[1].args).toContain("fable");
+    expect(h.calls()[1].args).toContain("fable[1m]");
     expect(h.calls()[1].args).toContain("high");
     expect(h.calls()[1].args).toContain("--dangerously-skip-permissions");
   });
@@ -177,10 +182,31 @@ describe("frozen configuration", () => {
   it("retry override changes only the primary Claude stage", () => {
     expect(resolveRetryPlan("claude-cli", "fable", 2)).toEqual([
       { model: "fable", attempts: 2 },
-      { model: "claude-opus-5", attempts: 5 },
+      { model: "claude-opus-5[1m]", attempts: 5 },
     ]);
     expect(() => resolveRetryPlan("codex-cli", "gpt-5.6-sol", 2)).toThrow();
     expect(() => resolveRetryPlan("claude-cli", "opus", 0)).toThrow();
+  });
+  it.each([
+    ["claude-opus-5-5", "claude-opus-5-5[1m]"],
+    ["claude-opus-5[1m]", "claude-opus-5[1m]"],
+    ["claude-opus-5[400k]", "claude-opus-5[400k]"],
+    ["claude-haiku-4-5", "claude-haiku-4-5"],
+    ["claude-unlisted-9", "claude-unlisted-9"],
+  ])(
+    "Claude long context applies only to 1M models without a window: %s",
+    (model, expected) => {
+      expect(resolveExecutionDefaults("claude-cli", model, "high")).toEqual([
+        expected,
+        "high",
+      ]);
+    },
+  );
+  it("Codex CLI keeps its default context window", async () => {
+    await h.lord.start("task", "codex", h.target, "work");
+    expect(JSON.stringify(h.calls()[0].args)).not.toContain(
+      "model_context_window",
+    );
   });
   it("legacy configurations receive supervision defaults and checkpoint keeps 120 seconds", () => {
     const file = path.join(h.base, "providers.json");

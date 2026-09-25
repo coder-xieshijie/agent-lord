@@ -183,10 +183,10 @@ describe("local CLI lifecycle", () => {
     });
     expect(object(result.observed)).toMatchObject({
       attempts: 3,
-      requested_model: "fable",
+      requested_model: "fable[1m]",
       fallback_used: true,
     });
-    expect(h.lord.store.task("task").contract.model).toBe("fable");
+    expect(h.lord.store.task("task").contract.model).toBe("fable[1m]");
   });
   it("Claude exhausts its retry budget without publishing a handle", async () => {
     h.options({ failAll: true });
