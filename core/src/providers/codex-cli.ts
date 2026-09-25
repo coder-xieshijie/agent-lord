@@ -4,9 +4,14 @@ import {
   type Data,
   type Operation,
   type ProviderResult,
+  integer,
   string,
 } from "../contracts.js";
-import { permissionModePolicy, providerBinary } from "../config.js";
+import {
+  permissionModePolicy,
+  providerBinary,
+  providerConfig,
+} from "../config.js";
 import { AgentLordError } from "../errors.js";
 import { jsonLines } from "../artifacts.js";
 import { StateStore } from "../state.js";
@@ -156,6 +161,9 @@ export async function runCodex(
       "-c",
       `model_reasoning_effort=${JSON.stringify(op.expected.effort)}`,
     );
+  const contextWindow = providerConfig("codex-cli").context_window;
+  if (integer(contextWindow) && contextWindow > 0)
+    command.push("-c", `model_context_window=${contextWindow}`);
   command.push(
     ...permissionModePolicy("codex-cli", op.expected.permission_mode).arguments,
     "--output-last-message",

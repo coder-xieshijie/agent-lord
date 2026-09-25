@@ -25,22 +25,24 @@
 - **layout 检查指引写错：** 包级 AGENTS.md 指向检查器自己的单测，按文档执行不会扫描当前代码。turn 到第 164 分钟才发现，随后拆分文件。
 - **新 worktree 没有依赖：** 五个 worker 都在第 43～105 分钟第一次验证时才发现 `tsc/tsgo: command not found`。
 - **assembly 收尾多花约 30 分钟：** `gen:thrift` 附带改动了 owned_paths 之外的文件；修正时删掉它导致编译失败，续跑被 `SOURCE_MISMATCH` 拒绝，最后 `plan-reset` 再派替补会话。
+- **Claude Code 子进程只有 200K 上下文：** 2026-09-25 的一次 plan-cross-review 运行中，Agent Lord 传的是 `claude-opus-5-5`。请求走网关时，Claude Code 无法确认网关支持 1M，没有 `[1m]` 后缀就按 200K 处理，结果压缩 12 次，约 29 分钟，写终稿那一轮压缩 9 次。实测通过同一网关时，`claude-fable-5[1m]`、`claude-opus-5[1m]`、`claude-opus-5-5[1m]` 的 `contextWindow` 都是 1,000,000，不带后缀的 `claude-opus-5` 是 200,000。Codex CLI 的 Astra 默认窗口是 272K（有效 258,400），上限 872K。
 - **子 agent 模型说明有副作用：** Claude Code、Codex、MCode 的子 agent 默认都继承主 agent 的模型和 effort。派发说明要求写明模型后，MCode worker 调用子 agent 时每次都显式传模型，这会重置继承来的 effort；其中一次传了当前模型不支持的 effort，子任务失败。
 
 ## 修改与状态
 
-| #   | 事项                  | 结果                                                                                                         | 位置                                                                                       |
-| --- | --------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
-| 1   | layout 检查指引       | 已改为 `pnpm check:local-runtime-layout`，与 CI 一致                                                         | Agent-Archon [!7451](https://gitlab.xaminim.com/matrix/agent-archon/-/merge_requests/7451) |
-| 2   | 生成器输出越界        | planner 规则：模块的 `owned_paths` 包含它自己的命令会改写的文件                                              | [plan-to-implement](pipelines/plan-to-implement.md#planner)                                |
-| 3   | 子 agent 模型说明     | 删除固定约束中的模型句，以及"写明 endpoint 模型"的要求；只转达用户指定的模型或 effort                        | [SKILL.md](../SKILL.md#scheduling-ownership)                                               |
-| 4   | 新 worktree 依赖      | 运行时在新 endpoint 启动前执行仓库自带的 `.agent-lord/setup.sh`；Agent-Archon 提供只做 `pnpm install` 的脚本 | [protocol](protocol.md#repository-setup-script)、Agent-Archon !7451                        |
-| 5   | "编辑前完整读完"      | 只有用户或命名流程要求时才要求完整阅读；其余只写明文档用途，由 endpoint 按需读                               | [SKILL.md](../SKILL.md#task-context-preparation)                                           |
-| 6   | 网关并发实验          | 未做。另有一条旁证：MCode 9 月 23 日的模型自检记录了网关返回的 `HTTP 429: scheduler capacity exhausted`      | —                                                                                          |
-| 7   | lint 时机             | 不改 prompt，不加钩子。原因见下                                                                              | —                                                                                          |
-| 8   | 模块依赖              | planner 规则：只有离开另一模块已交付的代码就无法构建或验证时，才声明 `depends_on`                            | [plan-to-implement](pipelines/plan-to-implement.md#planner)                                |
-| 9   | effort 对照；TDD 试点 | effort 对照见下；TDD 试点取消                                                                                | —                                                                                          |
-| 10  | `Run only ...` 限制   | 维护中的来源里没有这句，是调度方当时自己写的；SKILL.md 已规定验证方式由 CLI 决定，不需要再改                 | —                                                                                          |
+| #   | 事项                  | 结果                                                                                                                                                                                                             | 位置                                                                                              |
+| --- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| 1   | layout 检查指引       | 已改为 `pnpm check:local-runtime-layout`，与 CI 一致                                                                                                                                                             | Agent-Archon [!7451](https://gitlab.xaminim.com/matrix/agent-archon/-/merge_requests/7451)        |
+| 2   | 生成器输出越界        | planner 规则：模块的 `owned_paths` 包含它自己的命令会改写的文件                                                                                                                                                  | [plan-to-implement](pipelines/plan-to-implement.md#planner)                                       |
+| 3   | 子 agent 模型说明     | 删除固定约束中的模型句，以及"写明 endpoint 模型"的要求；只转达用户指定的模型或 effort                                                                                                                            | [SKILL.md](../SKILL.md#scheduling-ownership)                                                      |
+| 4   | 新 worktree 依赖      | 运行时在新 endpoint 启动前执行仓库自带的 `.agent-lord/setup.sh`；Agent-Archon 提供只做 `pnpm install` 的脚本                                                                                                     | [protocol](protocol.md#repository-setup-script)、Agent-Archon !7451                               |
+| 5   | "编辑前完整读完"      | 只有用户或命名流程要求时才要求完整阅读；其余只写明文档用途，由 endpoint 按需读                                                                                                                                   | [SKILL.md](../SKILL.md#task-context-preparation)                                                  |
+| 6   | 网关并发实验          | 未做。另有一条旁证：MCode 9 月 23 日的模型自检记录了网关返回的 `HTTP 429: scheduler capacity exhausted`                                                                                                          | —                                                                                                 |
+| 7   | lint 时机             | 不改 prompt，不加钩子。原因见下                                                                                                                                                                                  | —                                                                                                 |
+| 8   | 模块依赖              | planner 规则：只有离开另一模块已交付的代码就无法构建或验证时，才声明 `depends_on`                                                                                                                                | [plan-to-implement](pipelines/plan-to-implement.md#planner)                                       |
+| 9   | effort 对照；TDD 试点 | effort 对照见下；TDD 试点取消                                                                                                                                                                                    | —                                                                                                 |
+| 10  | `Run only ...` 限制   | 维护中的来源里没有这句，是调度方当时自己写的；SKILL.md 已规定验证方式由 CLI 决定，不需要再改                                                                                                                     | —                                                                                                 |
+| 11  | 默认上下文窗口        | Claude Code：配置里列出的 1M 型号没带窗口时自动补 `[1m]`，Fable 兜底同样适用；Codex CLI：每次传 `model_context_window=1000000`，Astra 实际得到 872K（有效 828,400）；MCode：窗口取自 MCode 配置，默认模型已是 1M | [SKILL.md](../SKILL.md#provider-routing-and-defaults)、[protocol](protocol.md#execution-contract) |
 
 **第 4 项的行为：** 只在可写的 `start` 时执行，`turn` 和同会话续跑不再执行；输出写入 `logs/<operation_id>.setup.log`。脚本非零退出、超过 30 分钟，或改变 `git status --porcelain --untracked-files=normal` 的输出时，操作以 `SETUP_FAILED` 结束，不启动 provider；修好后重复同一个 `start` 即可。在 Agent-Archon 的全新 worktree 中，脚本首次执行 19 秒，再次执行 2 秒。
 
@@ -55,7 +57,7 @@
 - **合并 CLI 以减少重复读取：** 见上面的 token 数据。
 - **要求 worker 批量读取：** MCode 系统提示词已写明独立工具调用可以放在同一轮。Anthropic 文档记录了 Fable 5.1 在编码循环中可能每轮只发一个工具，给出的修法在 harness 层（每轮附一句提示），属于 MCode 本身的改动，不在 Agent Lord 范围内。
 - **在派发 prompt 里规定 lint 时机、检查清单或阅读顺序。**
-- **上下文压缩：** 样本运行时 Fable 5 的上下文窗口配置为 200k，之后改为 1M。
+- **单独调整压缩：** 压缩次数多的根源是窗口只有 200K，见第 11 项。
 
 ## 下一次运行要看的数据
 
