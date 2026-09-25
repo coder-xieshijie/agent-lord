@@ -1,113 +1,66 @@
-# 调度与 CLI 执行优化待办
+# 调度与 CLI 执行优化
 
-记录日期：2026-09-23。状态：问题记录与候选方案，本文不改变运行时或派发规则。
+记录日期：2026-09-23；更新：2026-09-25。本文记录一次 plan-to-implement 运行的耗时审计、据此做的修改，以及还没有结论的事项。
 
-## 先做什么
+## 原则：做减法
 
-1. 优先删除派发 prompt 中多余的限制，并修正已发现的检查命令错误。
-2. 为新 worktree 提供轻量的项目初始化入口，补齐模型请求阶段的观测。
-3. 根据数据验证依赖拆分、批量读取与上下文控制；effort 调整单独做对照实验。
+给 worker 的限制越少越好。优先删除或纠正已经不需要的指令；需要每次都发生的动作交给运行时机制，不写成 prompt 规则；不给 worker 规定开发方法。
 
-总体取向是少加规则、复用现有能力。不要把一次执行的经验扩展成所有 worker 必须遵循的长清单，也不要把补一个 setup 脚本当作数小时耗时的主要解法。
+这与两家模型厂商当前的建议一致：
 
-## 证据范围与已确认结论
+- Anthropic 的 [Prompting Claude Fable 5](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5) 建议在模型能力提升后重新评估哪些指令和护栏还有必要，并指出为旧模型写的 prompt 和 skill 往往规定得太细，可能降低输出质量。
+- OpenAI 的 [Rethinking skills and prompts for GPT-6 Astra](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra) 以"每次编辑前先读 architecture.md、database.md、deployment.md"作为反面例子，说明按场景指向文档即可，并提醒测试类指令可能导致不必要的测试。
+- [Claude Code best practices](https://code.claude.com/docs/en/best-practices) 建议：模型不靠这条指令也能做对，就删掉它或改成钩子。
 
-样本为 `goal-v2-7252-62e88814` 的 plan-to-implement 执行，使用 MCode Fable 5 / high。业务仓库固定基线为 `62e88814f55f01aec259607e3e6141b5f9fe74e3`。调度统计截止于 **2026-09-23 10:54:43（Asia/Shanghai）**；当时 integrator 的续跑尚未结束，以下不是最终完成统计。
+## 样本与主要发现
 
-- 共 11 个独立 CLI 会话、15 次 CLI 调用（11 次 start、4 次 turn）。累计调用时间 17:53:28，调度跨度 14:02:44；峰值并发 4，平均并发约 1.27。
-- Agent Lord 没有 worker 数量上限。[ready set 实现](../core/src/plan.ts)返回所有依赖已交付的模块；[派发流程](pipelines/plan-to-implement.md)要求派发整个 ready set，工作区租约仍然约束实际派发。
-- 本次主要串行链为 `core → turn → domain → assembly → consumer → integrator`。按已观测阶段时长推算，保持原 DAG 的关键路径约 13:22:30；仅消除交接空档的潜在空间约 40 分钟。这是该样本的估算，不是提高并发后的收益承诺。
-- 五个重点 CLI 共还原 1,121 个主流程已保存响应、1,330 次工具调用。大量串行模型往返与上下文压缩，比依赖安装和本地命令执行更能解释总耗时。
+样本为 `goal-v2-7252-62e88814` 的 plan-to-implement 运行：MCode Fable 5 / high，业务仓库基线 `62e88814f55f01aec259607e3e6141b5f9fe74e3`，8 个模块。统计截止于 2026-09-23 10:54:43（Asia/Shanghai），当时 integrator 仍在修 CI。
 
-| 模块    | 调用累计耗时 | 已保存主流程响应 | 每轮平均响应阶段 | 响应阶段累计 | 压缩次数 / 观测窗口累计 |
-| ------- | -----------: | ---------------: | ---------------: | -----------: | ----------------------: |
-| storage |      1:42:40 |              145 |          39.3 秒 |    94.9 分钟 |            3 / 5.8 分钟 |
-| core    |      1:28:08 |               86 |          49.8 秒 |    71.4 分钟 |            2 / 4.2 分钟 |
-| legacy  |      2:42:01 |              242 |          37.9 秒 |   153.0 分钟 |            4 / 8.4 分钟 |
-| turn    |      3:12:40 |              386 |          26.9 秒 |   173.2 分钟 |           7 / 15.5 分钟 |
-| domain  |      1:45:17 |              262 |          21.1 秒 |    92.3 分钟 |            5 / 8.2 分钟 |
+- **CLI 数量：** 11 个会话、15 次执行，累计 17:53:28，实际历时 14:02:44。串行链为 `core → turn → domain → assembly → consumer → integrator`。
+- **时间主要花在模型往返上：** 五个重点 worker 共 1,121 轮模型响应。工具执行时间只占各自总时间的 3%～21%；79%～91% 的轮次只发出一个工具调用。
+- **每轮等待与同时运行的 worker 数有关：** 只统计输出不超过 500 token 的轮次，首个可见事件前的等待中位数在 1 个 worker 运行时约 10 秒，2～3 个 worker 同时运行时约 26 秒。同一个 turn 会话内，legacy 仍在运行时中位数 25.2 秒，legacy 结束后 12.5 秒。所有 worker 共用同一个网关和 key。这一条来自运行记录的统计，尚未用实验证实。
+- **重复读取不是 token 的主要来源：** 五个 worker 读过的 147 个文件中，只有 5 个被两个以上 worker 读过，重复部分按整文件计约 12 万 token，占 1.149 亿输入 token 的约 0.1%；输入中 88.7% 命中缓存。合并 CLI 会让每轮重发的上下文变大，不会更省。
+- **派发 prompt 要求"编辑前完整读完"**根目录与包级 AGENTS.md、91KB 的 plan.md、spec.md、ARCHITECTURE.md 和整个计划文件。turn 到第 62 分钟才第一次写代码。
+- **lint 滞后：** storage、turn、domain 第一次真正运行 lint 分别在第 82、176、89 分钟，接近各自结束，之后各返工 15～20 分钟。storage 和 domain 的验证清单里写了 lint，照样拖到最后。
+- **layout 检查指引写错：** 包级 AGENTS.md 指向检查器自己的单测，按文档执行不会扫描当前代码。turn 到第 164 分钟才发现，随后拆分文件。
+- **新 worktree 没有依赖：** 五个 worker 都在第 43～105 分钟第一次验证时才发现 `tsc/tsgo: command not found`。
+- **assembly 收尾多花约 30 分钟：** `gen:thrift` 附带改动了 owned_paths 之外的文件；修正时删掉它导致编译失败，续跑被 `SOURCE_MISMATCH` 拒绝，最后 `plan-reset` 再派替补会话。
+- **子 agent 模型说明有副作用：** Claude Code、Codex、MCode 的子 agent 默认都继承主 agent 的模型和 effort。派发说明要求写明模型后，MCode worker 调用子 agent 时每次都显式传模型，这会重置继承来的 effort；其中一次传了当前模型不支持的 effort，子任务失败。
 
-响应阶段以保存的 assistant 时间戳到首个关联工具执行或最终回答完成为边界，包括请求准备、供应商等待、生成和少量本地交接；不能当作纯推理或精确 HTTP 耗时。压缩使用包围压缩的观测窗口，也不是纯 API 时间。响应数不包含压缩请求、未保存的失败响应或未知的 SDK 重试；core 另有首轮流失败前约 11 分 39 秒的静默区间。各列不要求相加等于总耗时。
+## 修改与状态
 
-## 待办清单
+| #   | 事项                  | 结果                                                                                                         | 位置                                                                                       |
+| --- | --------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| 1   | layout 检查指引       | 已改为 `pnpm check:local-runtime-layout`，与 CI 一致                                                         | Agent-Archon [!7451](https://gitlab.xaminim.com/matrix/agent-archon/-/merge_requests/7451) |
+| 2   | 生成器输出越界        | planner 规则：模块的 `owned_paths` 包含它自己的命令会改写的文件                                              | [plan-to-implement](pipelines/plan-to-implement.md#planner)                                |
+| 3   | 子 agent 模型说明     | 删除固定约束中的模型句，以及"写明 endpoint 模型"的要求；只转达用户指定的模型或 effort                        | [SKILL.md](../SKILL.md#scheduling-ownership)                                               |
+| 4   | 新 worktree 依赖      | 运行时在新 endpoint 启动前执行仓库自带的 `.agent-lord/setup.sh`；Agent-Archon 提供只做 `pnpm install` 的脚本 | [protocol](protocol.md#repository-setup-script)、Agent-Archon !7451                        |
+| 5   | "编辑前完整读完"      | 只有用户或命名流程要求时才要求完整阅读；其余只写明文档用途，由 endpoint 按需读                               | [SKILL.md](../SKILL.md#task-context-preparation)                                           |
+| 6   | 网关并发实验          | 未做。另有一条旁证：MCode 9 月 23 日的模型自检记录了网关返回的 `HTTP 429: scheduler capacity exhausted`      | —                                                                                          |
+| 7   | lint 时机             | 不改 prompt，不加钩子。原因见下                                                                              | —                                                                                          |
+| 8   | 模块依赖              | planner 规则：只有离开另一模块已交付的代码就无法构建或验证时，才声明 `depends_on`                            | [plan-to-implement](pipelines/plan-to-implement.md#planner)                                |
+| 9   | effort 对照；TDD 试点 | effort 对照见下；TDD 试点取消                                                                                | —                                                                                          |
+| 10  | `Run only ...` 限制   | 维护中的来源里没有这句，是调度方当时自己写的；SKILL.md 已规定验证方式由 CLI 决定，不需要再改                 | —                                                                                          |
 
-所有条目均待落实；P0/P1/P2 表示建议处理顺序，不代表生产故障等级。
+**第 4 项的行为：** 只在可写的 `start` 时执行，`turn` 和同会话续跑不再执行；输出写入 `logs/<operation_id>.setup.log`。脚本非零退出、超过 30 分钟，或改变 `git status --porcelain --untracked-files=normal` 的输出时，操作以 `SETUP_FAILED` 结束，不启动 provider；修好后重复同一个 `start` 即可。在 Agent-Archon 的全新 worktree 中，脚本首次执行 19 秒，再次执行 2 秒。
 
-### P0-1：清理派发 prompt 的额外验证限制
+**第 7 项不加钩子的原因：** MCode 的 `PostToolUse` 钩子来自插件或项目级 agent（`.harness/reins/`）。Agent Lord 派发的 worker 用 `mcode exec` 的默认 agent，仓库里放一个钩子文件不会对它生效；要生效就得安装插件或改 worker 的 agent 配置，改动更大，也会影响本机其他会话。第 1 项修正了指引，下次运行先看 lint 首次执行时间是否提前。
 
-- [ ] 追溯历史 prompt 的生成来源，确认是调用方临时拼接、模板还是 Skill；只修改实际维护源。
-- [ ] 优先删除额外的 `Run only ...` 限制，保留任务职责、修改范围、验收目标与交付边界。
-- [ ] 检查后续实际派发文本，确认验证列表没有被解释成禁止执行其他必要检查的上限。
+**第 9 项 effort 对照：** 用 storage 模块（不依赖其他模块，验证清单最完整），在同一基线、同一 prompt 下依次运行 Fable 5 `high` 和 `medium`，避免同时运行时每轮等待互相干扰。基线是 `62e88814` 加一个只添加 `.agent-lord/setup.sh` 的本地提交；prompt 按本次修改后的写法，不要求完整阅读，也不带子 agent 模型句。MCode 配置中 Fable 5 原本只允许 `max`、`xhigh`、`high`，实验期间临时加入 `medium`。结果：进行中。
 
-**证据：** turn 的历史派发文本包含 `Run only the focused tests and typechecks named in the module record, in line with repository rules.`，模块验证记录未列出 lint 和真实 layout 检查。2026-09-23 检查 Agent Lord 主干 `9c0db8e` 的 `SKILL.md`、`references/` 和 `core/src/`，未找到这句原文；不能直接认定是当前通用模板的规则。
+**第 9 项取消 TDD 试点的原因：** TDD 是在规定开发方法；业务仓库 AGENTS.md 明确不强制测试先行；这次的后期返工主要来自 lint、layout 和缺依赖，TDD 解决不了。
 
-**边界：** 该句没有明确禁止 lint/layout。worker 后来主动执行了这些检查，不能证明它因没有授权而跳过，也不能证明删掉后就一定提前检查。样本中的业务仓库 AGENTS 限制开发期全量测试，并未禁止相关 typecheck、lint 或架构检查。保留按影响范围验证的策略，不改回每次跑全量。
+## 不做的事项
 
-**完成标准：** 确认来源并移除仍存在的冗余限制；若来源已不存在，记录核查结果即可。暂不新增“首批改动必须跑所有检查”等通用强制规则。
+- **合并 CLI 以减少重复读取：** 见上面的 token 数据。
+- **要求 worker 批量读取：** MCode 系统提示词已写明独立工具调用可以放在同一轮。Anthropic 文档记录了 Fable 5.1 在编码循环中可能每轮只发一个工具，给出的修法在 harness 层（每轮附一句提示），属于 MCode 本身的改动，不在 Agent Lord 范围内。
+- **在派发 prompt 里规定 lint 时机、检查清单或阅读顺序。**
+- **上下文压缩：** 样本运行时 Fable 5 的上下文窗口配置为 200k，之后改为 1M。
 
-### P0-2：修正业务仓库的 layout 检查指引
+## 下一次运行要看的数据
 
-- [ ] 在 Agent Archon 单独核对当前 `packages/local-runtime-v2/AGENTS.md`，修正仍存在的错误入口。
-- [ ] 将真实仓库布局检查与检查器自身的测试区分清楚，并验证文档命令确实扫描当前仓库。
-
-**证据：** 样本基线要求运行 `scripts/test/local-runtime-layout-check.test.mjs`，它测试的是 fixture 中的检查器行为；真实入口为 `scripts/check-local-runtime-layout.mjs`。turn 到约第 164 分钟才发现区别并运行真实检查，随后处理目录文件数约束。storage、turn、domain 也都较晚暴露 lint 约束并返工。
-
-**完成标准：** 修正现有错误指引，而不是再叠加一份检查清单。此项归属业务仓库，本 PR 只跟踪，不跨仓修改。
-
-### P1-1：增加可选的 worktree 项目初始化入口
-
-- [ ] 设计可选、可重复执行的项目 setup hook，复用现有命令执行、日志和状态记录。
-- [ ] 在派发前呈现初始化结果；失败有明确日志与重试路径，重试复用原 worktree。
-- [ ] 用需要依赖安装及内部包构建的项目验证首次初始化和再次运行。
-
-**证据：** [workspace 创建流程](../core/src/workspace.ts)基于固定提交执行 `git worktree add`，不负责安装依赖或构建被 Git 忽略的产物；[MCode 启动器](../core/src/providers/mcode-cli.ts)随后在目标目录运行 CLI。样本中多个 worker 到首次验证才发现缺依赖，legacy 安装后还缺内部包构建产物。
-
-**范围：** 项目负责具体安装与构建命令；不新增包管理器探测框架、通用缓存平台或默认全仓构建。先确定最小配置与失败语义，再实现。
-
-**收益边界：** 减少环境错误与重复验证，不能解决数百轮串行模型交互。不能因为宿主是 Codex 就假定 Agent Lord 自己创建的 worktree 自动执行了宿主的环境脚本。
-
-### P1-2：补齐请求阶段与压缩遥测
-
-- [ ] 先确认 MCode/provider 现有事件可提供哪些时间点，再确定采集层；Agent Lord 消费已有能力优先。
-- [ ] 关联 session、operation 与请求，记录可获得的 sent、first-event、completed、retry 和 compaction 事件。
-- [ ] 区分客户端首可见事件与供应商首 token；区分未知、失败与正常完成，并验证一次失败续跑的关联。
-
-**证据：** 本次能解释主流程响应轮次和压缩窗口，但没有对应的逐请求网络事件，无法拆分服务端排队、真实 TTFT、SDK 重试与生成时长。已有用量也标记不完整。
-
-**完成标准：** 下一次执行能够说明每个时间段的来源与缺失项。不要从无事件间隔推断限流、CPU 瓶颈或代理拥堵；不采集隐藏推理正文或凭据。
-
-### P1-3：审查模块依赖是否过度串行
-
-- [ ] 逐条检查 `core → turn → domain → assembly → consumer` 的依赖，写清实际等待的接口、产物和验证条件。
-- [ ] 优先尝试通过调整模块职责或删除无必要依赖解决；确认必要性后才考虑新的接口就绪状态。
-- [ ] 对修改后的计划验证固定版本、工作区隔离、集成交付与重试语义。
-
-**证据：** 当前下游等待的是依赖模块 `delivered`，不是接口草案就绪。样本长串行链限制了并发，但尚未证明其中哪条边可以安全删除。
-
-**完成标准：** 给出可删除依赖或保留理由；不以固定并发目标替代正确依赖，也不直接绕过最终集成屏障。
-
-### P2-1：验证批量读取与精简上下文的收益
-
-- [ ] 选择可复现的任务片段，对比独立读取批量发起、简短接口索引与现有方式。
-- [ ] 比较响应轮次、总耗时、上下文大小、压缩次数和验收结果。
-
-**证据：** 五个会话的工具型响应中，约 79%～91% 每轮只调用一个工具。turn 首次写入前已有 91 个响应与 3 次压缩；五个会话累计 21 次压缩。读取同一文件的不同片段不自动等于无效重复。
-
-**完成标准：** 有对照结果后再决定是否改变派发内容；不立即增加强制批量读取、固定阅读时限等 prompt 规则。存在结果依赖的工具操作仍需顺序执行。
-
-### P2-2：对 effort 做受控实验
-
-- [ ] 在用户同意实验配置后，固定任务片段、输入、模型与验收目标，只改变 effort。
-- [ ] 对比完成时间、正确性和返工，记录样本局限。
-
-**证据：** 本次用户指定 high；单次轨迹无法证明其他 effort 更快且保持质量。
-
-**完成标准：** 根据实验决定是否调整建议，不直接降低既有任务或全局默认配置。
-
-## 证据复查入口
-
-调度原始记录位于本地 Agent Lord state 中的 `task-sets/goal-v2-7252-62e88814.json`、`plan-runs/goal-v2-7252-62e88814.json` 及对应 `operations/`、`logs/`。轮次分析通过 MCode 会话历史和压缩前快照按 message ID 去重，再用 tool-call ID 关联 CLI 事件。
-
-本次本地审计产物为 `cli-timing-audit/report.md`、`request-analysis.md`、`tool-timeline.csv`、`request-timeline.csv` 及聚合指标。这些文件不是仓库附件；未持有原始记录的读者无法独立重算统计。本文只保留问题所需的聚合数据，不发布原始会话、业务源码或隐藏推理内容。
-
-实现上述条目前需重新检查当前维护源；历史观测不自动代表当前版本仍有同样问题。
+- 第一次写代码的时间（对照 turn 的 62 分钟）。
+- 第一次运行 lint 和 layout 检查的时间。
+- `SETUP_FAILED` 是否出现，以及 worker 是否还报缺依赖。
+- 有没有模块因生成器输出越界而返工。
+- 每轮首个可见事件前的等待，与同时运行的 worker 数对照。
