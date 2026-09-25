@@ -24,7 +24,7 @@ Start every role in `dangerously_bypass` without `--read-only`, and put the task
 
 Start the planner with `--require-file <plan.json>` so the runtime verifies the plan file as declared delivery. Its prompt carries the user's plan, the repositories with their fixed heads, and the granularity rule below.
 
-Split by whole module or subsystem — a coherent unit one endpoint can own end to end. A file, a single function, an interface, or one test case is too small; a ticket per module keeps ownership, review, and rollback aligned with the code.
+Split by whole module or subsystem — a coherent unit one endpoint can own end to end. A file, a single function, an interface, or one test case is too small; a ticket per module keeps ownership, review, and rollback aligned with the code. A module's `owned_paths` include every file its own commands rewrite, such as generator output. Declare `depends_on` only when a module cannot be built or verified without another module's delivered code.
 
 The planner returns an `implementation-plan-v1` document ([schema](../../schemas/implementation-plan-v1.schema.json)):
 

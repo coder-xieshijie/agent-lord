@@ -45,6 +45,7 @@ import {
   leaseId,
   managedBranch,
   repositoryIdentity,
+  runWorkspaceSetup,
   validateSource,
   verifyBase,
   verifyCheckout,
@@ -1102,6 +1103,24 @@ export class AgentLord {
     );
   }
   private async finishCli(op: Operation, resume: boolean): Promise<Envelope> {
+    if (!resume) {
+      try {
+        const setup = await runWorkspaceSetup(this.root, op);
+        if (setup)
+          this.store.event(
+            op.task_id,
+            "workspace-setup",
+            setup,
+            op.operation_id,
+          );
+      } catch (error) {
+        if (!(error instanceof AgentLordError)) throw error;
+        return this.ops.raiseFailure(
+          this.store.operation(op.operation_id),
+          error,
+        );
+      }
+    }
     if (op.provider === "claude-cli")
       return this.claude.finishClaude(op, resume);
     try {
