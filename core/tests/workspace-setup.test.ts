@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { eventPath } from "../src/state.js";
-import { SETUP_SCRIPT } from "../src/workspace.js";
 import { harness } from "./helpers.js";
 
 let h: ReturnType<typeof harness>;
@@ -11,13 +10,18 @@ beforeEach(() => {
 });
 afterEach(() => h.cleanup());
 
-function commitSetup(script: string): string {
+function commitLockfile(script: string): string {
+  const file = path.join(h.base, "providers.json");
+  const config = JSON.parse(readFileSync(file, "utf8"));
+  config.workspace_setup = [
+    { when: "deps.lock", command: ["bash", "-c", script] },
+  ];
+  writeFileSync(file, JSON.stringify(config));
   h.initGit();
-  mkdirSync(path.join(h.target, ".agent-lord"));
   writeFileSync(path.join(h.target, ".gitignore"), "deps/\n");
-  writeFileSync(path.join(h.target, SETUP_SCRIPT), script);
+  writeFileSync(path.join(h.target, "deps.lock"), "");
   h.git(["add", "."]);
-  h.git(["commit", "-qm", "add setup"]);
+  h.git(["commit", "-qm", "add lockfile"]);
   return h.git(["rev-parse", "HEAD"]);
 }
 const start = (taskId: string, head: string) =>
@@ -29,9 +33,9 @@ const start = (taskId: string, head: string) =>
     workspace_branch: `codex/${taskId}`,
   });
 
-describe("repository setup script", () => {
+describe("workspace setup", () => {
   it("runs before a new endpoint starts and not on later turns", async () => {
-    const head = commitSetup(
+    const head = commitLockfile(
       "mkdir -p deps\necho run >> deps/runs\necho installed\n",
     );
     expect((await start("task", head)).status).toBe("SUCCEEDED");
@@ -47,8 +51,8 @@ describe("repository setup script", () => {
     );
     expect(h.calls()).toHaveLength(2);
   });
-  it("a failing script stops the start before the provider launches", async () => {
-    const head = commitSetup("echo broken >&2\nexit 3\n");
+  it("a failing command stops the start before the provider launches", async () => {
+    const head = commitLockfile("echo broken >&2\nexit 3\n");
     await expect(start("task", head)).rejects.toMatchObject({
       code: "SETUP_FAILED",
       details: { exit_code: 3 },
@@ -57,7 +61,7 @@ describe("repository setup script", () => {
     expect(h.calls()).toHaveLength(0);
   });
   it("the same start can be retried after the setup problem is fixed", async () => {
-    const head = commitSetup("test -f deps/ready || exit 4\n");
+    const head = commitLockfile("test -f deps/ready || exit 4\n");
     await expect(start("task", head)).rejects.toMatchObject({
       code: "SETUP_FAILED",
     });
@@ -67,16 +71,24 @@ describe("repository setup script", () => {
     expect((await start("task", head)).status).toBe("SUCCEEDED");
     expect(h.calls()).toHaveLength(1);
   });
-  it("a script that changes files Git reports stops the start", async () => {
-    const head = commitSetup("echo changed > tracked.txt\n");
+  it("a command that changes files Git reports stops the start", async () => {
+    const head = commitLockfile("echo changed > tracked.txt\n");
     await expect(start("task", head)).rejects.toMatchObject({
       code: "SETUP_FAILED",
     });
     expect(h.calls()).toHaveLength(0);
   });
-  it("a repository without the script starts unchanged", async () => {
+  it("a repository without a matching file starts unchanged", async () => {
     const head = h.initGit();
     expect((await start("task", head)).status).toBe("SUCCEEDED");
+    expect(h.calls()).toHaveLength(1);
+  });
+  it("a caller-provided target is left alone", async () => {
+    const head = commitLockfile("exit 5\n");
+    const result = await h.lord.start("task", "codex", h.target, "work", {
+      head_sha: head,
+    });
+    expect(result.status).toBe("SUCCEEDED");
     expect(h.calls()).toHaveLength(1);
   });
 });

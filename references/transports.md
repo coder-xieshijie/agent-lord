@@ -34,7 +34,7 @@ Every non-empty stream record must be a supported `schemaVersion=1` event with c
 
 ## Provider configuration ownership
 
-`config/providers.json` owns provider capabilities, Claude default-resolution and child-environment policy, plus checkpoint, stall, termination grace, progress poll, dead-process grace, and lock retry constants. Dynamic facts such as `hostId`, PID, process group, Session/Turn/Run, controller lease/launch count, recovery marker, operation state, and observed model never belong in configuration.
+`config/providers.json` owns provider capabilities, Claude default-resolution and child-environment policy, workspace setup rules, plus checkpoint, stall, termination grace, progress poll, dead-process grace, and lock retry constants. Dynamic facts such as `hostId`, PID, process group, Session/Turn/Run, controller lease/launch count, recovery marker, operation state, and observed model never belong in configuration.
 
 ## MCode tool phase display
 

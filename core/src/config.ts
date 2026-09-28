@@ -118,6 +118,32 @@ export function controlConfig(): Control {
     ),
   } as Control;
 }
+export interface SetupRule {
+  when: string;
+  command: string[];
+}
+/**
+ * Dependency setup for repo-managed worktrees: the first rule whose `when`
+ * file exists at the checkout root runs before the endpoint starts.
+ */
+export function workspaceSetupRules(): SetupRule[] {
+  const value = loadConfig().workspace_setup ?? [];
+  if (
+    !Array.isArray(value) ||
+    value.some(
+      (rule) =>
+        !isObject(rule) ||
+        !string(rule.when) ||
+        !Array.isArray(rule.command) ||
+        !rule.command.length ||
+        strings(rule.command).length !== rule.command.length,
+    )
+  )
+    throw usageError(
+      "workspace_setup must list rules with a `when` file name and a non-empty `command` array",
+    );
+  return value as SetupRule[];
+}
 export function validateEffort(provider: string, effort: string): void {
   provider = normalizeProvider(provider);
   const config = providerConfig(provider);
