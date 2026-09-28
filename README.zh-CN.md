@@ -223,7 +223,7 @@ MCode 要求 **0.4.9+**。`--model provider/model[#variant]` 选择模型身份�
 | [Provider 传输层](references/transports.md)                    | Codex CLI/App 与 MCode 的传输行为与配置归属     |
 | [Observer 指南](observer/README.zh-CN.md)                      | 启动、任务绑定、界面行为与隐私边界              |
 | [开发指南](references/development.md)                          | Runtime 结构、构建、测试与兼容性                |
-| [设计规范](references/design/guidelines.md)                    | 设计 pipeline、Skill 与 prompt 的规则和官方原文 |
+| [设计规范](references/development.md#design-guidelines)        | 设计 pipeline、Skill 与 prompt 的规则和官方原文 |
 | [架构图源文件](assets/diagrams/README.md)                      | Archify JSON、SVG 导出、验证记录与本地再生成    |
 | [Python → TypeScript 迁移](references/python-to-typescript.md) | 切换、回滚与共享状态注意事项                    |
 
