@@ -8,11 +8,12 @@ Use your Codex Desktop, Codex CLI, Claude Code, or MCode session to delegate wor
 
 Start with a single task, or choose a built-in pipeline:
 
-| You want to…                                 | Pipeline                                | What you get                                                              |
-| -------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------- |
-| Check a change from independent perspectives | [Cross-review](#cross-review)           | Source-backed findings, mutual challenges, and an independent final audit |
-| Rewrite a complete plan after cross-review   | [Plan-cross-review](#plan-cross-review) | Four CLI roles, a standalone plan, and author coverage verification       |
-| Turn an implementation plan into code        | [Plan-to-implement](#plan-to-implement) | Parallel module delivery, one integrator, and one PR/MR per repository    |
+| You want to…                                 | Pipeline                                      | What you get                                                               |
+| -------------------------------------------- | --------------------------------------------- | -------------------------------------------------------------------------- |
+| Check a change from independent perspectives | [Cross-review](#cross-review)                 | Source-backed findings, mutual challenges, and an independent final audit  |
+| Rewrite a complete plan after cross-review   | [Plan-cross-review](#plan-cross-review)       | Four CLI roles, a standalone plan, and author coverage verification        |
+| Turn an implementation plan into code        | [Plan-to-implement](#plan-to-implement)       | Parallel module delivery, one integrator, and one PR/MR per repository     |
+| Implement a plan in order on one branch      | [Plan-to-implement-v2](#plan-to-implement-v2) | Consecutive fresh sessions, one final review, and one PR/MR per repository |
 
 [Quick start](#quick-start) · [Observer](#observer) · [Execution endpoints](#execution-endpoints) · [Documentation](#documentation)
 
@@ -95,6 +96,19 @@ Use this when you already have an implementation plan and want module owners to 
 4. The runtime checks final branch heads, module history, structured verification records, and remote PR/MR identity. It persists the closing report before releasing workspace claims. Tests need actual evidence; user-accepted exceptions remain explicit.
 
 By default, planner, workers, and integrator use MCode's resolved model and effort, currently **Opus 5 / xhigh**. You can override the provider globally or per role with Codex CLI or Claude Code. `plan-status` retains the ready set, barriers, and run journal across caller restarts; integration recovery preserves existing work and records. **The pipeline publishes PRs/MRs; it does not merge them.**
+
+### Plan-to-implement-v2
+
+Use this when the plan's parts build on one another in order, or when you want the whole change on one branch without module ownership.
+
+> Use Agent Lord's plan-to-implement-v2 pipeline to implement this plan on the MR branch. Review the result against the plan and update the MR; do not merge it.
+
+[Full policy](references/pipelines/plan-to-implement-v2.md)
+
+1. One **implementation role** works through consecutive **fresh sessions** on the delivery branch. Each session reads the plan, the branch history, and the previous session's final message, then decides how much to do and how to verify it.
+2. The main session starts each session from the head its predecessor left and passes that predecessor's final message on verbatim. It steps in only for a question to the user, uncommitted changes, or an execution error.
+3. When a session reports the plan complete, a fresh **reviewer** checks the branch against the plan. Findings go to another implementation session, for at most two review rounds.
+4. Under your authorization, sessions push and open or update one PR/MR per repository, and the main session reads each one back. There is no planner, module split, or integrator. **The pipeline publishes PRs/MRs; it does not merge them.**
 
 ## Quick start
 
