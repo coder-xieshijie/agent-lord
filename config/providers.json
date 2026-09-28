@@ -12,6 +12,12 @@
     "mcode_terminate_grace_seconds": 10,
     "mcode_progress_poll_interval_ms": 100
   },
+  "workspace_setup": [
+    {
+      "when": "pnpm-lock.yaml",
+      "command": ["pnpm", "install", "--frozen-lockfile", "--prefer-offline"]
+    }
+  ],
   "providers": {
     "claude-cli": {
       "binary_env": "AGENT_LORD_CLAUDE_BIN",

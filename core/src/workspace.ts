@@ -16,7 +16,7 @@ import {
   string,
   strings,
 } from "./contracts.js";
-import { type Control } from "./config.js";
+import { type Control, workspaceSetupRules } from "./config.js";
 import { AgentLordError, errorMessage, usageError } from "./errors.js";
 import { sha256 } from "./json.js";
 import { resolvePath } from "./paths.js";
@@ -64,19 +64,22 @@ export function git(
     stderr: result.stderr ?? "",
   };
 }
-export const SETUP_SCRIPT = ".agent-lord/setup.sh";
 const SETUP_TIMEOUT_MS = 30 * 60 * 1000;
 /**
- * Runs the repository's own setup script before a new endpoint starts, so a
- * fresh worktree has the untracked dependencies its checks need. The script
- * may create ignored files only; tracked and untracked Git status must match.
+ * Installs dependencies in a repo-managed worktree before a new endpoint
+ * starts, so its checks find the untracked tools they need. The command comes
+ * from the first matching `workspace_setup` rule and may create ignored files
+ * only; tracked and untracked Git status must match.
  */
 export async function runWorkspaceSetup(
   root: string,
   op: Operation,
 ): Promise<{ log_path: string; exit_code: number } | null> {
-  if (op.read_only || !existsSync(path.join(op.target, SETUP_SCRIPT)))
-    return null;
+  if (op.read_only || !op.workspace?.repository) return null;
+  const rule = workspaceSetupRules().find((r) =>
+    existsSync(path.join(op.target, r.when)),
+  );
+  if (!rule) return null;
   const status = () =>
     git(op.target, ["status", "--porcelain", "--untracked-files=normal"], false)
       .stdout;
@@ -87,7 +90,7 @@ export async function runWorkspaceSetup(
   let timed_out = false;
   try {
     exit_code = await new Promise<number>((resolve, reject) => {
-      const child = spawn("bash", [SETUP_SCRIPT], {
+      const child = spawn(rule.command[0]!, rule.command.slice(1), {
         cwd: op.target,
         stdio: ["ignore", fd, fd],
         detached: process.platform !== "win32",
@@ -107,8 +110,12 @@ export async function runWorkspaceSetup(
       });
     });
   } catch (error) {
-    throw new AgentLordError("SETUP_FAILED", "cannot run the setup script", {
-      details: { script: SETUP_SCRIPT, log_path, error: errorMessage(error) },
+    throw new AgentLordError("SETUP_FAILED", "cannot run the setup command", {
+      details: {
+        command: rule.command,
+        log_path,
+        error: errorMessage(error),
+      },
     });
   } finally {
     closeSync(fd);
@@ -116,14 +123,16 @@ export async function runWorkspaceSetup(
   if (exit_code !== 0)
     throw new AgentLordError(
       "SETUP_FAILED",
-      timed_out ? "the setup script timed out" : "the setup script failed",
-      { details: { script: SETUP_SCRIPT, log_path, exit_code, timed_out } },
+      timed_out ? "the setup command timed out" : "the setup command failed",
+      {
+        details: { command: rule.command, log_path, exit_code, timed_out },
+      },
     );
   if (status() !== before)
     throw new AgentLordError(
       "SETUP_FAILED",
-      "the setup script changed files Git tracks or reports as untracked",
-      { details: { script: SETUP_SCRIPT, log_path } },
+      "the setup command changed files Git tracks or reports as untracked",
+      { details: { command: rule.command, log_path } },
     );
   return { log_path, exit_code };
 }

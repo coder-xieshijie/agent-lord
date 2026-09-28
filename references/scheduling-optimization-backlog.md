@@ -1,6 +1,6 @@
 # 调度与 CLI 执行优化
 
-记录日期：2026-09-23；更新：2026-09-25。本文记录一次 plan-to-implement 运行的耗时审计、据此做的修改，以及还没有结论的事项。
+记录日期：2026-09-23；更新：2026-09-28。本文记录一次 plan-to-implement 运行的耗时审计、据此做的修改，以及还没有结论的事项。
 
 ## 原则：做减法
 
@@ -18,7 +18,7 @@
 
 - **CLI 数量：** 11 个会话、15 次执行，累计 17:53:28，实际历时 14:02:44。串行链为 `core → turn → domain → assembly → consumer → integrator`。
 - **时间主要花在模型往返上：** 五个重点 worker 共 1,121 轮模型响应。工具执行时间只占各自总时间的 3%～21%；79%～91% 的轮次只发出一个工具调用。
-- **每轮等待与同时运行的 worker 数有关：** 只统计输出不超过 500 token 的轮次，首个可见事件前的等待中位数在 1 个 worker 运行时约 10 秒，2～3 个 worker 同时运行时约 26 秒。同一个 turn 会话内，legacy 仍在运行时中位数 25.2 秒，legacy 结束后 12.5 秒。所有 worker 共用同一个网关和 key。这一条来自运行记录的统计，尚未用实验证实。
+- **每轮等待与同时运行的 worker 数有关：** 只统计输出不超过 500 token 的轮次，首个可见事件前的等待中位数在 1 个 worker 运行时约 10 秒，2～3 个 worker 同时运行时约 26 秒。同一个 turn 会话内，legacy 仍在运行时中位数 25.2 秒，legacy 结束后 12.5 秒。所有 worker 共用同一个网关和 key。这一条来自运行记录的统计；第 6 项的实验在 Opus 5.5 下没有复现，原因未定。
 - **重复读取不是 token 的主要来源：** 五个 worker 读过的 147 个文件中，只有 5 个被两个以上 worker 读过，重复部分按整文件计约 12 万 token，占 1.149 亿输入 token 的约 0.1%；输入中 88.7% 命中缓存。合并 CLI 会让每轮重发的上下文变大，不会更省。
 - **派发 prompt 要求"编辑前完整读完"**根目录与包级 AGENTS.md、91KB 的 plan.md、spec.md、ARCHITECTURE.md 和整个计划文件。turn 到第 62 分钟才第一次写代码。
 - **lint 滞后：** storage、turn、domain 第一次真正运行 lint 分别在第 82、176、89 分钟，接近各自结束，之后各返工 15～20 分钟。storage 和 domain 的验证清单里写了 lint，照样拖到最后。
@@ -30,25 +30,30 @@
 
 ## 修改与状态
 
-| #   | 事项                  | 结果                                                                                                                                                                              | 位置                                                                                              |
-| --- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| 1   | layout 检查指引       | 已改为 `pnpm check:local-runtime-layout`，与 CI 一致                                                                                                                              | Agent-Archon [!7451](https://gitlab.xaminim.com/matrix/agent-archon/-/merge_requests/7451)        |
-| 2   | 生成器输出越界        | planner 规则：模块的 `owned_paths` 包含它自己的命令会改写的文件                                                                                                                   | [plan-to-implement](pipelines/plan-to-implement.md#planner)                                       |
-| 3   | 子 agent 模型说明     | 删除固定约束中的模型句，以及"写明 endpoint 模型"的要求；只转达用户指定的模型或 effort                                                                                             | [SKILL.md](../SKILL.md#scheduling-ownership)                                                      |
-| 4   | 新 worktree 依赖      | 运行时在新 endpoint 启动前执行仓库自带的 `.agent-lord/setup.sh`；Agent-Archon 提供只做 `pnpm install` 的脚本                                                                      | [protocol](protocol.md#repository-setup-script)、Agent-Archon !7451                               |
-| 5   | "编辑前完整读完"      | 只有用户或命名流程要求时才要求完整阅读；其余只写明文档用途，由 endpoint 按需读                                                                                                    | [SKILL.md](../SKILL.md#task-context-preparation)                                                  |
-| 6   | 网关并发实验          | 未做。另有一条旁证：MCode 9 月 23 日的模型自检记录了网关返回的 `HTTP 429: scheduler capacity exhausted`                                                                           | —                                                                                                 |
-| 7   | lint 时机             | 不改 prompt，不加钩子。原因见下                                                                                                                                                   | —                                                                                                 |
-| 8   | 模块依赖              | planner 规则：只有离开另一模块已交付的代码就无法构建或验证时，才声明 `depends_on`                                                                                                 | [plan-to-implement](pipelines/plan-to-implement.md#planner)                                       |
-| 9   | effort 对照；TDD 试点 | effort 对照见下；TDD 试点取消                                                                                                                                                     | —                                                                                                 |
-| 10  | `Run only ...` 限制   | 维护中的来源里没有这句，是调度方当时自己写的；SKILL.md 已规定验证方式由 CLI 决定，不需要再改                                                                                      | —                                                                                                 |
-| 11  | 默认上下文窗口        | 只针对走网关的两类：Claude Code 对配置里列出的 1M 型号，没带窗口时自动补 `[1m]`，Fable 兜底同样适用；MCode 的窗口取自 MCode 配置，默认模型已是 1M。Codex CLI 走订阅，保持默认窗口 | [SKILL.md](../SKILL.md#provider-routing-and-defaults)、[protocol](protocol.md#execution-contract) |
+| #   | 事项                  | 结果                                                                                                                                                                                   | 位置                                                                                              |
+| --- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| 1   | layout 检查指引       | Agent-Archon 包级 AGENTS.md 的写法错误属于业务仓库自己的文档，不在 Agent Lord 范围内；原先放在 !7451 里，该 MR 已关闭，未修正                                                          | —                                                                                                 |
+| 2   | 生成器输出越界        | planner 规则：模块的 `owned_paths` 包含它自己的命令会改写的文件                                                                                                                        | [plan-to-implement](pipelines/plan-to-implement.md#planner)                                       |
+| 3   | 子 agent 模型说明     | 删除固定约束中的模型句，以及"写明 endpoint 模型"的要求；只转达用户指定的模型或 effort                                                                                                  | [SKILL.md](../SKILL.md#scheduling-ownership)                                                      |
+| 4   | 新 worktree 依赖      | Agent Lord 在新 endpoint 启动前按自己配置里的 `workspace_setup` 规则安装依赖：检出目录有 `pnpm-lock.yaml` 就执行 `pnpm install --frozen-lockfile --prefer-offline`。业务仓库不需要改动 | [protocol](protocol.md#workspace-setup)                                                           |
+| 5   | "编辑前完整读完"      | 只有用户或命名流程要求时才要求完整阅读；其余只写明文档用途，由 endpoint 按需读                                                                                                         | [SKILL.md](../SKILL.md#task-context-preparation)                                                  |
+| 6   | 网关并发实验          | 已完成：Opus 5.5 high 下并发 1～10 都没有排队或变慢。结果见下                                                                                                                          | —                                                                                                 |
+| 7   | lint 时机             | 不改 prompt，不加钩子。原因见下                                                                                                                                                        | —                                                                                                 |
+| 8   | 模块依赖              | planner 规则：只有离开另一模块已交付的代码就无法构建或验证时，才声明 `depends_on`                                                                                                      | [plan-to-implement](pipelines/plan-to-implement.md#planner)                                       |
+| 9   | effort 对照；TDD 试点 | 都不做。TDD 试点的原因见下                                                                                                                                                             | —                                                                                                 |
+| 10  | `Run only ...` 限制   | 维护中的来源里没有这句，是调度方当时自己写的；SKILL.md 已规定验证方式由 CLI 决定，不需要再改                                                                                           | —                                                                                                 |
+| 11  | 默认上下文窗口        | 只针对走网关的两类：Claude Code 对配置里列出的 1M 型号，没带窗口时自动补 `[1m]`，Fable 兜底同样适用；MCode 的窗口取自 MCode 配置，默认模型已是 1M。Codex CLI 走订阅，保持默认窗口      | [SKILL.md](../SKILL.md#provider-routing-and-defaults)、[protocol](protocol.md#execution-contract) |
 
-**第 4 项的行为：** 只在可写的 `start` 时执行，`turn` 和同会话续跑不再执行；输出写入 `logs/<operation_id>.setup.log`。脚本非零退出、超过 30 分钟，或改变 `git status --porcelain --untracked-files=normal` 的输出时，操作以 `SETUP_FAILED` 结束，不启动 provider；修好后重复同一个 `start` 即可。在 Agent-Archon 的全新 worktree 中，脚本首次执行 19 秒，再次执行 2 秒。
+**第 4 项的行为：** 只对 Agent Lord 管理的 worktree（`reuse-or-create`、`isolated`）的可写 `start` 执行；调用方直接指定的目录、只读任务和不匹配任何规则的仓库都不执行。`turn` 和同会话续跑不再执行；输出写入 `logs/<operation_id>.setup.log`。命令非零退出、超过 30 分钟，或改变 `git status --porcelain --untracked-files=normal` 的输出时，操作以 `SETUP_FAILED` 结束，不启动 provider；修好后重复同一个 `start` 即可。在 Agent-Archon 的全新 worktree 中，`pnpm install` 首次执行 24 秒，再次执行 2 秒，前后 Git 状态不变。最初的做法是让业务仓库提供 `.agent-lord/setup.sh`，这要求每个仓库为 Agent Lord 提交文件并经过评审，所以改为由 Agent Lord 按锁文件判断。遇到只装依赖不够的仓库时，再在配置里加规则。
 
-**第 7 项不加钩子的原因：** MCode 的 `PostToolUse` 钩子来自插件或项目级 agent（`.harness/reins/`）。Agent Lord 派发的 worker 用 `mcode exec` 的默认 agent，仓库里放一个钩子文件不会对它生效；要生效就得安装插件或改 worker 的 agent 配置，改动更大，也会影响本机其他会话。第 1 项修正了指引，下次运行先看 lint 首次执行时间是否提前。
+**第 6 项网关并发实验：** 2026-09-25 北京时间 22:43～23:21，不经过 Agent Lord 和 MCode，用 MCode 的网关、key 和请求格式直接请求 `claude-opus-5-5`，effort 为 `high`。两组共 294 个请求，全部成功，没有报错或限流。
 
-**第 9 项 effort 对照：** 用 storage 模块（不依赖其他模块，验证清单最完整），在同一基线、同一 prompt 下依次运行 Fable 5 `high` 和 `medium`，避免同时运行时每轮等待互相干扰。基线是 `62e88814` 加一个只添加 `.agent-lord/setup.sh` 的本地提交；prompt 按本次修改后的写法，不要求完整阅读，也不带子 agent 模型句。MCode 配置中 Fable 5 原本只允许 `max`、`xhigh`、`high`，实验期间临时加入 `medium`。结果：进行中。
+- 短提示（约 120 个输入 token，加随机前缀避免缓存）：并发度取 1、2、3、4、5、6、8、10，每种 6 轮，共 234 个请求，各并发度的运行顺序每轮随机打乱。各并发度的中位数：`message_start` 前等待 2.4～3.4 秒，生成速度每秒 74～79 个 token，总耗时 22.7～25.9 秒。并发 10 与并发 1 的差别都在 10% 以内，也没有随并发增加而变差的趋势。
+- 长上下文（每个槽位先写入约 12.5 万 token 的不同源码缓存）：并发度取 1、3、6、10，每种 3 轮，60 个测量请求全部命中缓存。`message_start` 前等待中位数 5.3～6.0 秒，总耗时 7.9～8.5 秒。长上下文多出的约 3 秒与并发数无关。
+
+这推翻了"网关对同一个 key 有并发限制"的推断，至少对 Opus 5.5 不成立。9 月 22 日每轮等待变长的原因未定：当时用的是 Fable 5；当时统计的是首个可见事件前的时间，包含不输出给客户端的思考；不同日子的负载也可能不同。另外，MCode 9 月 23 日的模型自检记录过网关返回 `HTTP 429: scheduler capacity exhausted`，说明网关在某些时段确实会拒绝请求。原始脚本和逐请求数据当时放在 `/tmp/gateway-exp/`，已被系统清理，上面的数字来自实验结束时的汇总。
+
+**第 7 项不加钩子的原因：** MCode 的 `PostToolUse` 钩子来自插件或项目级 agent（`.harness/reins/`）。Agent Lord 派发的 worker 用 `mcode exec` 的默认 agent，仓库里放一个钩子文件不会对它生效；要生效就得安装插件或改 worker 的 agent 配置，改动更大，也会影响本机其他会话。下次运行先看 lint 首次执行的时间。
 
 **第 9 项取消 TDD 试点的原因：** TDD 是在规定开发方法；业务仓库 AGENTS.md 明确不强制测试先行；这次的后期返工主要来自 lint、layout 和缺依赖，TDD 解决不了。
 
