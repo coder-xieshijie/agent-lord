@@ -127,35 +127,24 @@ export function controlConfig(): Control {
   } as Control;
 }
 /**
- * The command that delivers an unreceived-result alert. A shell command in
- * `AGENT_LORD_RESULT_ALERT_COMMAND` wins over `result_alert_command` in the
- * configuration; with neither, macOS shows a system notification and other
- * platforms keep only the recorded task event.
+ * An explicitly chosen alert command: `AGENT_LORD_RESULT_ALERT_COMMAND` (run by
+ * the shell) wins over `result_alert_command` (argv) in the configuration.
+ * Null means the built-in channels apply.
  */
-export function resultAlertCommand(
-  platform: NodeJS.Platform = process.platform,
-): string[] | null {
+export function resultAlertCommand(): string[] | null {
   const shell = process.env.AGENT_LORD_RESULT_ALERT_COMMAND;
   if (shell?.trim()) return ["/bin/sh", "-c", shell];
   const value = loadConfig().result_alert_command ?? null;
-  if (value !== null) {
-    if (
-      !Array.isArray(value) ||
-      !value.length ||
-      strings(value).length !== value.length
-    )
-      throw usageError(
-        "result_alert_command must be null or a non-empty command array",
-      );
-    return value as string[];
-  }
-  return platform === "darwin"
-    ? [
-        "osascript",
-        "-e",
-        'display notification (system attribute "AGENT_LORD_ALERT_MESSAGE") with title "Agent Lord"',
-      ]
-    : null;
+  if (value === null) return null;
+  if (
+    !Array.isArray(value) ||
+    !value.length ||
+    strings(value).length !== value.length
+  )
+    throw usageError(
+      "result_alert_command must be null or a non-empty command array",
+    );
+  return value as string[];
 }
 export interface SetupRule {
   when: string;

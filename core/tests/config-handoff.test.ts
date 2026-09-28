@@ -226,20 +226,19 @@ describe("frozen configuration", () => {
     writeFileSync(file, JSON.stringify(config));
     expect(() => controlConfig()).toThrow("non-negative");
   });
-  it("resolves the unreceived-result alert command", () => {
+  it("resolves an explicit unreceived-result alert command", () => {
     const file = path.join(h.base, "providers.json");
     const config = JSON.parse(readFileSync(file, "utf8"));
     expect(config.result_alert_command).toBeNull();
-    expect(resultAlertCommand("darwin")![0]).toBe("osascript");
-    expect(resultAlertCommand("linux")).toBeNull();
+    expect(resultAlertCommand()).toBeNull();
     config.result_alert_command = ["notify", "--urgent"];
     writeFileSync(file, JSON.stringify(config));
-    expect(resultAlertCommand("linux")).toEqual(["notify", "--urgent"]);
+    expect(resultAlertCommand()).toEqual(["notify", "--urgent"]);
     vi.stubEnv(
       "AGENT_LORD_RESULT_ALERT_COMMAND",
       'say "$AGENT_LORD_ALERT_MESSAGE"',
     );
-    expect(resultAlertCommand("linux")).toEqual([
+    expect(resultAlertCommand()).toEqual([
       "/bin/sh",
       "-c",
       'say "$AGENT_LORD_ALERT_MESSAGE"',
@@ -247,7 +246,7 @@ describe("frozen configuration", () => {
     vi.stubEnv("AGENT_LORD_RESULT_ALERT_COMMAND", "");
     config.result_alert_command = "notify";
     writeFileSync(file, JSON.stringify(config));
-    expect(() => resultAlertCommand("linux")).toThrow("result_alert_command");
+    expect(() => resultAlertCommand()).toThrow("result_alert_command");
   });
   it("model aliases permit versioned IDs without accepting another version", () => {
     expect(expectedModelMatches("opus[1m]", "claude-opus-5")).toBe(true);

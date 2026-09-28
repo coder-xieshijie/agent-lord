@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { type Data } from "../src/contracts.js";
 import { AgentLord } from "../src/engine.js";
-import { watchResult } from "../src/result-alert.js";
+import {
+  type AlertChannel,
+  alertChannels,
+  watchResult,
+} from "../src/result-alert.js";
 import { TaskSets } from "../src/task-sets.js";
 import { workflowNodes } from "../src/workflow-nodes.js";
 import { harness, waitFor } from "./helpers.js";
@@ -27,6 +31,14 @@ const events = (taskId = "task") =>
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line) as Data);
+/** A channel that records what it would have sent, or fails. */
+const channel = (name: string, sent: Data[], fail = false): AlertChannel => ({
+  name,
+  send: async (alert) => {
+    if (fail) throw new Error(`${name} unavailable`);
+    sent.push(alert);
+  },
+});
 /** Time after the result ended, so the loop never actually sleeps. */
 const later = (operationId: string, seconds: number) => () =>
   Date.parse(String(h.lord.store.operation(operationId).completed_at)) +
@@ -35,15 +47,11 @@ const later = (operationId: string, seconds: number) => () =>
 describe("unreceived-result alert", () => {
   it("alerts once when a run member's result stays unacknowledged", async () => {
     register();
-    // Only macOS has a default command; name one so the test holds everywhere.
-    vi.stubEnv("AGENT_LORD_RESULT_ALERT_COMMAND", "true");
     const done = await h.lord.start("task", "claude-cli", h.target, "work");
     const sent: Data[] = [];
     const alert = await watchResult(h.lord, String(done.operation_id), {
       now: later(String(done.operation_id), 61),
-      deliver: async (_command, value) => {
-        sent.push(value);
-      },
+      channels: [channel("feishu", sent)],
     });
     expect(alert).toMatchObject({
       task_id: "task",
@@ -70,22 +78,19 @@ describe("unreceived-result alert", () => {
         slept += ms;
         new TaskSets(h.lord).ack("run", receipt);
       },
-      deliver: async () => {
-        throw new Error("an acknowledged result must not alert");
-      },
+      channels: [channel("feishu", [], true)],
     });
     expect(alert).toBeNull();
     expect(slept).toBeGreaterThan(0);
   });
   it("does not watch a task outside every run, a continued task, or a disabled window", async () => {
     const lone = await h.lord.start("lone", "claude-cli", h.target, "work");
-    const deliver = async () => {
-      throw new Error("no alert expected");
-    };
+    const unexpected: Data[] = [];
+    const channels = [channel("feishu", unexpected)];
     expect(
       await watchResult(h.lord, String(lone.operation_id), {
         now: later(String(lone.operation_id), 61),
-        deliver,
+        channels,
       }),
     ).toBeNull();
     register();
@@ -94,7 +99,7 @@ describe("unreceived-result alert", () => {
     expect(
       await watchResult(h.lord, String(first.operation_id), {
         now: later(String(first.operation_id), 61),
-        deliver,
+        channels,
       }),
     ).toBeNull();
     const quiet = new AgentLord(h.root);
@@ -102,8 +107,9 @@ describe("unreceived-result alert", () => {
       0;
     const last = h.lord.store.task("task").last_operation_id!;
     expect(
-      await watchResult(quiet, last, { now: later(last, 61), deliver }),
+      await watchResult(quiet, last, { now: later(last, 61), channels }),
     ).toBeNull();
+    expect(unexpected).toEqual([]);
   });
   it("records a failed alert command without losing the alert", async () => {
     register();
@@ -115,6 +121,63 @@ describe("unreceived-result alert", () => {
     expect(alert).not.toBeNull();
     const failed = events().find((e) => e.type === "result-alert-failed");
     expect(String((failed!.data as Data).error)).toContain("exited with 3");
+  });
+  it("falls back to the next channel when Feishu fails", async () => {
+    register();
+    const done = await h.lord.start("task", "claude-cli", h.target, "work");
+    const sent: Data[] = [];
+    await watchResult(h.lord, String(done.operation_id), {
+      now: later(String(done.operation_id), 61),
+      channels: [channel("feishu", [], true), channel("macos", sent)],
+    });
+    expect(sent).toHaveLength(1);
+    expect(
+      events()
+        .filter((e) => String(e.type).startsWith("result-alert-"))
+        .map((e) => [e.type, (e.data as Data).channel]),
+    ).toEqual([
+      ["result-alert-failed", "feishu"],
+      ["result-alert-sent", "macos"],
+    ]);
+  });
+  it("prefers Feishu through lark-cli, then macOS; an explicit command replaces both", async () => {
+    const bin = path.join(h.base, "bin");
+    mkdirSync(bin);
+    const log = path.join(h.base, "lark.log");
+    writeFileSync(
+      path.join(bin, "lark-cli"),
+      `#!/bin/sh
+echo "$*" >> ${JSON.stringify(log)}
+case "$1" in
+  auth) echo '{"identities":{"user":{"openId":"ou_owner"}}}' ;;
+  *) echo '{"ok":true}' ;;
+esac
+`,
+      { mode: 0o700 },
+    );
+    const env = { PATH: bin };
+    expect(alertChannels("darwin", env).map((c) => c.name)).toEqual([
+      "feishu",
+      "macos",
+    ]);
+    expect(alertChannels("linux", env).map((c) => c.name)).toEqual(["feishu"]);
+    expect(
+      alertChannels("darwin", { PATH: h.base }).map((c) => c.name),
+    ).toEqual(["macos"]);
+    expect(alertChannels("linux", { PATH: h.base })).toEqual([]);
+    await alertChannels("linux", env)[0].send({
+      operation_id: "op-1",
+      message: "task ended",
+    });
+    const [status, send] = readFileSync(log, "utf8").trim().split("\n");
+    expect(status).toBe("auth status --json");
+    expect(send).toMatch(
+      /^im \+messages-send --as bot --user-id ou_owner --text task ended --idempotency-key al-[0-9a-f]{40}$/,
+    );
+    vi.stubEnv("AGENT_LORD_RESULT_ALERT_COMMAND", "true");
+    expect(alertChannels("darwin", env).map((c) => c.name)).toEqual([
+      "command",
+    ]);
   });
   it("the detached worker delivers the alert through the configured command", async () => {
     h.cleanup();
