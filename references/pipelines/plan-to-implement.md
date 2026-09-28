@@ -17,7 +17,7 @@ A role the user names, such as an end-to-end tester, runs on the reviewed heads 
 
 ## Prepare the run
 
-Write the [run manifest](common.md#resolve-the-contract-before-dispatch): the goal, the plan path and content hash, every repository with its delivery branch and base head (an existing MR's source branch when the user names one), the role contracts, the user's publication authority and subagent instructions, and a session cap. Register the first session and the reviewer with `run-create --nodes-file` using `source.kind: pipeline` and `reference: plan-to-implement`; register each later session with `run-add` before its `start`.
+Write the [run manifest](common.md#resolve-the-contract-before-dispatch): the goal, the plan path and content hash, every repository with its delivery branch and base head (an existing MR's source branch when the user names one), the role contracts, and the user's publication authority and subagent instructions. Register the first session and the reviewer with `run-create --nodes-file` using `source.kind: pipeline` and `reference: plan-to-implement`; register each later session with `run-add` before its `start`.
 
 ## Run implementation sessions
 
@@ -52,13 +52,13 @@ After each session, read its final message with `git status` and `git log <start
 | The plan reported complete          | Start the final review                                                                                                                                                                                           |
 | Operation error                     | Recover under the [deterministic loop](../../SKILL.md#deterministic-loop) and [endpoint replacement](../../SKILL.md#endpoint-replacement); a replacement receives the session prompt at the latest verified head |
 
-Stop and report to the user, with the last final message, when two consecutive sessions add no commit or the session cap is reached.
+Stop and report to the user, with the last final message, when two consecutive sessions add no commit.
 
 ## Final review
 
-Start the reviewer with the plan, each delivery branch's `<base>..<head>` range, the last final message, and the installed `review-rules` Skill under the [dependency contract](../../SKILL.md#skill-dependencies). The reviewer checks the branches against the plan and returns findings.
+Start the reviewer with the plan, each delivery branch's `<base>..<head>` range, the last final message, and the installed `review-rules` Skill under the [dependency contract](../../SKILL.md#skill-dependencies). The reviewer checks the branches against the plan and returns findings. Every review round runs in this one reviewer session.
 
-When a finding needs a change, pass the review report verbatim as the next implementation session's continuation state, then `turn` the reviewer with the new range. Stop after two review rounds and report the findings still open.
+When a review returns a finding that needs a change, start a fresh implementation session for the fix with the review report verbatim as its continuation state; it follows the same [continue, ask, or stop](#continue-ask-or-stop) loop. When it reports the fix complete, `turn` the reviewer with the new range for the next review. The run allows three reviews: when the third still returns a finding that needs a change, stop and report the open findings.
 
 ## Deliver and report
 

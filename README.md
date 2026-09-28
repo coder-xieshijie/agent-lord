@@ -89,7 +89,7 @@ Use this when you already have an implementation plan and want it carried out on
 
 1. One **implementation role** works through consecutive **fresh sessions** on the delivery branch. Each session reads the plan, the branch history, and the previous session's final message, then decides how much to do and how to verify it.
 2. The main session starts each session from the head its predecessor left and passes that predecessor's final message on verbatim. It steps in only for a question to the user, uncommitted changes, or an execution error.
-3. When a session reports the plan complete, a fresh **reviewer** checks the branch against the plan. Findings go to another implementation session, for at most two review rounds.
+3. When a session reports the plan complete, a fresh **reviewer** checks the branch against the plan. Each round's findings go to a new implementation session, then the same reviewer session checks again. After three reviews, any remaining findings are reported to you.
 4. Under your authorization, sessions push and open or update one PR/MR per repository, and the main session reads each one back. **The pipeline publishes PRs/MRs; it does not merge them.**
 
 ## Quick start

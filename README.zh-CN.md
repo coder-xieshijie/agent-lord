@@ -89,7 +89,7 @@ flowchart LR
 
 1. 一个**实现角色**在交付分支上连续起多个**新 session**。每个 session 读计划、分支历史和上一个 session 的最后一条消息，自己决定这一段做多少、怎么验证。
 2. 主会话从上一个 session 留下的提交启动下一个 session，并把上一个 session 的最后一条消息原样交给它。只有 session 需要用户决定、留下未提交的改动或执行出错时，主会话才介入。
-3. session 报告计划全部完成后，由一个新的 **reviewer** 对照计划检查分支。需要修改的问题交给下一个实现 session，最多两轮 review。
+3. session 报告计划全部完成后，由一个新的 **reviewer** 对照计划检查分支。每轮发现的问题交给一个新的实现 session 修复，修完后由同一个 reviewer session 再检查。最多 review 三次，第三次仍有问题就报告给你。
 4. 在用户授权下，session 推送并为每个仓库创建或更新一个 PR/MR，主会话逐一回读核对。**这条 pipeline 负责发布 PR/MR，不负责合入。**
 
 ## 快速开始
