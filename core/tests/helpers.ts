@@ -1,4 +1,5 @@
 import {
+  linkSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -25,6 +26,38 @@ import { type Data, type Operation, type Provider } from "../src/contracts.js";
 import { canonicalPacketBytes } from "../src/handoff.js";
 import { sha256 } from "../src/json.js";
 import { utcNow } from "../src/state.js";
+/**
+ * Fake provider CLIs are content-addressed and shared across tests and runs.
+ * macOS assesses every new executable on its first exec, one at a time
+ * system-wide (~0.3s each), so per-test binaries made each launch queue
+ * behind the launches of every concurrently running test file.
+ */
+function fakeProviderBinary(provider: Provider): string {
+  const source = `#!${process.execPath}\nprocess.env.FAKE_PROVIDER = ${JSON.stringify(provider)};\nawait import(${JSON.stringify(new URL("./fixtures/provider.ts", import.meta.url).href)});\n`;
+  const directory = fileURLToPath(
+    new URL(
+      "../node_modules/.cache/agent-lord-fake-providers/",
+      import.meta.url,
+    ),
+  );
+  const binary = path.join(
+    directory,
+    `${provider}-${sha256(source).slice(0, 16)}.mjs`,
+  );
+  if (existsSync(binary)) return binary;
+  mkdirSync(directory, { recursive: true });
+  // Publish complete files only: concurrent test files may exec it at once.
+  const temporary = `${binary}.${process.pid}.tmp`;
+  writeFileSync(temporary, source, { mode: 0o700 });
+  try {
+    linkSync(temporary, binary);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  } finally {
+    rmSync(temporary, { force: true });
+  }
+  return binary;
+}
 export async function waitFor(
   check: () => boolean,
   timeout = 6000,
@@ -148,17 +181,14 @@ export function harness(controlOverrides: Partial<Control> = {}): {
   vi.stubEnv("CLAUDE_CONFIG_DIR", claudeConfig);
   vi.stubEnv("FAKE_OPTIONS", optionsFile);
   vi.stubEnv("FAKE_LOG", log);
+  const binaries: string[] = [];
   for (const [provider, env] of [
     ["claude-cli", "AGENT_LORD_CLAUDE_BIN"],
     ["codex-cli", "AGENT_LORD_CODEX_BIN"],
     ["mcode-cli", "AGENT_LORD_MCODE_BIN"],
-  ]) {
-    const binary = path.join(base, `${provider}.mjs`);
-    writeFileSync(
-      binary,
-      `#!${process.execPath}\nprocess.env.FAKE_PROVIDER = ${JSON.stringify(provider)};\nawait import(${JSON.stringify(new URL("./fixtures/provider.ts", import.meta.url).href)});\n`,
-      { mode: 0o700 },
-    );
+  ] as const) {
+    const binary = fakeProviderBinary(provider);
+    binaries.push(binary);
     vi.stubEnv(env, binary);
   }
   const lord = new AgentLord(root);
@@ -230,7 +260,7 @@ export function harness(controlOverrides: Partial<Control> = {}): {
         const command = op.provider_command;
         if (
           Array.isArray(command) &&
-          String(command[0]).startsWith(base) &&
+          binaries.includes(String(command[0])) &&
           typeof op.pid === "number"
         ) {
           try {

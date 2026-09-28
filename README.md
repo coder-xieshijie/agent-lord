@@ -223,7 +223,7 @@ Task state defaults to `~/.codex/state/agent-lord`. Override it with `AGENT_LORD
 | [Provider transports](references/transports.md)                     | Codex CLI/App and MCode transport seams and configuration ownership            |
 | [Observer guide](observer/README.md)                                | Setup, task binding, UI behavior, and privacy boundaries                       |
 | [Development guide](references/development.md)                      | Runtime structure, build, tests, and compatibility                             |
-| [Design guidelines](references/design/guidelines.md)                | Rules and official sources for designing pipelines, the Skill, and prompts     |
+| [Design guidelines](references/development.md#design-guidelines)    | Rules and official sources for designing pipelines, the Skill, and prompts     |
 | [Diagram sources](assets/diagrams/README.md)                        | Archify specifications, SVG exports, validation, and local viewer regeneration |
 | [Python → TypeScript migration](references/python-to-typescript.md) | Cutover, rollback, and shared-state precautions                                |
 

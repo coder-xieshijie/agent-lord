@@ -12,7 +12,9 @@ For an explicit Skill update, fetch and inspect changes in the existing dev-skil
 
 ## Design guidelines
 
-Before changing `SKILL.md`, a pipeline policy, or the rules for endpoint prompts, apply the [design guidelines](design/guidelines.md). They cite archived copies of the official Anthropic and OpenAI sources in [design/sources](design/sources/README.md); when a vendor publishes new guidance, refresh those copies as described there and recheck the affected rules.
+Before changing `SKILL.md`, a pipeline policy, or the rules for endpoint prompts, apply [`agent-prompt-rules`](https://github.com/coder-xieshijie/dev-skills/blob/main/skills/agent-prompt-rules/SKILL.md) from dev-skills and record the rationale in the [optimization backlog](scheduling-optimization-backlog.md). Install it from your dev-skills checkout the same way as the runtime dependencies. The Skill keeps the rules together with archived copies of the official Anthropic and OpenAI sources; when a vendor publishes new guidance, refresh them there, then recheck this repository's `SKILL.md` and pipelines against the changed rules.
+
+It is a maintenance standard, not a runtime dependency: keep it out of the [Skill dependencies](../SKILL.md#skill-dependencies) table and out of endpoint prompts.
 
 ## Runtime structure
 
