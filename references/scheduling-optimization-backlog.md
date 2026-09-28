@@ -6,11 +6,11 @@
 
 给 worker 的限制越少越好。优先删除或纠正已经不需要的指令；需要每次都发生的动作交给运行时机制，不写成 prompt 规则；不给 worker 规定开发方法。
 
-这条原则及其官方依据已整理进[设计规范](design/guidelines.md)，原文存档在 [design/sources](design/sources/README.md)。以后的修改以规范为准，本文只记录具体的审计数据和决定。
+这条原则及其官方依据已整理进 dev-skills 的 [agent-prompt-rules](https://github.com/coder-xieshijie/dev-skills/blob/main/skills/agent-prompt-rules/SKILL.md)，官方原文随 Skill 一起存档。以后的修改以规范为准，本文只记录具体的审计数据和决定。
 
 ## 2026-09-28：按设计规范调整交叉验证 pipeline
 
-依据[设计规范](design/guidelines.md)第二节调整了两个交叉验证 pipeline：
+依据 [agent-prompt-rules](https://github.com/coder-xieshijie/dev-skills/blob/main/skills/agent-prompt-rules/SKILL.md) 第二节调整了两个交叉验证 pipeline：
 
 - **cross-review**：初审不设过滤门槛，先求全（第二节第 6 条）；互审后仍有分歧的条目不再停在 checker 之前，交给独立 checker 按证据裁决（第 7 条）。
 - **plan-cross-review**：checker 核查完处置结论后，在同一 session 里接着写 plan（第 2 条）；删掉作者自查和自确认两轮（第 5 条），改由一个看不到评审争论的新 session 独立验证终稿，只报告影响正确性或既定要求的缺口（第 3、4 条），checker 按报告修订，最多两轮（第 8 条）。正常路径从 8 次操作降到 7 次。
