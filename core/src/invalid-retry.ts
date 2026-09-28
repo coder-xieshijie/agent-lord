@@ -5,13 +5,18 @@
  * code+message fingerprint streak, and the cross-session `replacement_for`
  * lineage. Every retry operation is stamped with its root so a later
  * invocation against any failed member of the chain finds the same ledger.
- * Same-session retries replay through `turn` on the saved task; only after two
+ * Same-session retries run through `turn` on the saved task; only after two
  * consecutive identical fingerprints does the next retry start a new
- * task/session with the frozen contract. When the original failure never
- * published a durable task the same-session path is unavailable, and the
- * command refuses with a structured decision unless the caller explicitly
- * authorizes a replacement via `--replacement-task-id`. The `task_id` of the
- * failed chain is never rebound.
+ * task/session with the frozen contract. When the failed turn reached the
+ * model (its session was observed), the retry sends a short continuation
+ * instead of the original prompt: the session already holds the task and its
+ * progress, and a replayed prompt invites starting over. A failed Claude start
+ * never published a durable task; when its session was observed, the command
+ * publishes that task bound to the observed session and continues it there.
+ * Otherwise the same-session path is unavailable, and the command refuses with
+ * a structured decision unless the caller explicitly authorizes a replacement
+ * via `--replacement-task-id`. The `task_id` of the failed chain is never
+ * rebound to another session.
  */
 import {
   type Data,
@@ -30,6 +35,7 @@ import {
 import { AgentLordError, usageError } from "./errors.js";
 import { sha256 } from "./json.js";
 import { pidAlive } from "./process.js";
+import { claudeSessionObserved } from "./providers/claude-cli.js";
 import { StateStore, utcNow, validateIdentifier } from "./state.js";
 
 export const INVALID_RETRY_POLICY = "claude-result-invalid";
@@ -54,6 +60,7 @@ export interface RetryHost {
     opts?: StartOptions,
   ): Promise<Envelope>;
   envelope(op: Operation): Envelope;
+  ops: { taskRecord(op: Operation, endpoint: string, host: null): Task };
 }
 export interface InvalidRetryOptions {
   replacement_task_id?: string;
@@ -76,6 +83,9 @@ interface LedgerAttempt extends Data {
   replacement_for?: string;
   forced_new_session?: boolean;
   parallel_role?: string;
+  /** Absent in older ledgers, which always replayed the original prompt. */
+  prompt?: "continuation";
+  bound_session?: boolean;
 }
 interface Ledger extends Data {
   policy: typeof INVALID_RETRY_POLICY;
@@ -91,8 +101,36 @@ export function invalidRetryMessage(
   rootId: string,
   attempt: number,
   original: string,
+  continueAfter?: ErrorRecord,
 ): string {
-  return `[agent-lord-invalid-retry:${rootId}:${attempt}]\n${original}`;
+  const marker = `[agent-lord-invalid-retry:${rootId}:${attempt}]`;
+  return continueAfter
+    ? `${marker}\nYour previous turn in this session ended without a valid final response (${continueAfter.code}: ${continueAfter.message}). Continue the same task from where it stopped: check the conversation and the worktree, keep the work already done, finish what remains, and end with your final response.`
+    : `${marker}\n${original}`;
+}
+/** The failed turn reached the model: its Claude session produced events. */
+function sessionObserved(op: Operation): boolean {
+  return (
+    Boolean(op.endpoint_id) &&
+    (records(op.attempt_history).some((a) => a.session_observed === true) ||
+      claudeSessionObserved(op))
+  );
+}
+function attemptMessage(
+  store: StateStore,
+  root: Operation,
+  attempt: LedgerAttempt,
+): string {
+  const failure =
+    attempt.prompt === "continuation"
+      ? (store.operation(attempt.after_failure_operation_id).error ?? undefined)
+      : undefined;
+  return invalidRetryMessage(
+    root.operation_id,
+    attempt.attempt,
+    root.message,
+    failure,
+  );
 }
 function ledgerOf(value: Operation): Ledger {
   const raw = object(value.invalid_retry_ledger);
@@ -331,7 +369,15 @@ export async function retryResultInvalid(
     let mode: LedgerAttempt["mode"] =
       streak >= 2 ? "new-session" : "same-session";
     let forced = false;
-    if (mode === "same-session" && !durable) {
+    // A failed start whose session produced events is a trustworthy identity:
+    // continue that session rather than discard its progress.
+    const bind =
+      mode === "same-session" &&
+      !durable &&
+      !opts.replacement_task_id &&
+      failed.kind === "start" &&
+      sessionObserved(failed);
+    if (mode === "same-session" && !durable && !bind) {
       // A failed Claude start never published a durable task handle, so the
       // saved-session replay path cannot be used and the session identity
       // cannot be trusted for a same-endpoint retry. Missing identity is not
@@ -377,14 +423,19 @@ export async function retryResultInvalid(
       mode,
       task_id: attemptTask,
       after_failure_operation_id: operationId,
-      message_sha256: sha256(invalidRetryMessage(rootId, number, root.message)),
+      message_sha256: "",
       controller_pid: process.pid,
       dispatched_at: utcNow(),
       operation_id: null,
       ...(mode === "new-session" ? { replacement_for: chainTask } : {}),
       ...(forced ? { forced_new_session: true } : {}),
       ...(parallelRole ? { parallel_role: parallelRole } : {}),
+      ...(mode === "same-session" && sessionObserved(failed)
+        ? { prompt: "continuation" as const }
+        : {}),
+      ...(bind ? { bound_session: true } : {}),
     };
+    attempt.message_sha256 = sha256(attemptMessage(store, root, attempt));
     ledger.attempts.push(attempt);
     decision = { kind: "dispatch", attempt };
     value.invalid_retry_ledger = ledger;
@@ -427,7 +478,7 @@ export async function retryResultInvalid(
     );
   }
   const attempt = decision.attempt;
-  const message = invalidRetryMessage(rootId, attempt.attempt, root.message);
+  const message = attemptMessage(store, root, attempt);
   const chainTask = failed.task_id;
   const task = store.hasTask(chainTask) ? store.task(chainTask) : null;
   const delivery = root.delivery_requirements ?? null;
@@ -442,6 +493,17 @@ export async function retryResultInvalid(
   let envelope: Envelope;
   try {
     if (attempt.mode === "same-session") {
+      if (attempt.bound_session && !store.hasTask(chainTask)) {
+        store.createTask(
+          host.ops.taskRecord(failed, failed.endpoint_id!, null),
+        );
+        store.event(
+          chainTask,
+          "invalid-retry-session-bound",
+          { endpoint_id: failed.endpoint_id, root_operation_id: rootId },
+          operationId,
+        );
+      }
       envelope = await host.turn(chainTask, message, shared);
     } else {
       const contract = frozenContract(task, root);
@@ -603,6 +665,8 @@ export async function retryResultInvalid(
       : {}),
     ...(attempt.forced_new_session ? { forced_new_session: true } : {}),
     ...(attempt.parallel_role ? { parallel_role: attempt.parallel_role } : {}),
+    prompt: attempt.prompt ?? "original",
+    ...(attempt.bound_session ? { bound_session: true } : {}),
     ...(mismatched.length ? { contract_mismatch: mismatched } : {}),
   });
 }

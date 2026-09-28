@@ -12,7 +12,7 @@ Start with a single task, or choose a built-in pipeline:
 | -------------------------------------------- | --------------------------------------- | -------------------------------------------------------------------------- |
 | Check a change from independent perspectives | [Cross-review](#cross-review)           | Source-backed findings, mutual challenges, and an independent final audit  |
 | Rewrite a complete plan after cross-review   | [Plan-cross-review](#plan-cross-review) | Four CLI roles, a standalone plan, and independent verification            |
-| Implement a plan in order on one branch      | [Plan-to-implement](#plan-to-implement) | Consecutive fresh sessions, one final review, and one PR/MR per repository |
+| Implement a plan in order on one branch      | [Plan-to-implement](#plan-to-implement) | One session per plan stage, review plus acceptance run, one PR/MR per repo |
 
 [Quick start](#quick-start) · [Observer](#observer) · [Execution endpoints](#execution-endpoints) · [Documentation](#documentation)
 
@@ -84,14 +84,14 @@ The workflow delivers the plan, the disposition index, and the verifier's report
 
 Use this when you already have an implementation plan and want it carried out on one branch.
 
-> Use Agent Lord's plan-to-implement pipeline to implement this plan on the MR branch. Review the result against the plan and update the MR; do not merge it.
+> Use Agent Lord's plan-to-implement pipeline to implement this plan on the MR branch. Review the result against the plan, run the acceptance scenarios, and update the MR; do not merge it.
 
 [Full policy](references/pipelines/plan-to-implement.md)
 
-1. One **implementation role** works through consecutive **fresh sessions** on the delivery branch. Each session reads the plan, the branch history, and the previous session's final message, then decides how much to do and how to verify it.
-2. The main session starts each session from the head its predecessor left and passes that predecessor's final message on verbatim. It steps in only for a question to the user, uncommitted changes, or an execution error.
-3. When a session reports the plan complete, a fresh **reviewer** checks the branch against the plan. Each round's findings go to a new implementation session, then the same reviewer session checks again. After three reviews, any remaining findings are reported to you.
-4. Under your authorization, sessions push and open or update one PR/MR per repository, and the main session reads each one back. **The pipeline publishes PRs/MRs; it does not merge them.**
+1. Before any code, the **acceptance scenarios** are fixed: each requirement gets a scenario run from a real entry point (UI, CLI, or API) with an observable pass condition. They come from the plan when it has them, otherwise a fresh acceptance tester writes them from the plan and spec. The implementation cannot edit them.
+2. One **implementation role** works on the delivery branch, **one session per plan stage**. A stage is done when its checks pass and its work is committed; a session that stops early without a blocker is continued in the same session, at most twice.
+3. When the last stage is done, a fresh **reviewer** checks the branch against the plan while the **acceptance tester** runs every scenario on the same head and reports PASS, FAIL, or UNVERIFIED with evidence. Findings and failures go back to the last implementation session, then both check again. After three check rounds, anything still open is reported to you.
+4. Under your authorization, sessions push and open or update one PR/MR per repository, and the main session reads each one back. The report lists every requirement as PASS, FAIL, or UNVERIFIED. **The pipeline publishes PRs/MRs; it does not merge them.**
 
 ## Quick start
 

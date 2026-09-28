@@ -9,6 +9,7 @@ import {
   permissionModePolicy,
   resolveExecutionDefaults,
   resolveRetryPlan,
+  resultAlertCommand,
 } from "../src/config.js";
 import { canonicalPacketBytes, validateHandoffPacket } from "../src/handoff.js";
 import { type Data } from "../src/contracts.js";
@@ -208,17 +209,45 @@ describe("frozen configuration", () => {
       "model_context_window",
     );
   });
-  it("legacy configurations receive supervision defaults and checkpoint keeps 120 seconds", () => {
+  it("legacy configurations receive supervision defaults and checkpoint waits 600 seconds", () => {
     const file = path.join(h.base, "providers.json");
     const config = JSON.parse(readFileSync(file, "utf8"));
     delete config.control.claude_stall_seconds;
     delete config.control.mcode_progress_poll_interval_ms;
+    delete config.control.result_alert_seconds;
     writeFileSync(file, JSON.stringify(config));
     expect(controlConfig()).toMatchObject({
-      checkpoint_seconds: 120,
+      checkpoint_seconds: 600,
       claude_stall_seconds: 900,
       mcode_progress_poll_interval_ms: 100,
+      result_alert_seconds: 1800,
     });
+    config.control.result_alert_seconds = -1;
+    writeFileSync(file, JSON.stringify(config));
+    expect(() => controlConfig()).toThrow("non-negative");
+  });
+  it("resolves the unreceived-result alert command", () => {
+    const file = path.join(h.base, "providers.json");
+    const config = JSON.parse(readFileSync(file, "utf8"));
+    expect(config.result_alert_command).toBeNull();
+    expect(resultAlertCommand("darwin")![0]).toBe("osascript");
+    expect(resultAlertCommand("linux")).toBeNull();
+    config.result_alert_command = ["notify", "--urgent"];
+    writeFileSync(file, JSON.stringify(config));
+    expect(resultAlertCommand("linux")).toEqual(["notify", "--urgent"]);
+    vi.stubEnv(
+      "AGENT_LORD_RESULT_ALERT_COMMAND",
+      'say "$AGENT_LORD_ALERT_MESSAGE"',
+    );
+    expect(resultAlertCommand("linux")).toEqual([
+      "/bin/sh",
+      "-c",
+      'say "$AGENT_LORD_ALERT_MESSAGE"',
+    ]);
+    vi.stubEnv("AGENT_LORD_RESULT_ALERT_COMMAND", "");
+    config.result_alert_command = "notify";
+    writeFileSync(file, JSON.stringify(config));
+    expect(() => resultAlertCommand("linux")).toThrow("result_alert_command");
   });
   it("model aliases permit versioned IDs without accepting another version", () => {
     expect(expectedModelMatches("opus[1m]", "claude-opus-5")).toBe(true);

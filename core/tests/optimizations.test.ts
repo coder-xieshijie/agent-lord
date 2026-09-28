@@ -316,12 +316,21 @@ describe("O2: scripted Claude RESULT_INVALID retry", () => {
     await expect(
       retryResultInvalid(h.lord, "task", r1.operation_id),
     ).rejects.toMatchObject({ code: "RESULT_INVALID" });
+    // r1 reached the model, so the second retry continues that session with
+    // a short instruction instead of replaying the original prompt.
     const r2 = h.lord.store
       .operations("task")
       .find(
         (op) =>
-          op.message === invalidRetryMessage("fail-1", 2, "authorized work"),
+          op.message ===
+          invalidRetryMessage("fail-1", 2, "authorized work", r1.error!),
       )!;
+    expect(r2.message).toContain("ended without a valid final response");
+    expect(r2.message).not.toContain("authorized work");
+    expect(object(r2.invalid_retry)).toMatchObject({
+      attempt: 2,
+      mode: "same-session",
+    });
     // Streak of two identical fingerprints: next retry must replace the session.
     h.options({});
     const final = await retryResultInvalid(h.lord, "task", r2.operation_id);
@@ -350,11 +359,12 @@ describe("O2: scripted Claude RESULT_INVALID retry", () => {
       await expect(
         retryResultInvalid(h.lord, failedTask, failedId),
       ).rejects.toMatchObject({ code: "RESULT_INVALID" });
-      const message = invalidRetryMessage("fail-1", attempt, "authorized work");
       failedTask = attempt >= 3 ? "task-r3" : "task";
       failedId = h.lord.store
         .operations(failedTask)
-        .find((op) => op.message === message)!.operation_id;
+        .find(
+          (op) => object(op.invalid_retry).attempt === attempt,
+        )!.operation_id;
     }
     await expect(
       retryResultInvalid(h.lord, failedTask, failedId),
@@ -589,34 +599,87 @@ describe("O2: scripted Claude RESULT_INVALID retry", () => {
     expect(second.mode).toBe("new-session");
     expect(h.lord.store.hasTask(String(second.task_id))).toBe(false);
     // The replacement's failure is the first fingerprint of the new session:
-    // the reset streak selects the same-session route, which lacks a durable
-    // task and must therefore require explicit replacement authorization
-    // instead of silently opening yet another session.
+    // the reset streak selects the same-session route. That start never
+    // published a task, but its session was observed, so the retry binds it
+    // and continues there instead of opening yet another session.
+    h.options({});
+    const replacementStart = h.lord.store.operation(
+      String(second.operation_id),
+    );
+    const bound = await retryResultInvalid(
+      h.lord,
+      String(second.task_id),
+      String(second.operation_id),
+    );
+    expect(bound.status).toBe("SUCCEEDED");
+    expect(object(bound.invalid_retry as Data)).toMatchObject({
+      root_operation_id: rootId,
+      attempt: 3,
+      mode: "same-session",
+      prompt: "continuation",
+      bound_session: true,
+    });
+    expect(h.lord.store.task(String(second.task_id)).endpoint_id).toBe(
+      replacementStart.endpoint_id,
+    );
+    expect(h.calls().at(-1)!.args).toEqual(
+      expect.arrayContaining(["--resume", replacementStart.endpoint_id]),
+    );
+  });
+  it("a failed start whose session was observed continues that session", async () => {
+    h.options({ missingTerminal: true });
     await expect(
-      retryResultInvalid(
-        h.lord,
-        String(second.task_id),
-        String(second.operation_id),
-      ),
+      h.lord.start("planner", "claude-cli", h.target, "write the plan", {
+        retry_attempts: 1,
+      }),
+    ).rejects.toMatchObject({ code: "RESULT_INVALID" });
+    const failed = h.lord.store.operations("planner")[0]!;
+    expect(h.lord.store.hasTask("planner")).toBe(false);
+    h.options({});
+    const retry = await retryResultInvalid(
+      h.lord,
+      "planner",
+      failed.operation_id,
+    );
+    expect(retry.status).toBe("SUCCEEDED");
+    expect(object(retry.invalid_retry as Data)).toMatchObject({
+      attempt: 1,
+      mode: "same-session",
+      prompt: "continuation",
+      bound_session: true,
+    });
+    expect(h.lord.store.task("planner").endpoint_id).toBe(failed.endpoint_id);
+    const last = h.calls().at(-1)!;
+    expect(last.args).toEqual(
+      expect.arrayContaining(["--resume", failed.endpoint_id]),
+    );
+    expect(last.prompt).toContain("ended without a valid final response");
+    expect(last.prompt).not.toContain("write the plan");
+    // Re-running the command returns the same retry instead of dispatching again.
+    const again = await retryResultInvalid(
+      h.lord,
+      "planner",
+      failed.operation_id,
+    );
+    expect(again.operation_id).toBe(retry.operation_id);
+    expect(h.calls()).toHaveLength(2);
+  });
+  it("a failed start whose session never produced output still needs an explicit replacement", async () => {
+    h.options({ missingTerminal: true, silent: true });
+    await expect(
+      h.lord.start("planner", "claude-cli", h.target, "write the plan", {
+        retry_attempts: 1,
+      }),
+    ).rejects.toMatchObject({ code: "RESULT_INVALID" });
+    const failed = h.lord.store.operations("planner")[0]!;
+    await expect(
+      retryResultInvalid(h.lord, "planner", failed.operation_id),
     ).rejects.toMatchObject({
       code: "RECOVERY_UNAVAILABLE",
       requires_authorization: true,
     });
-    expect(ledger()).toHaveLength(2); // the refusal consumed no budget
-    h.options({});
-    const authorized = await retryResultInvalid(
-      h.lord,
-      String(second.task_id),
-      String(second.operation_id),
-      { replacement_task_id: "task-authorized" },
-    );
-    expect(authorized.status).toBe("SUCCEEDED");
-    expect(object(authorized.invalid_retry as Data)).toMatchObject({
-      root_operation_id: rootId,
-      attempt: 3,
-      mode: "new-session",
-      forced_new_session: true,
-    });
+    expect(h.lord.store.hasTask("planner")).toBe(false);
+    expect(h.calls()).toHaveLength(1);
   });
   it("only a terminal claude-cli RESULT_INVALID failure qualifies", async () => {
     const ok = await h.lord.start("task", "claude-cli", h.target, "work");
