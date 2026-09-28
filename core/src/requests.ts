@@ -19,7 +19,7 @@ import {
   withAsyncLock,
   withLock,
 } from "./state.js";
-import { leaseId } from "./workspace-claims.js";
+import { leaseId } from "./workspace.js";
 
 /**
  * Requests lock in their own namespace: lock files are keyed by id alone, so

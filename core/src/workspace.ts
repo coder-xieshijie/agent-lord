@@ -28,13 +28,9 @@ import {
   sharedLocksSupported,
   validateIdentifier,
 } from "./state.js";
-import {
-  claimConflictError,
-  claimForBranch,
-  claimForTarget,
-  leaseId,
-} from "./workspace-claims.js";
-export { leaseId };
+export function leaseId(prefix: string, value: string): string {
+  return `${prefix}-${sha256(value).slice(0, 32)}`;
+}
 export function git(
   repository: string,
   args: string[],
@@ -447,7 +443,6 @@ export class WorkspaceManager {
     readOnly: boolean,
     workspace: Workspace,
     exclude?: string,
-    owner?: string,
   ): Lease {
     const identity = targetIdentity(target);
     const leases: Lease[] = [];
@@ -488,10 +483,6 @@ export class WorkspaceManager {
         );
       }
       if (readOnly) return { release };
-      // Checked while this worktree's write lease is held, so a claim cannot
-      // be created in the window between observing none and owning the lock.
-      const targetClaim = claimForTarget(this.store.root, owner, identity);
-      if (targetClaim) throw claimConflictError(targetClaim);
       const identities = new Map<string, string>();
       const unfenced = this.store.operations().find((op) => {
         if (
@@ -540,15 +531,6 @@ export class WorkspaceManager {
             { repository: workspace.repository, branch },
           );
         }
-        // Same ordering as a claim acquisition, so the branch dimension is
-        // decided by whoever holds this lock rather than by check ordering.
-        const branchClaim = claimForBranch(
-          this.store.root,
-          owner,
-          repositoryIdentity(workspace.repository),
-          branch,
-        );
-        if (branchClaim) throw claimConflictError(branchClaim);
       }
       return { release };
     } catch (error) {

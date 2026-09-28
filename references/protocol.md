@@ -3,7 +3,7 @@
 The deterministic contract is split by concern:
 
 - **This file** — result envelopes, invocation metadata, declared inputs, state ownership, execution contracts, source and workspace verification, error taxonomy, and recovery semantics.
-- **[supervision.md](supervision.md)** — multi-task checkpoint supervision, persistent task sets, durable plan runs, durable workspace claims, and the passive request inbox.
+- **[supervision.md](supervision.md)** — multi-task checkpoint supervision, persistent task sets, and the passive request inbox.
 - **[transports.md](transports.md)** — provider transport details for Codex CLI, Codex App, and MCode.
 
 Ordinary single-task `RUNNING` supervision follows the loop in [SKILL.md](../SKILL.md).

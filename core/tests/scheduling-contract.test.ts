@@ -194,6 +194,26 @@ describe("frozen node provenance", () => {
     },
   );
 
+  it("adds plan-to-implement sessions to the run as the loop advances", () => {
+    const sets = new TaskSets(h.lord);
+    const source = { kind: "pipeline", reference: "plan-to-implement" };
+    const session = { role: "implementation-session", source };
+    const reviewer = { role: "final-reviewer", source };
+    sets.create(
+      "serial",
+      ["s1", "review"],
+      false,
+      workflowNodes({ s1: session, review: reviewer }),
+    );
+    sets.create("serial", ["s2"], true, workflowNodes({ s2: session }));
+    const run = sets.status("serial").run as any;
+    expect(run.task_ids).toEqual(["review", "s1", "s2"]);
+    expect(run.tasks.find((t: any) => t.task_id === "s2").node).toEqual(
+      session,
+    );
+    expect(h.calls()).toHaveLength(0);
+  });
+
   it("rejects new handoff pipeline registrations while existing runs remain readable and resumable", async () => {
     const sets = new TaskSets(h.lord);
     const retired = {

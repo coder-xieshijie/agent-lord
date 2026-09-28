@@ -56,7 +56,6 @@ import { operationResultKey } from "./result-key.js";
 import { inspectInputs, sameInputs } from "./inputs.js";
 import { resolveInvocation } from "./invocation.js";
 import { workflowNodes } from "./workflow-nodes.js";
-import { PlanRuns } from "./plan.js";
 import { deliveryRequirements, sameDeliveryRequest } from "./delivery.js";
 import { writeArtifact } from "./artifacts.js";
 import {
@@ -124,15 +123,6 @@ export class AgentLord {
     opts: StartOptions = {},
   ): Promise<Envelope> {
     validateIdentifier("task_id", taskId);
-    const planned = new PlanRuns(this).executionContract(
-      taskId,
-      opts,
-      rawTarget,
-    );
-    if (planned) {
-      opts = planned;
-      rawTarget = null;
-    }
     const requestId = opts.request_id
       ? validateIdentifier("request_id", opts.request_id)
       : undefined;
@@ -398,13 +388,7 @@ export class AgentLord {
             );
           }
           if (cli)
-            writes = this.workspaces.writeLeases(
-              target!,
-              readOnly,
-              workspace!,
-              undefined,
-              taskId,
-            );
+            writes = this.workspaces.writeLeases(target!, readOnly, workspace!);
           if (repository) {
             const takeover = Boolean(opts.takeover);
             target = this.workspaces.prepare(
@@ -463,16 +447,13 @@ export class AgentLord {
               ...(provider === "claude-cli"
                 ? { endpoint_id: randomUUID() }
                 : {}),
-              delivery_requirements: new PlanRuns(this).executionDelivery(
-                taskId,
-                deliveryRequirements(
-                  target!,
-                  opts.required_files,
-                  Boolean(opts.require_commit),
-                  // A takeover keeps the lineage root's delivery base so the
-                  // adopted commits still count as this lineage's delivery.
-                  opts.takeover ? opts.delivery_base_head : undefined,
-                ),
+              delivery_requirements: deliveryRequirements(
+                target!,
+                opts.required_files,
+                Boolean(opts.require_commit),
+                // A takeover keeps the lineage root's delivery base so the
+                // adopted commits still count as this lineage's delivery.
+                opts.takeover ? opts.delivery_base_head : undefined,
               ),
               input_evidence: inputEvidence,
               resume: false,
@@ -658,21 +639,9 @@ export class AgentLord {
               "task_id already has a durable endpoint",
               { details: { task_id: taskId }, exit_code: 2 },
             );
-          if (new PlanRuns(this).executionDelivery(taskId, null))
-            throw new AgentLordError(
-              "PLAN_BARRIER",
-              "plan roles must use start after role registration, not a handoff contract",
-              { exit_code: 2 },
-            );
           verifyCheckout(target, source);
           const snapshot = snapshotExactTarget(target);
-          writes = this.workspaces.writeLeases(
-            target,
-            readOnly,
-            workspace,
-            undefined,
-            taskId,
-          );
+          writes = this.workspaces.writeLeases(target, readOnly, workspace);
           const id = this.ops.operationId(taskId, "handoff");
           if (provider === "claude-cli")
             controller = recordLock(
@@ -776,8 +745,6 @@ export class AgentLord {
     } = {},
   ): Promise<Envelope> {
     validateIdentifier("task_id", taskId);
-    if (new PlanRuns(this).executionDelivery(taskId, null)?.require_commit)
-      opts = { ...opts, require_commit: true };
     const requestId = opts.request_id
       ? validateIdentifier("request_id", opts.request_id)
       : undefined;
@@ -896,8 +863,6 @@ export class AgentLord {
               task.target,
               contract.read_only,
               workspace,
-              undefined,
-              task.task_id,
             );
           }
           const expected = this.ops.expected(
@@ -944,16 +909,13 @@ export class AgentLord {
               input_evidence: inputEvidence,
               resume: true,
               ...(continuation ? { continuation } : {}),
-              delivery_requirements: new PlanRuns(this).executionDelivery(
-                taskId,
-                opts.recovery_from
-                  ? delivery
-                  : deliveryRequirements(
-                      task.target,
-                      opts.required_files,
-                      Boolean(opts.require_commit),
-                    ),
-              ),
+              delivery_requirements: opts.recovery_from
+                ? (delivery ?? null)
+                : deliveryRequirements(
+                    task.target,
+                    opts.required_files,
+                    Boolean(opts.require_commit),
+                  ),
             },
           );
           if (continuation)
@@ -1080,7 +1042,6 @@ export class AgentLord {
             current.read_only,
             current.workspace ?? { policy: "exact-target" },
             id,
-            current.task_id,
           );
           const branch =
             current.workspace?.workspace_branch ??
