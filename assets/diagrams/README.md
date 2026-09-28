@@ -14,7 +14,7 @@ Interactive HTML viewers (theme switching, zoom, relationship tracing, export) a
 The diagrams were checked against repository revision `1c76e25d6dbc4e840a779aa8ebc2b12b9bbc71b7`:
 
 - Overview: [scheduling ownership](../../SKILL.md#scheduling-ownership), [runtime protocol](../../references/protocol.md), [engine](../../core/src/engine.ts), and [Observer](../../observer/README.md).
-- Cross-review: [pipeline policy](../../references/pipelines/cross-review.md). “Two independent reviews” and “mutual cross-exam” each represent a concurrent pair, not one shared reviewer session. The checker is a separate new session.
+- Cross-review: [pipeline policy](../../references/pipelines/cross-review.md). “Two independent reviews” and “mutual cross-exam” each represent a concurrent pair, not one shared reviewer session. The checker is a separate new session and also settles rows the reviewers left unresolved. Regenerated on 2026-09-28 from base revision `cf06465` for that policy change.
 
 The diagrams summarize responsibilities and barriers. Policies and runtime code retain the full failure/recovery contracts. The common contract is shared infrastructure, not a named pipeline.
 

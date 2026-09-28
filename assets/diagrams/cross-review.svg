@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg viewBox="0 0 1228 652" role="img" lang="zh-CN" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase" style="" width="1228" height="652" xmlns="http://www.w3.org/2000/svg"><style>
+<svg viewBox="0 0 1228 528" role="img" lang="zh-CN" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase" style="" width="1228" height="528" xmlns="http://www.w3.org/2000/svg"><style>
 /*
 JetBrains Mono variable WOFF2 subsets from Google Fonts service revision v24.
 These fixed bytes are shared by the viewer and its SVG/raster exports.
@@ -448,11 +448,7 @@ rect.c-bg-rect { fill: var(--bg); }
         <text x="54" y="198" class="t-dim" font-size="10" font-weight="600">02 / 独立复核与交付</text>
 
         <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-2" x="40" y="300" width="1160" height="104" rx="10" class="c-lane" stroke-width="1"/>
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="exception-lane" data-composition-frame-id="lane-2-exception" x="46" y="306" width="1148" height="92" rx="8" class="c-security-group" stroke-width="1"/>
-        <text x="54" y="322" class="t-security" font-size="10" font-weight="600">EX / 未决项出口</text>
-
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-3" x="40" y="424" width="1160" height="104" rx="10" class="c-lane" stroke-width="1"/>
-        <text x="54" y="446" class="t-dim" font-size="10" font-weight="600">04 / 审查报告</text>
+        <text x="54" y="322" class="t-dim" font-size="10" font-weight="600">03 / 审查报告</text>
 
         <!-- Phase headers -->
 
@@ -461,12 +457,11 @@ rect.c-bg-rect { fill: var(--bg); }
 
 
         <!-- Edge paths -->
-        <path data-edge-from="checker" data-edge-to="result" data-edge-label="独立审计已核验" data-edge-key="0" data-edge-id="checker-result" data-composition-points="982.0000000000001,243;1212,243;1212,491;982.0000000000001,491" d="M 982.0000000000001 243 L 1212 243 L 1212 491 L 982.0000000000001 491" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="checker" data-edge-to="result" data-edge-label="每项均有复核结论" data-edge-key="0" data-edge-id="checker-result" data-composition-points="982.0000000000001,243;1212,243;1212,367;982.0000000000001,367" d="M 982.0000000000001 243 L 1212 243 L 1212 367 L 982.0000000000001 367" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <path data-edge-from="exchange" data-edge-to="ledger" data-edge-label="证据、严重度、最小修复" data-edge-key="1" data-edge-id="exchange-ledger" data-composition-points="698.4000000000001,119;822.0000000000001,119" d="M 698.4000000000001 119 L 822.0000000000001 119" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
         <path data-edge-from="initial" data-edge-to="exchange" data-edge-label="两份初审均已核验" data-edge-key="2" data-edge-id="initial-exchange" data-composition-points="443.6,119;538.4000000000001,119" d="M 443.6 119 L 538.4000000000001 119" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="ledger" data-edge-to="checker" data-edge-label="无未决项" data-edge-key="3" data-edge-id="ledger-checker" data-composition-points="982.0000000000001,119;998.0000000000001,119;998.0000000000001,166;902.0000000000001,166;902.0000000000001,217" d="M 982.0000000000001 119 L 998.0000000000001 119 L 998.0000000000001 166 L 902.0000000000001 166 L 902.0000000000001 217" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="ledger" data-edge-to="stop" data-edge-label="仍有分歧" data-edge-key="4" data-edge-id="ledger-stop" data-composition-points="822.0000000000001,119;806.0000000000001,119;806.0000000000001,420;902.0000000000001,420;902.0000000000001,393" d="M 822.0000000000001 119 L 806.0000000000001 119 L 806.0000000000001 420 L 902.0000000000001 420 L 902.0000000000001 393" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="pin" data-edge-to="initial" data-edge-label="同一验收口径" data-edge-key="5" data-edge-id="pin-initial" data-composition-points="208,119;283.6,119" d="M 208 119 L 283.6 119" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="ledger" data-edge-to="checker" data-edge-label="含未决项，一并交复核" data-edge-key="3" data-edge-id="ledger-checker" data-composition-points="982.0000000000001,119;998.0000000000001,119;998.0000000000001,166;902.0000000000001,166;902.0000000000001,217" d="M 982.0000000000001 119 L 998.0000000000001 119 L 998.0000000000001 166 L 902.0000000000001 166 L 902.0000000000001 217" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="pin" data-edge-to="initial" data-edge-label="同一验收口径" data-edge-key="4" data-edge-id="pin-initial" data-composition-points="208,119;283.6,119" d="M 208 119 L 283.6 119" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
 
         <!-- Nodes -->
         <g id="node-pin" data-node-id="pin" data-node-label="固定审查范围" tabindex="0" role="button" aria-label="聚焦固定审查范围，同一 head / base SHA, 固定源码与双向审查" aria-pressed="false" data-node-kind="database" data-node-sublabel="同一 head / base SHA" data-node-context="固定源码与双向审查">
@@ -515,47 +510,35 @@ rect.c-bg-rect { fill: var(--bg); }
           <text x="902.0000000000001" y="131" class="t-muted" font-size="8" text-anchor="middle">可选一轮，仅处理分歧</text>
         </g>
 
-        <g id="node-checker" data-node-id="checker" data-node-label="独立 MCode 复核" tabindex="0" role="button" aria-label="聚焦独立 MCode 复核，全新 Session，去共识标签, 独立复核与交付" aria-pressed="false" data-node-kind="backend" data-node-sublabel="全新 Session，去共识标签" data-node-context="独立复核与交付">
-          <title>独立 MCode 复核 · 全新 Session，去共识标签 · 独立复核与交付</title>
+        <g id="node-checker" data-node-id="checker" data-node-label="独立 MCode 复核" tabindex="0" role="button" aria-label="聚焦独立 MCode 复核，全新 Session，逐项独立裁决, 独立复核与交付" aria-pressed="false" data-node-kind="backend" data-node-sublabel="全新 Session，逐项独立裁决" data-node-context="独立复核与交付">
+          <title>独立 MCode 复核 · 全新 Session，逐项独立裁决 · 独立复核与交付</title>
           <rect x="822.0000000000001" y="217" width="160" height="52" rx="6" class="c-mask"/>
           <rect x="822.0000000000001" y="217" width="160" height="52" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(828.0000000000001 223) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
           <text data-node-label="" x="902.0000000000001" y="238" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">独立 MCode 复核</text>
-          <text x="902.0000000000001" y="255" class="t-muted" font-size="8" text-anchor="middle">全新 Session，去共识标签</text>
-        </g>
-
-        <g id="node-stop" data-node-id="stop" data-node-label="保留分歧并停止" tabindex="0" role="button" aria-label="聚焦保留分歧并停止，UNRESOLVED, 未决项出口" aria-pressed="false" data-node-kind="external" data-node-sublabel="UNRESOLVED" data-node-context="未决项出口">
-          <title>保留分歧并停止 · UNRESOLVED · 未决项出口</title>
-          <rect x="822.0000000000001" y="341" width="160" height="52" rx="6" class="c-mask"/>
-          <rect x="822.0000000000001" y="341" width="160" height="52" rx="6" class="c-external" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(828.0000000000001 347) scale(0.6875)">
-            <rect x="2.5" y="5" width="8.5" height="8" rx="1.5"/>
-            <path d="M8 2.5h5.5V8M13.5 2.5 7.5 8.5"/>
-          </g>
-          <text data-node-label="" x="902.0000000000001" y="362" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">保留分歧并停止</text>
-          <text x="902.0000000000001" y="379" class="t-muted" font-size="8" text-anchor="middle">UNRESOLVED</text>
+          <text x="902.0000000000001" y="255" class="t-muted" font-size="8" text-anchor="middle">全新 Session，逐项独立裁决</text>
         </g>
 
         <g id="node-result" data-node-id="result" data-node-label="交付审查结论" tabindex="0" role="button" aria-label="聚焦交付审查结论，流程状态与代码结论分列, 审查报告" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="流程状态与代码结论分列" data-node-context="审查报告">
           <title>交付审查结论 · 流程状态与代码结论分列 · 审查报告</title>
-          <rect x="822.0000000000001" y="465" width="160" height="52" rx="6" class="c-mask"/>
-          <rect x="822.0000000000001" y="465" width="160" height="52" rx="6" class="c-frontend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(828.0000000000001 471) scale(0.6875)">
+          <rect x="822.0000000000001" y="341" width="160" height="52" rx="6" class="c-mask"/>
+          <rect x="822.0000000000001" y="341" width="160" height="52" rx="6" class="c-frontend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(828.0000000000001 347) scale(0.6875)">
             <rect x="2" y="3" width="12" height="10" rx="2"/>
             <path d="M2 6.5h12"/>
             <circle cx="4.1" cy="4.8" r=".7" class="sigil-fill"/>
             <circle cx="6.3" cy="4.8" r=".7" class="sigil-fill"/>
           </g>
-          <text data-node-label="" x="902.0000000000001" y="486" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">交付审查结论</text>
-          <text x="902.0000000000001" y="503" class="t-muted" font-size="8" text-anchor="middle">流程状态与代码结论分列</text>
+          <text data-node-label="" x="902.0000000000001" y="362" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">交付审查结论</text>
+          <text x="902.0000000000001" y="379" class="t-muted" font-size="8" text-anchor="middle">流程状态与代码结论分列</text>
         </g>
 
         <!-- Edge labels -->
-        <g data-edge-from="checker" data-edge-to="result" data-edge-label="独立审计已核验" data-edge-key="0" data-edge-id="checker-result">
-          <rect x="1058.4" y="223" width="77.2" height="14" rx="3" class="c-mask"/>
-          <text x="1097" y="233" class="t-muted" font-size="8" text-anchor="middle">独立审计已核验</text>
+        <g data-edge-from="checker" data-edge-to="result" data-edge-label="每项均有复核结论" data-edge-key="0" data-edge-id="checker-result">
+          <rect x="1053.6" y="223" width="86.8" height="14" rx="3" class="c-mask"/>
+          <text x="1097" y="233" class="t-muted" font-size="8" text-anchor="middle">每项均有复核结论</text>
         </g>
         <g data-edge-from="exchange" data-edge-to="ledger" data-edge-label="证据、严重度、最小修复" data-edge-key="1" data-edge-id="exchange-ledger">
           <rect x="702.4000000000001" y="99" width="115.6" height="14" rx="3" class="c-mask"/>
@@ -565,41 +548,33 @@ rect.c-bg-rect { fill: var(--bg); }
           <rect x="447.6000000000001" y="99" width="86.8" height="14" rx="3" class="c-mask"/>
           <text x="491.00000000000006" y="109" class="t-muted" font-size="8" text-anchor="middle">两份初审均已核验</text>
         </g>
-        <g data-edge-from="ledger" data-edge-to="checker" data-edge-label="无未决项" data-edge-key="3" data-edge-id="ledger-checker">
-          <rect x="925.8000000000001" y="146" width="48.4" height="14" rx="3" class="c-mask"/>
-          <text x="950.0000000000001" y="156" class="t-muted" font-size="8" text-anchor="middle">无未决项</text>
+        <g data-edge-from="ledger" data-edge-to="checker" data-edge-label="含未决项，一并交复核" data-edge-key="3" data-edge-id="ledger-checker">
+          <rect x="897.0000000000001" y="146" width="106" height="14" rx="3" class="c-mask"/>
+          <text x="950.0000000000001" y="156" class="t-muted" font-size="8" text-anchor="middle">含未决项，一并交复核</text>
         </g>
-        <g data-edge-from="ledger" data-edge-to="stop" data-edge-label="仍有分歧" data-edge-key="4" data-edge-id="ledger-stop">
-          <rect x="829.8000000000001" y="400" width="48.4" height="14" rx="3" class="c-mask"/>
-          <text x="854.0000000000001" y="410" class="t-muted" font-size="8" text-anchor="middle">仍有分歧</text>
-        </g>
-        <g data-edge-from="pin" data-edge-to="initial" data-edge-label="同一验收口径" data-edge-key="5" data-edge-id="pin-initial">
+        <g data-edge-from="pin" data-edge-to="initial" data-edge-label="同一验收口径" data-edge-key="4" data-edge-id="pin-initial">
           <rect x="212" y="99" width="67.6" height="14" rx="3" class="c-mask"/>
           <text x="245.8" y="109" class="t-muted" font-size="8" text-anchor="middle">同一验收口径</text>
         </g>
 
         <!-- Legend -->
         <g data-legend="">
-          <text x="20" y="552" class="t-primary" font-size="12" font-weight="650">图例</text>
-          <g data-legend-semantic-kind="frontend" data-legend-x="20" data-legend-baseline="572" data-legend-width="78">
-            <rect x="20" y="564" width="14" height="9" rx="2" class="c-frontend" stroke-width="1"/>
-            <text x="42" y="572" class="t-muted" font-size="7.5" font-weight="500">用户界面</text>
+          <text x="20" y="428" class="t-primary" font-size="12" font-weight="650">图例</text>
+          <g data-legend-semantic-kind="frontend" data-legend-x="20" data-legend-baseline="448" data-legend-width="78">
+            <rect x="20" y="440" width="14" height="9" rx="2" class="c-frontend" stroke-width="1"/>
+            <text x="42" y="448" class="t-muted" font-size="7.5" font-weight="500">用户界面</text>
           </g>
-          <g data-legend-semantic-kind="backend" data-legend-x="105" data-legend-baseline="572" data-legend-width="87">
-            <rect x="105" y="564" width="14" height="9" rx="2" class="c-backend" stroke-width="1"/>
-            <text x="127" y="572" class="t-muted" font-size="7.5" font-weight="500">Agent 逻辑</text>
+          <g data-legend-semantic-kind="backend" data-legend-x="105" data-legend-baseline="448" data-legend-width="87">
+            <rect x="105" y="440" width="14" height="9" rx="2" class="c-backend" stroke-width="1"/>
+            <text x="127" y="448" class="t-muted" font-size="7.5" font-weight="500">Agent 逻辑</text>
           </g>
-          <g data-legend-semantic-kind="security" data-legend-x="199" data-legend-baseline="572" data-legend-width="61">
-            <rect x="199" y="564" width="14" height="9" rx="2" class="c-security" stroke-width="1"/>
-            <text x="221" y="572" class="t-muted" font-size="7.5" font-weight="500">策略</text>
+          <g data-legend-semantic-kind="security" data-legend-x="199" data-legend-baseline="448" data-legend-width="61">
+            <rect x="199" y="440" width="14" height="9" rx="2" class="c-security" stroke-width="1"/>
+            <text x="221" y="448" class="t-muted" font-size="7.5" font-weight="500">策略</text>
           </g>
-          <g data-legend-semantic-kind="database" data-legend-x="267" data-legend-baseline="572" data-legend-width="100">
-            <rect x="267" y="564" width="14" height="9" rx="2" class="c-database" stroke-width="1"/>
-            <text x="289" y="572" class="t-muted" font-size="7.5" font-weight="500">上下文 / 追踪</text>
-          </g>
-          <g data-legend-semantic-kind="external" data-legend-x="374" data-legend-baseline="572" data-legend-width="78">
-            <rect x="374" y="564" width="14" height="9" rx="2" class="c-external" stroke-width="1"/>
-            <text x="396" y="572" class="t-muted" font-size="7.5" font-weight="500">外部系统</text>
+          <g data-legend-semantic-kind="database" data-legend-x="267" data-legend-baseline="448" data-legend-width="100">
+            <rect x="267" y="440" width="14" height="9" rx="2" class="c-database" stroke-width="1"/>
+            <text x="289" y="448" class="t-muted" font-size="7.5" font-weight="500">上下文 / 追踪</text>
           </g>
         </g>
       </svg>

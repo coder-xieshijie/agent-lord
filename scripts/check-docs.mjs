@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // Documentation gates for CI:
 // 1. Every relative link and anchor in tracked Markdown files resolves.
+//    Archived third-party originals keep their links as published, so
+//    links inside them are not checked; anchors pointing into them are.
 // 2. SKILL.md stays under its size budget (agents load it whole into
 //    context, so growth is a regression).
 // Zero dependencies; run with `node scripts/check-docs.mjs` from anywhere
@@ -12,6 +14,12 @@ import path from "node:path";
 // Bytes. Ratchet this DOWN as SKILL.md slims; never raise it casually —
 // the whole file ships into every agent context that loads the skill.
 const SIZE_BUDGETS = { "SKILL.md": 46080 };
+
+// Archived copies of official source documents (see references/design/sources/README.md).
+const ARCHIVED_ORIGINALS = [
+  "references/design/sources/anthropic/",
+  "references/design/sources/openai/",
+];
 
 const root = execFileSync("git", ["rev-parse", "--show-toplevel"], {
   encoding: "utf8",
@@ -95,6 +103,7 @@ const LINK =
   /!?\[[^\]]*\]\(([^()\s]+(?:\([^()]*\)[^()\s]*)?)(?:\s+"[^"]*")?\)/g;
 
 for (const file of files) {
+  if (ARCHIVED_ORIGINALS.some((prefix) => file.startsWith(prefix))) continue;
   const stripped = stripCode(contents.get(file));
   const lines = stripped.split("\n");
   lines.forEach((line, index) => {

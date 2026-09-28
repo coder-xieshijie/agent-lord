@@ -11,7 +11,7 @@
 | 你想完成什么               | Pipeline                                       | 最终得到什么                                        |
 | -------------------------- | ---------------------------------------------- | --------------------------------------------------- |
 | 从独立视角审查一份改动     | [交叉审查](#交叉审查cross-review)              | 有源码证据的发现、双向质证和独立终审                |
-| 交叉审查后重写完整方案     | [方案交叉审查](#方案交叉审查plan-cross-review) | 四个 CLI 角色、完整 plan、作者逐项自查              |
+| 交叉审查后重写完整方案     | [方案交叉审查](#方案交叉审查plan-cross-review) | 四个 CLI 角色、完整 plan、独立验证                  |
 | 在一条分支上按顺序实现计划 | [计划到实现](#计划到实现plan-to-implement)     | 连续的新 session、一次最终 review、每仓库一个 PR/MR |
 
 [快速开始](#快速开始) · [Observer](#observer) · [支持的执行端](#支持的执行端) · [文档导航](#文档导航)
@@ -38,14 +38,14 @@ Codex App 任务由主会话通过宿主工具派发，Observer 展示其任务�
 
 > 使用 Agent Lord 的 cross-review pipeline，审查当前分支相对 main 的改动。保持源码和 HEAD 不变，返回经过核验的问题及源码位置。
 
-![交叉审查流程：独立初审、并发互审、有界收敛、新 MCode 会话独立复核](assets/diagrams/cross-review.svg)
+![交叉审查流程：独立初审、并发互审、有界收敛、新 MCode 会话独立复核并裁决分歧](assets/diagrams/cross-review.svg)
 
 [完整规则](references/pipelines/cross-review.md)
 
 1. 固定同一仓库的 head/base SHA。MCode 与 Codex 在各自 worktree 中**并发独立初审**，初审时互不接触对方的结果。
 2. 交换脱敏后的产物，**并发互审**。分别核对每个问题的事实证据、严重程度，以及最小修复是否完整。
-3. 必要时增加**最多一轮**收敛，仅处理仍有分歧的条目。若分歧仍未消除，保留为 `UNRESOLVED`，在独立复核前停止。
-4. 没有未决项后，启动**全新的 MCode checker 会话**。它拿到源码证据和初审原文，但不接收共识标签或最终严重度，同时检查已被丢弃的问题是否漏判。
+3. 必要时增加**最多一轮**收敛，仅处理仍有分歧的条目。
+4. 启动**全新的 MCode checker 会话**。它拿到源码证据和初审原文，但不接收共识标签或最终严重度；它对每个候选问题给出自己的结论（两位 reviewer 仍有分歧的条目由它裁决），同时检查已被丢弃的问题是否漏判。
 
 默认 MCode reviewer 与 checker 使用 **Opus 5 / xhigh**，Codex 使用 **GPT-6 Astra / high**。常规路径共五次计划内执行；增加收敛轮后共七次。运行时恢复不会增加语义上的审查轮次。
 
@@ -57,7 +57,7 @@ Codex App 任务由主会话通过宿主工具派发，Observer 展示其任务�
 
 适合以 spec 和当前源码为依据，把已有 plan 重写为一份可以单独指导实施的完整方案。
 
-> 使用 Agent Lord 的 plan-cross-review pipeline，基于最新目标分支审查 spec.md 和 plan.md。交叉质证后独立检查问题与方案，再启动新的 MCode session 重写完整 plan，由作者自查完整性并确认最终文档。
+> 使用 Agent Lord 的 plan-cross-review pipeline，基于最新目标分支审查 spec.md 和 plan.md。交叉质证后由新的 checker 核查问题与方案并重写完整 plan，再由另一个新 session 对照原始材料验证这份 plan。
 
 ```mermaid
 flowchart LR
@@ -66,18 +66,19 @@ flowchart LR
   A --> X["3. 交叉质证"]
   B --> X
   X --> C["新 MCode：检查问题与方案"]
-  C --> D["4. 新 MCode：重写完整 plan"]
-  D --> S["5. 同一作者：自查与修订"]
-  S --> F["6. 同一作者确认；主会话交付"]
+  C --> D["4. 同一 checker：写完整 plan"]
+  D --> V["5. 新 MCode：对照原始材料验证"]
+  V -- 有缺口 --> D
+  V --> F["6. 主会话交付已验证的文档"]
 ```
 
-[完整六步规则](references/pipelines/plan-cross-review.md)
+[完整规则](references/pipelines/plan-cross-review.md)
 
-固定 **四个 CLI 角色**：两个 reviewer、一个全新 session 的独立 checker，以及另一个全新 session 的 writer。前三者沿用上方 cross-review 默认值；writer 默认 **MCode Opus 5 / xhigh**。用户可以覆盖角色、模型与 effort。作者后续轮次复用写作 session，不增加第五个终稿审查 CLI。
+固定 **四个 CLI 角色**：两个 reviewer、一个全新 session 的 checker（核查完接着写 plan），以及另一个全新 session 的 verifier。reviewer 与 checker 沿用上方 cross-review 默认值；verifier 默认 **MCode Opus 5 / xhigh**。用户可以覆盖角色、模型与 effort。
 
-作者接收原 plan 全文、spec、固定源码、全部 review、经过核验的方案与用户裁决，重写最终设计和完整实施上下文；随后逐项映射需求、原方案有效细节与 review 处理结论。**不设行数目标，不写历史补丁。** 最终确认绑定 plan 哈希，交付保持同一份文档，简短摘要单独提供。
+由 checker 来写，是因为它手里已经有核查过的处置结论和证据；换一个新 session 来写，就得把全部材料重读一遍，交接时还会丢细节。它写出最终设计和完整实施上下文，并附一份简短索引，说明每个问题在 plan 里怎么处理。**不设行数目标，不写历史补丁。** verifier 看不到评审过程中的争论，只对照 spec、用户裁决、原 plan、处置索引和固定源码逐项核对，只报告缺口、不改文件，由 checker 修订（最多两轮）。交付保持验证通过的同一份文档，简短摘要单独提供。
 
-交付完整 plan 和覆盖核对记录；修订轮次有上限，未解决问题明确保留。除非另有授权，不实施代码或发布改动。独立 checker 在写作前检查问题与方案；终稿采用**作者自查**，不声称经过独立终审。所有用户问题仍在原主会话提出。
+交付完整 plan、处置索引和 verifier 报告；修订轮次有上限，未解决问题明确保留。除非另有授权，不实施代码或发布改动。终稿不由作者自己检查：作者评自己的产出容易放行，所以交给一个全新 session。所有用户问题仍在原主会话提出。
 
 ### 计划到实现：Plan-to-implement
 
@@ -212,17 +213,18 @@ MCode 要求 **0.4.9+**。`--model provider/model[#variant]` 选择模型身份�
 
 ## 文档导航
 
-| 文档                                                           | 内容                                         |
-| -------------------------------------------------------------- | -------------------------------------------- |
-| [Agent Skill](SKILL.md)                                        | 主会话职责、派发、监督与续聊                 |
-| [CLI 上手示例](references/cli-quickstart.md)                   | 从命令行走通完整任务生命周期                 |
-| [Pipeline 公共契约](references/pipelines/common.md)            | 共享执行和验收规则，各 pipeline 规则见上文   |
-| [Runtime 协议](references/protocol.md)                         | 结果信封、命令、状态、执行契约与恢复         |
-| [监督参考](references/supervision.md)                          | 持久化任务集合与请求收件箱                   |
-| [Provider 传输层](references/transports.md)                    | Codex CLI/App 与 MCode 的传输行为与配置归属  |
-| [Observer 指南](observer/README.zh-CN.md)                      | 启动、任务绑定、界面行为与隐私边界           |
-| [开发指南](references/development.md)                          | Runtime 结构、构建、测试与兼容性             |
-| [架构图源文件](assets/diagrams/README.md)                      | Archify JSON、SVG 导出、验证记录与本地再生成 |
-| [Python → TypeScript 迁移](references/python-to-typescript.md) | 切换、回滚与共享状态注意事项                 |
+| 文档                                                           | 内容                                            |
+| -------------------------------------------------------------- | ----------------------------------------------- |
+| [Agent Skill](SKILL.md)                                        | 主会话职责、派发、监督与续聊                    |
+| [CLI 上手示例](references/cli-quickstart.md)                   | 从命令行走通完整任务生命周期                    |
+| [Pipeline 公共契约](references/pipelines/common.md)            | 共享执行和验收规则，各 pipeline 规则见上文      |
+| [Runtime 协议](references/protocol.md)                         | 结果信封、命令、状态、执行契约与恢复            |
+| [监督参考](references/supervision.md)                          | 持久化任务集合与请求收件箱                      |
+| [Provider 传输层](references/transports.md)                    | Codex CLI/App 与 MCode 的传输行为与配置归属     |
+| [Observer 指南](observer/README.zh-CN.md)                      | 启动、任务绑定、界面行为与隐私边界              |
+| [开发指南](references/development.md)                          | Runtime 结构、构建、测试与兼容性                |
+| [设计规范](references/design/guidelines.md)                    | 设计 pipeline、Skill 与 prompt 的规则和官方原文 |
+| [架构图源文件](assets/diagrams/README.md)                      | Archify JSON、SVG 导出、验证记录与本地再生成    |
+| [Python → TypeScript 迁移](references/python-to-typescript.md) | 切换、回滚与共享状态注意事项                    |
 
 修改任一语言的 README 时，请同步更新另一份。
