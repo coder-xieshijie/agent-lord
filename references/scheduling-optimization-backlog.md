@@ -12,7 +12,7 @@
 
 依据是 goal-v2 run-02（!7450）的耗时分析：13 个模块的代码都做完了，但真实模型链路一次都没验证过；Codex 主会话 06:53 收到 401 后没人发现，最后一个模块 07:55 完成后结果闲置约 55 小时；主会话 7 小时里 1,036 次工具调用中有 816 次在轮询（每次只等约 50 秒，再补一次读输出）；规划端第一次运行在第 53 分钟以 `RESULT_INVALID` 结束（会话还在，只是最后停在一次工具调用上），重试开了新会话从头规划，又花了 52 分钟。
 
-- **plan-to-implement 加验收**（[设计规范](design/guidelines.md)第二节第 2、3、4、8 条）：写代码前先定验收场景，每条需求一个，从真实入口执行，写明怎样算通过；计划里有就用计划的，没有就由验收 session 先写。实现方拿到冻结的场景副本，不能改。最后一个阶段完成后，reviewer 和验收 session 在同一个提交上并行检查；失败和 review 发现一起交回最后一个实现 session 修复，最多三轮。报告逐条给出 PASS / FAIL / UNVERIFIED。这是新增一个角色：reviewer 只读代码，默认装配、真实入口、跨模块路径这些只有跑起来才能看到的问题，之前没有人负责。
+- **plan-to-implement 加验收**（[agent-prompt-rules](https://github.com/coder-xieshijie/dev-skills/blob/main/skills/agent-prompt-rules/SKILL.md) 第二节第 2、3、4、8 条）：写代码前先定验收场景，每条需求一个，从真实入口执行，写明怎样算通过；计划里有就用计划的，没有就由验收 session 先写。实现方拿到冻结的场景副本，不能改。最后一个阶段完成后，reviewer 和验收 session 在同一个提交上并行检查；失败和 review 发现一起交回最后一个实现 session 修复，最多三轮。报告逐条给出 PASS / FAIL / UNVERIFIED。这是新增一个角色：reviewer 只读代码，默认装配、真实入口、跨模块路径这些只有跑起来才能看到的问题，之前没有人负责。
 - **按计划阶段划分 session**（第二节第 11 条）：每个阶段一个 session，阶段的检查通过并提交才算完成；没做完、也没被卡住就在同一个 session 里续做，最多两次。删掉"你没有记忆，最后一条消息交给下一个 session"这类说法，SKILL.md 的任务上下文规则也加了同样一条。检查轮的修复改为续用最后一个实现 session，不再新开。
 - **plan-cross-review**：C 写的 plan 里每条需求要有能从真实入口执行的验收场景，D 逐条核对。
 - **未收结果告警**（第二节第 10 条，交给运行时）：run 里的任务结束后，结果超过 30 分钟没被 `run-ack`，detached worker 记一条 `result-unreceived` 事件并提醒一次（默认 macOS 通知，可配置命令）。
