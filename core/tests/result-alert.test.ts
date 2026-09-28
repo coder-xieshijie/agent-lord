@@ -35,6 +35,8 @@ const later = (operationId: string, seconds: number) => () =>
 describe("unreceived-result alert", () => {
   it("alerts once when a run member's result stays unacknowledged", async () => {
     register();
+    // Only macOS has a default command; name one so the test holds everywhere.
+    vi.stubEnv("AGENT_LORD_RESULT_ALERT_COMMAND", "true");
     const done = await h.lord.start("task", "claude-cli", h.target, "work");
     const sent: Data[] = [];
     const alert = await watchResult(h.lord, String(done.operation_id), {
