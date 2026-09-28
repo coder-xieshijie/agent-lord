@@ -8,12 +8,11 @@
 
 可以从单个任务开始，也可以直接选择内置 pipeline：
 
-| 你想完成什么               | Pipeline                                            | 最终得到什么                                        |
-| -------------------------- | --------------------------------------------------- | --------------------------------------------------- |
-| 从独立视角审查一份改动     | [交叉审查](#交叉审查cross-review)                   | 有源码证据的发现、双向质证和独立终审                |
-| 交叉审查后重写完整方案     | [方案交叉审查](#方案交叉审查plan-cross-review)      | 四个 CLI 角色、完整 plan、作者逐项自查              |
-| 把已有实现计划落成代码     | [计划到实现](#计划到实现plan-to-implement)          | 模块并行交付、统一整合、每仓库一个 PR/MR            |
-| 在一条分支上按顺序实现计划 | [计划到实现 v2](#计划到实现-v2plan-to-implement-v2) | 连续的新 session、一次最终 review、每仓库一个 PR/MR |
+| 你想完成什么               | Pipeline                                       | 最终得到什么                                        |
+| -------------------------- | ---------------------------------------------- | --------------------------------------------------- |
+| 从独立视角审查一份改动     | [交叉审查](#交叉审查cross-review)              | 有源码证据的发现、双向质证和独立终审                |
+| 交叉审查后重写完整方案     | [方案交叉审查](#方案交叉审查plan-cross-review) | 四个 CLI 角色、完整 plan、作者逐项自查              |
+| 在一条分支上按顺序实现计划 | [计划到实现](#计划到实现plan-to-implement)     | 连续的新 session、一次最终 review、每仓库一个 PR/MR |
 
 [快速开始](#快速开始) · [Observer](#observer) · [支持的执行端](#支持的执行端) · [文档导航](#文档导航)
 
@@ -82,33 +81,16 @@ flowchart LR
 
 ### 计划到实现：Plan-to-implement
 
-适合已经有实现计划，希望按模块并行开发，再由一个整合角色统一交付的任务。
+适合已经有实现计划、希望在一条分支上把它完成的任务。
 
-> 使用 Agent Lord 的 plan-to-implement pipeline 实现这份计划。按完整模块拆分，把所有依赖就绪的模块并行派发，最后统一整合和验证。每个仓库开一个 PR，不合入。
-
-![计划到实现流程：核验计划、派发就绪模块、核验提交、统一整合、发布并关闭运行](assets/diagrams/plan-to-implement.svg)
+> 使用 Agent Lord 的 plan-to-implement pipeline，在 MR 分支上实现这份计划。完成后对照计划做 review 并更新 MR，不合入。
 
 [完整规则](references/pipelines/plan-to-implement.md)
-
-1. **Planner** 将已有实现计划转为模块计划，明确职责、验收标准、互不重叠的写入路径与依赖。Runtime 只接纳由成功且已核验的 planner 交付的计划文件。
-2. 主会话派发**全部 ready 模块，不设 worker 数量上限**。每个 worker 使用独立 worktree 和分支，只修改所属路径并在本地提交。经过核验的上游提交才会解锁下游模块；这一阶段随依赖满足分批推进。
-3. **所有模块都交付后**，由一个独立的 **Integrator** 合并分支、解决冲突、修复整合问题、运行项目验证，并为每个仓库创建或更新一个 PR/MR。Worker 不自行推送或开 PR。
-4. Runtime 核对最终分支 HEAD、模块整合历史、结构化验证记录和远端 PR/MR 身份，先保存最终报告，再释放工作区 claims。测试结论需要实际证据，用户接受的例外单独保留。
-
-Planner、worker 和 integrator 默认使用 MCode 配置中解析出的模型与 effort，目前为 **Opus 5 / xhigh**；可以全局或按角色改用 Codex CLI、Claude Code。`plan-status` 将 ready 集合、屏障和过程日志保存在会话之外，主会话重启后可继续监督；整合恢复会保留已有工作和记录。**这条 pipeline 负责发布 PR/MR，不负责合入。**
-
-### 计划到实现 v2：Plan-to-implement-v2
-
-适合各部分前后依赖、需要按顺序实现的计划，或者希望整个改动都在一条分支上、不按模块划分文件归属的任务。
-
-> 使用 Agent Lord 的 plan-to-implement-v2 pipeline，在 MR 分支上实现这份计划。完成后对照计划做 review 并更新 MR，不合入。
-
-[完整规则](references/pipelines/plan-to-implement-v2.md)
 
 1. 一个**实现角色**在交付分支上连续起多个**新 session**。每个 session 读计划、分支历史和上一个 session 的最后一条消息，自己决定这一段做多少、怎么验证。
 2. 主会话从上一个 session 留下的提交启动下一个 session，并把上一个 session 的最后一条消息原样交给它。只有 session 需要用户决定、留下未提交的改动或执行出错时，主会话才介入。
 3. session 报告计划全部完成后，由一个新的 **reviewer** 对照计划检查分支。需要修改的问题交给下一个实现 session，最多两轮 review。
-4. 在用户授权下，session 推送并为每个仓库创建或更新一个 PR/MR，主会话逐一回读核对。没有 planner、模块拆分或整合角色。**这条 pipeline 负责发布 PR/MR，不负责合入。**
+4. 在用户授权下，session 推送并为每个仓库创建或更新一个 PR/MR，主会话逐一回读核对。**这条 pipeline 负责发布 PR/MR，不负责合入。**
 
 ## 快速开始
 
@@ -230,17 +212,17 @@ MCode 要求 **0.4.9+**。`--model provider/model[#variant]` 选择模型身份�
 
 ## 文档导航
 
-| 文档                                                           | 内容                                             |
-| -------------------------------------------------------------- | ------------------------------------------------ |
-| [Agent Skill](SKILL.md)                                        | 主会话职责、派发、监督与续聊                     |
-| [CLI 上手示例](references/cli-quickstart.md)                   | 从命令行走通完整任务生命周期                     |
-| [Pipeline 公共契约](references/pipelines/common.md)            | 共享执行和验收规则，各 pipeline 规则见上文       |
-| [Runtime 协议](references/protocol.md)                         | 结果信封、命令、状态、执行契约与恢复             |
-| [监督参考](references/supervision.md)                          | 持久化任务集合、plan run、工作区占用与请求收件箱 |
-| [Provider 传输层](references/transports.md)                    | Codex CLI/App 与 MCode 的传输行为与配置归属      |
-| [Observer 指南](observer/README.zh-CN.md)                      | 启动、任务绑定、界面行为与隐私边界               |
-| [开发指南](references/development.md)                          | Runtime 结构、构建、测试与兼容性                 |
-| [架构图源文件](assets/diagrams/README.md)                      | Archify JSON、SVG 导出、验证记录与本地再生成     |
-| [Python → TypeScript 迁移](references/python-to-typescript.md) | 切换、回滚与共享状态注意事项                     |
+| 文档                                                           | 内容                                         |
+| -------------------------------------------------------------- | -------------------------------------------- |
+| [Agent Skill](SKILL.md)                                        | 主会话职责、派发、监督与续聊                 |
+| [CLI 上手示例](references/cli-quickstart.md)                   | 从命令行走通完整任务生命周期                 |
+| [Pipeline 公共契约](references/pipelines/common.md)            | 共享执行和验收规则，各 pipeline 规则见上文   |
+| [Runtime 协议](references/protocol.md)                         | 结果信封、命令、状态、执行契约与恢复         |
+| [监督参考](references/supervision.md)                          | 持久化任务集合与请求收件箱                   |
+| [Provider 传输层](references/transports.md)                    | Codex CLI/App 与 MCode 的传输行为与配置归属  |
+| [Observer 指南](observer/README.zh-CN.md)                      | 启动、任务绑定、界面行为与隐私边界           |
+| [开发指南](references/development.md)                          | Runtime 结构、构建、测试与兼容性             |
+| [架构图源文件](assets/diagrams/README.md)                      | Archify JSON、SVG 导出、验证记录与本地再生成 |
+| [Python → TypeScript 迁移](references/python-to-typescript.md) | 切换、回滚与共享状态注意事项                 |
 
 修改任一语言的 README 时，请同步更新另一份。

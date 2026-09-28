@@ -1,134 +1,67 @@
 # Plan-to-Implement Pipeline
 
-Load this policy when the user asks Agent Lord to turn an existing implementation plan into merged code, or says `plan-to-implement`. Read [common.md](common.md) first.
+Load this policy when the user says `plan-to-implement` or asks Agent Lord to turn an existing implementation plan into code. Read [common.md](common.md) first.
 
-One planner CLI turns the user's plan into a module ticket plan. The scheduling caller accepts that plan into a durable run, dispatches every dependency-satisfied module at once, and after the last module delivers, starts exactly one integration CLI that merges, fixes, verifies, and publishes one MR per repository. Keep the graph in the caller; a planner never dispatches a worker, and an integrator never becomes a second coordinator.
+One implementation role carries an existing plan to completion through consecutive fresh sessions on the delivery branch, and one independent reviewer checks the finished branch against the plan. Each session reads the plan, the branch, and its predecessor's final message, then decides what to do and how far to go. The code lives on the delivery branch from the first commit, so the run has no planner, module split, parallel writer, or integrator.
 
-The durable state lives in the runtime, not in the conversation. `plan-*` commands hold the plan, the ready set, the barriers, the integrator's per-repository workspace claims, and the run journal, so a restarted caller resumes from `plan-status`.
-
-Completion is judged by delivery facts, not by the final block of natural language. The runtime verifies endpoints, commits, integration history, and remote MR identity; test conclusions come from structured evidence submitted by the scheduling caller and must clearly separate passes from known failures the user has accepted.
+The scheduling caller owns only the loop: start a session, pass its final message verbatim to the next one, and decide when the work stops. Reading, scope per session, commits, and verification belong to the session under [scheduling ownership](../../SKILL.md#scheduling-ownership).
 
 ## Roles and defaults
 
-| Role             | Provider    | Model                                                                    | Effort                              | Workspace                                                                                              |
-| ---------------- | ----------- | ------------------------------------------------------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Planner          | `mcode-cli` | resolved provider default (`custom_provider:mafia-claude/claude-opus-5`) | resolved provider default (`xhigh`) | `isolated`, declares the plan file with `--require-file`                                               |
-| Module worker    | `mcode-cli` | same resolved default                                                    | same resolved default               | `isolated`, one worktree and `--workspace-branch` each, `--require-commit`                             |
-| Final integrator | `mcode-cli` | same resolved default                                                    | same resolved default               | `isolated` on the primary repository, `--require-commit`; other repositories come from run-held claims |
+| Role                   | Provider, model, effort                                                                           | Workspace                                                                             |
+| ---------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Implementation session | `mcode-cli` resolved default unless the user chooses; one frozen contract shared by every session | `reuse-or-create` on a declared delivery branch, `--head-sha` at that branch's head   |
+| Final reviewer         | Same rule; a fresh session that wrote none of the code                                            | `isolated` at the reviewed head with its own `--workspace-branch`, checkout unchanged |
 
-Resolve and freeze model and effort independently from provider configuration at dispatch, then pass both explicitly so the whole run shares one execution contract. `codex-cli` and `claude-cli` are supported for any role through a global or per-role override; every provider-specific effort remains explicit. These pipeline choices change no ordinary provider default.
+A role the user names, such as an end-to-end tester, runs on the reviewed heads after the review passes. The pipeline adds no other role.
 
-Start every role in `dangerously_bypass` without `--read-only`, and put the task-level write boundary in the prompt.
+## Prepare the run
 
-## Planner
+Write the [run manifest](common.md#resolve-the-contract-before-dispatch): the goal, the plan path and content hash, every repository with its delivery branch and base head (an existing MR's source branch when the user names one), the role contracts, the user's publication authority and subagent instructions, and a session cap. Register the first session and the reviewer with `run-create --nodes-file` using `source.kind: pipeline` and `reference: plan-to-implement`; register each later session with `run-add` before its `start`.
 
-Start the planner with `--require-file <plan.json>` so the runtime verifies the plan file as declared delivery. Its prompt carries the user's plan, the repositories with their fixed heads, and the granularity rule below.
+## Run implementation sessions
 
-Split by whole module or subsystem — a coherent unit one endpoint can own end to end. A file, a single function, an interface, or one test case is too small; a ticket per module keeps ownership, review, and rollback aligned with the code. A module's `owned_paths` include every file its own commands rewrite, such as generator output. Declare `depends_on` only when a module cannot be built or verified without another module's delivered code.
+Author every session prompt under [task context preparation](../../SKILL.md#task-context-preparation). Its continuation state is:
 
-The planner returns an `implementation-plan-v1` document ([schema](../../schemas/implementation-plan-v1.schema.json)):
+- the plan and the goal it serves, every repository with its delivery branch, and which one this session's checkout holds;
+- that the work spans several sessions, each starting with no memory beyond the repositories, their history, and the previous session's final message, and that this session's final message reaches the next session verbatim;
+- the previous session's final message verbatim, with the artifact paths of earlier final messages as optional reading; the first session starts from the base head;
+- the user's publication authority, such as committing and pushing to the delivery branches and opening or updating their MRs.
 
-```bash
-node core/dist/cli.js plan-validate --plan-file /tmp/run/plan.json
-node core/dist/cli.js plan-create --run-id feature-x \
-  --plan-file /tmp/run/plan.json --planner-task-id feature-x-planner
-```
-
-`plan-validate` is a pre-check on any file and creates nothing. It enforces the contract the barriers depend on: every module carries a responsibility, acceptance criteria, and `owned_paths`; dependencies reference declared modules and stay acyclic; two modules in one repository never own overlapping paths; each repository declares one fixed 40-hex `head_sha` and one `delivery_branch`; and no module declares its own MR. Send a rejected plan back to the planner with the returned `PLAN_INVALID` details. A plan that validates proceeds under the authority already granted — ordinary granularity and dispatch choices need no further user approval.
-
-`plan-create` accepts the plan into the run and records the planner as a run role. The planner task must have succeeded, and the plan file must be one of its verified delivery files; an arbitrary local JSON document is rejected with `ENDPOINT_UNVERIFIED`. Replaying the same plan and planner is idempotent and never creates a second planner; a changed plan or a different planner under the same `run_id` returns `RUN_EXISTS`.
-
-## Dispatch the ready set
-
-`plan-status` returns `ready` — every pending module whose dependencies are all delivered. There is no worker cap: dispatch the entire ready set concurrently, bounded only by workspace leases.
+Leave scope per session, commit granularity, verification, and the form of the final message to the session.
 
 ```bash
-node core/dist/cli.js plan-status --run-id feature-x
-node core/dist/cli.js plan-dispatch --run-id feature-x --module-id auth-core \
-  --task-id feature-x-auth-core --provider mcode-cli --model "$MODEL"
-node core/dist/cli.js start --task-id feature-x-auth-core --provider mcode-cli \
-  --model "$MODEL" --effort "$EFFORT" --workspace-branch feature-x/auth-core \
-  --message-file /tmp/run/auth-core-prompt.md \
-  --invocation-file /tmp/run/auth-core-invocation.json --include-response
+node core/dist/cli.js start --run-id <run> --task-id <run>-s3 \
+  --provider <provider> --model <model> --effort <effort> \
+  --repo <repo> --source-branch <delivery-branch> --workspace-policy reuse-or-create \
+  --head-sha <current-head> --message-file <prompt> --invocation-file <invocation> \
+  --include-response
 ```
 
-Run `plan-dispatch` first, then `start`. `plan-dispatch` records only the provider and model against the barrier — it accepts no `--effort`; pass effort on `start`, which freezes it. The runtime fills in the repository, source, workspace policy, and commit requirement from the registered role; explicit arguments that conflict with the plan are rejected, and each worker must still supply its own `--workspace-branch`. Dependency barriers, task binding, and observer grouping stay within this run. Legacy records that ran `start` before registration remain readable, but completion equally requires a valid commit delivery.
+`--head-sha` pins each session to the head its predecessor left, and `reuse-or-create` refuses a dirty checkout. A session may end on a question without a commit, so sessions declare no `--require-commit`. When the previous final message names work in another declared repository, start the next session on that repository's delivery branch.
 
-CLI `start` / `turn` return a `RUNNING` dispatch receipt while a detached controller keeps holding the execution and write leases. Collect terminal state with `checkpoint --run-id ... --include-response`; a wait command ending or timing out does not mean execution failed and does not terminate the controller. When a controller is genuinely gone, follow checkpoint's recovery and process-identity verification.
+## Continue, ask, or stop
 
-Give each worker its module responsibility, acceptance criteria, `owned_paths` as its write boundary, the sanitized interface contracts of the modules it depends on, and its repository's fixed head. A worker commits locally on its own branch and never pushes, opens an MR, or edits another module's paths.
+After each session, read its final message with `git status` and `git log <start-head>..HEAD` of its checkout, then take the matching action:
 
-When a worker returns, record the outcome:
+| Session outcome                     | Action                                                                                                                                                                                                           |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Work remains                        | Start the next session                                                                                                                                                                                           |
+| A question for the user             | Ask the user, then `turn` the same session with the answer                                                                                                                                                       |
+| Uncommitted changes in the checkout | `turn` the same session with the `git status` output                                                                                                                                                             |
+| The plan reported complete          | Start the final review                                                                                                                                                                                           |
+| Operation error                     | Recover under the [deterministic loop](../../SKILL.md#deterministic-loop) and [endpoint replacement](../../SKILL.md#endpoint-replacement); a replacement receives the session prompt at the latest verified head |
 
-```bash
-node core/dist/cli.js plan-deliver --run-id feature-x --module-id auth-core --state delivered
-```
+Stop and report to the user, with the last final message, when two consecutive sessions add no commit or the session cap is reached.
 
-`delivered` is a verification, not a claim. The runtime requires the bound task to exist, its current operation to have succeeded, and its declared delivery to be verified with a real commit — which is why every worker needs `--require-commit`. The verified commit is adopted as the module's delivery commit and is what unlocks downstream modules; passing a `--commit-sha` that disagrees with it is rejected. A retried or recovered task is judged by its current operation, so an older success cannot stand in for a failed attempt.
+## Final review
 
-Record a genuine failure as `--state failed`; `plan-reset` returns that module to pending for a replacement endpoint under [endpoint replacement](../../SKILL.md#endpoint-replacement), and the journal keeps both attempts.
+Start the reviewer with the plan, each delivery branch's `<base>..<head>` range, the last final message, and the installed `review-rules` Skill under the [dependency contract](../../SKILL.md#skill-dependencies). The reviewer checks the branches against the plan and returns findings.
 
-## Final integration
+When a finding needs a change, pass the review report verbatim as the next implementation session's continuation state, then `turn` the reviewer with the new range. Stop after two review rounds and report the findings still open.
 
-The last barrier opens only when every module is `delivered`. One integration CLI runs even when a single module produced all the work — the integrator is a distinct role, never a delivery turn reused from a worker.
+## Deliver and report
 
-```bash
-node core/dist/cli.js plan-integrate --run-id feature-x --task-id feature-x-integrator
-```
+The run is complete when the review returns no finding that needs a change, every user-named role has passed, and each delivery branch's remote MR shows its final head. Read each MR back through `gh api` or `glab api` for source branch, target branch, head SHA, and open state; when a head is unpublished, `turn` the last implementation session to publish it.
 
-`plan-integrate` prepares each declared repository's `delivery_branch` worktree at its frozen head and records a durable [workspace claim](../supervision.md#durable-workspace-claims) owned by that one integrator task. This is what makes a single multi-repository integrator safe: a task's own leases cover only the one repository it targets, so the run holds the others. While the claims exist, any other Agent Lord task that tries to write a claimed worktree or delivery branch fails with `WORKSPACE_CLAIM_CONFLICT`. Each claim is taken under the same `workspace-write` and `branch-write` locks an ordinary writer uses, so two runs competing for one repository cannot both pass the check — the loser gets `WORKSPACE_CLAIM_CONFLICT`, and a repository already being written returns a retryable `STATE_BUSY`. Replaying `plan-integrate` with the same task reuses the existing claims instead of re-preparing them.
-
-After `plan-integrate`, call `start` with that `task_id`; the runtime automatically uses the plan's first repository and its claimed delivery worktree and freezes the role's delivery requirements. Pass the other repositories' paths into the prompt from `plan-status`, declaring them as the complete write boundary beyond the primary repository.
-
-The integrator merges every module branch into each repository's `delivery_branch`, resolves conflicts, fixes the problems merging exposes, runs the whole-project verification, pushes, and opens or updates each repository's single MR. It never merges an MR. It also writes the process report. Because these commands verify the integrator's finished result, the scheduling caller runs them after the integrator returns — never the integrator itself mid-run.
-
-```bash
-node core/dist/cli.js plan-merge-request --run-id feature-x --repo /path/repo \
-  --mr-url https://gitlab.example/group/repo/-/merge_requests/42 --head-sha "$HEAD" \
-  --verification-file /tmp/run/repo-verification.json
-node core/dist/cli.js plan-report --run-id feature-x --report-file /tmp/run/report.md
-```
-
-`plan-merge-request` requires the integrator's current operation to have succeeded with a verified commit delivery, the repository claim to be valid, and the SHA to match the local delivery branch. The primary repository must additionally match the endpoint-verified commit. The runtime reads the MR/PR back through the authenticated `gh api` / `glab api`, verifying the origin project, source branch, target branch (the plan's `source_branch`), SHA, and opened state; same-project GitHub / GitLab PRs/MRs are currently supported, while forks and other forges are explicitly rejected. One URL per repository; re-registering the same URL updates the SHA and evidence.
-
-The verification file binds the final SHA; `checks` must cover every module's `verification` string for that repository, plus a check named `ci`:
-
-```json
-{
-  "head_sha": "<40-hex final SHA>",
-  "checks": [
-    {
-      "name": "pnpm test",
-      "status": "passed",
-      "evidence": "path or link to the test log"
-    },
-    {
-      "name": "ci",
-      "status": "accepted_failure",
-      "evidence": "pipeline/job link",
-      "reason": "known issue explicitly accepted by the user, with the authorizing basis"
-    }
-  ]
-}
-```
-
-`passed` requires real evidence; `accepted_failure` is only for failures or skipped items the user has already authorized, and must preserve the reason and its basis. Keep waiting for unfinished tests/CI; keep fixing unaccepted failures or report the blocker. The runtime checks the evidence structure and SHA — it neither runs tests for the scheduling caller nor judges waiver authority, and it never treats a self-reported test conclusion as independent proof.
-
-`plan-report` re-verifies every repository: a clean delivery branch, the final SHA, the delta against the original plan baseline, each module's merge or patch-equivalent cherry-pick, the complete verification record, and the remote MR identity. A squash or rewrite that makes a patch untraceable is rejected, preserving a traceable module integration history. On success the report is persisted before the claims are released; retrying with the identical report can clean up claims left by an interruption, while a different report returns `REPORT_CONFLICT`.
-
-Integration recovery prefers `recover` / `turn` on the same task; when a session change is unavoidable:
-
-```bash
-node core/dist/cli.js plan-integration-resume --run-id feature-x \
-  --task-id feature-x-integrator-2 --reason "original execution terminated; a new session must finish the remaining verification"
-```
-
-The command first verifies that the old operation has terminated, its processes have exited, every workspace is clean, and history has not moved backward; only then does it transfer the claims, preserving the workspaces, commits, MRs, verification records, and module state. Then call `start` on the new task to continue from the original delivery HEAD. The role's delivery baseline is always the original plan SHA, so a recovery that only completes tests or the report needs no new commit. If the handover is interrupted, repeat the same resume command; do not start either side's role before the handover completes. `plan-integration-reset` is only for explicitly abandoning this integration registration, never for ordinary recovery; it still clears the MR/workspace registrations and equally refuses to release claims held by an active execution.
-
-Worker success is not run success. The final report separately lists the runtime-verified commit/MR facts, the actual test results, the user-accepted exceptions, and the platform boundaries still unverified. Roles of a closed run accept no new execution; later changes use a new task/run, preserving the boundary of the accepted delivery.
-
-## Process record and report
-
-The run journal is the process record. It holds the planner's identity and accepted plan digest, each module's dispatch with provider identity and the dependencies it waited on, each verified delivery commit or failure, resets, the integration dispatch with its claimed workspaces, recorded MRs with the branch heads they were checked against, and the closing report digest. Read it with `plan-status`. It carries shareable decisions, actions, and results only — never hidden reasoning or raw provider logs.
-
-Write the final user report from that journal under the installed `explain-as-fool` Skill under the [dependency contract](../../SKILL.md#skill-dependencies): lead with the goal and what now exists, then the key decisions, the module split and who did what, what ran in parallel and what waited, the conflicts and how they were resolved, the verification evidence, each repository's MR, and the limits that remain. Write it for someone who has not seen this run, in plain language, without a turn-by-turn log.
+Write the user report under the installed `explain-as-fool` Skill: the goal and what now exists, each session and where it stopped, the plan deviations the sessions reported, the review result, each MR, and what remains unverified. The pipeline publishes MRs; merging stays with the user.

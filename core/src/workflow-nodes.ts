@@ -48,12 +48,9 @@ export function workflowNodes(
       );
     if (
       source.kind === "pipeline" &&
-      ![
-        "cross-review",
-        "plan-cross-review",
-        "plan-to-implement",
-        "plan-to-implement-v2",
-      ].includes(source.reference) &&
+      !["cross-review", "plan-cross-review", "plan-to-implement"].includes(
+        source.reference,
+      ) &&
       !(options.stored && source.reference === "handoff")
     )
       throw usageError(`node ${id} names an unknown pipeline`);

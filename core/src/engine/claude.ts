@@ -282,7 +282,6 @@ export class ClaudeFlows {
           op.read_only,
           op.workspace ?? { policy: "exact-target" },
           operationId,
-          op.task_id,
         );
         return await this.finishClaude(op, op.kind === "turn");
       } catch (error) {

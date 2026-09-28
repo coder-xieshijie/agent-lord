@@ -183,7 +183,7 @@ describe("frozen node provenance", () => {
     }
   });
 
-  it.each(["cross-review", "plan-to-implement", "plan-to-implement-v2"])(
+  it.each(["cross-review", "plan-to-implement"])(
     "retains the existing %s pipeline source",
     (reference) => {
       const declared = {
@@ -194,9 +194,9 @@ describe("frozen node provenance", () => {
     },
   );
 
-  it("adds plan-to-implement-v2 sessions to the run as the loop advances", () => {
+  it("adds plan-to-implement sessions to the run as the loop advances", () => {
     const sets = new TaskSets(h.lord);
-    const source = { kind: "pipeline", reference: "plan-to-implement-v2" };
+    const source = { kind: "pipeline", reference: "plan-to-implement" };
     const session = { role: "implementation-session", source };
     const reviewer = { role: "final-reviewer", source };
     sets.create(
