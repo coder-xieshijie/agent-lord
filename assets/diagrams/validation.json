@@ -180,13 +180,13 @@
       "diagram_type": "workflow",
       "specification": {
         "path": "cross-review.json",
-        "sha256": "1970e759257216b5a2ce020ccc1552b4194c474953a64e4ee410709701b430bd",
-        "bytes": 3540
+        "sha256": "ee0cdd77c8627dc8e07b376183d92b1fc4acb8250dfcdac00545742155b026bd",
+        "bytes": 3160
       },
       "artifact": {
         "path": "cross-review.html",
-        "sha256": "9eb86d87f13f412b5fedf5469c55640656b39247efeb28b4e144a333ec9742dd",
-        "bytes": 808108
+        "sha256": "3950520bdee40250176f6bbfcc69a774955829bd6a5495855a74ec2a77e40962",
+        "bytes": 805179
       },
       "validation": {
         "checksPassed": 9,
@@ -198,8 +198,8 @@
       },
       "svg_export": {
         "path": "cross-review.svg",
-        "sha256": "5e467941693c0395ed978dbb079cea821af31dc4ad4e572ce9180ceb15fb467a",
-        "bytes": 149959,
+        "sha256": "d43efc62ad2de8b25ef1280ead2bf6ab41eb32b8f6b8abec6b4322c6226ff149",
+        "bytes": 147153,
         "canonical": true,
         "method": "Archify viewer Export > SVG",
         "postprocessing": "Trim trailing horizontal whitespace only; SVG elements and attributes unchanged."
@@ -207,7 +207,7 @@
       "browser_evidence": {
         "status": "passed",
         "evidence_kind": "automated-browser",
-        "artifact_sha256": "9eb86d87f13f412b5fedf5469c55640656b39247efeb28b4e144a333ec9742dd",
+        "artifact_sha256": "3950520bdee40250176f6bbfcc69a774955829bd6a5495855a74ec2a77e40962",
         "state": {
           "detail": "read",
           "motion": "still"
@@ -224,10 +224,10 @@
             "overflowX": false,
             "overflowY": false,
             "ok": true,
-            "readerWidth": 1209,
-            "diagramWidth": 1179,
+            "readerWidth": 1376,
+            "diagramWidth": 1346,
             "viewBoxWidth": 1228,
-            "minimumProjectedNodeTextPx": 7.680781758957655,
+            "minimumProjectedNodeTextPx": 8,
             "minimumProjectedNodeText": "同一 head / base SHA",
             "minimumProjectedNodeTextDetail": "context",
             "minimumRequiredNodeTextPx": 6,
@@ -255,8 +255,8 @@
             "overflowX": false,
             "overflowY": false,
             "ok": true,
-            "readerWidth": 1284,
-            "diagramWidth": 1254,
+            "readerWidth": 1536,
+            "diagramWidth": 1506,
             "viewBoxWidth": 1228,
             "minimumProjectedNodeTextPx": 8,
             "minimumProjectedNodeText": "同一 head / base SHA",
@@ -286,8 +286,8 @@
             "overflowX": false,
             "overflowY": false,
             "ok": true,
-            "readerWidth": 1435,
-            "diagramWidth": 1405,
+            "readerWidth": 1765,
+            "diagramWidth": 1735,
             "viewBoxWidth": 1228,
             "minimumProjectedNodeTextPx": 8,
             "minimumProjectedNodeText": "同一 head / base SHA",
@@ -317,8 +317,8 @@
             "overflowX": false,
             "overflowY": false,
             "ok": true,
-            "readerWidth": 1828,
-            "diagramWidth": 1778,
+            "readerWidth": 1920,
+            "diagramWidth": 1870,
             "viewBoxWidth": 1228,
             "minimumProjectedNodeTextPx": 8,
             "minimumProjectedNodeText": "同一 head / base SHA",
@@ -343,9 +343,10 @@
         "status": "passed",
         "method": "image-capable screenshot inspection",
         "scope": ["2048x1320 light", "1440x900 dark"],
-        "observations": "Text fits nodes; arrows and labels remain distinct; desktop composition has no clipped content. Viewer interactions were not exhaustively tested.",
+        "observations": "Text fits nodes; arrows and labels remain distinct; the removed exception lane leaves no orphaned route; desktop composition has no clipped content. Viewer interactions were not exhaustively tested.",
         "correction_rounds": 0
-      }
+      },
+      "source_revision_note": "Regenerated 2026-09-28 on base cf06465 for the policy change that sends unresolved rows to the checker."
     },
     {
       "name": "plan-to-implement",

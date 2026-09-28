@@ -10,6 +10,10 @@ Maintain `review-rules`, `plan-for-agents`, and `explain-as-fool` in [dev-skills
 
 For an explicit Skill update, fetch and inspect changes in the existing dev-skills checkout, fast-forward only when local state permits, and run the affected Skill's self-check. Preserve local modifications and existing installation links. Apply updated rules to new runs; active runs retain their recorded input versions. A content hash establishes input identity, not semantic quality or successful provider execution.
 
+## Design guidelines
+
+Before changing `SKILL.md`, a pipeline policy, or the rules for endpoint prompts, apply the [design guidelines](design/guidelines.md). They cite archived copies of the official Anthropic and OpenAI sources in [design/sources](design/sources/README.md); when a vendor publishes new guidance, refresh those copies as described there and recheck the affected rules.
+
 ## Runtime structure
 
 The CLI dispatches, supervises, and validates results. The Observer reads execution records and displays them; host link-opening tools only present the page. Agent Lord does not use or depend on Computer Use, CUA, or browser automation, including for fallback verification.

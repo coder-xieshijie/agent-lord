@@ -7,6 +7,10 @@ pnpm-lock.yaml
 # Generated diagram sources and exports: bytes are digest-tracked, never reformat
 assets/diagrams/
 
+# Archived official source documents: kept exactly as retrieved
+references/design/sources/anthropic/
+references/design/sources/openai/
+
 # Golden provider reference fixtures: byte-exact captured output
 core/tests/fixtures/
 

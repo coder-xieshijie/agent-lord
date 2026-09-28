@@ -55,4 +55,4 @@ Every replacement is a new `task_id` and endpoint under [the Skill replacement p
 
 ## Converge and stop
 
-Every iterative pipeline must define its convergence predicate, maximum rounds or operations, and unresolved output before it starts. Stop when the predicate is met, the bound is exhausted, or new authority is required. Do not keep polling terminal tasks, repeat unchanged full reviews, or invent a third-party tie-breaker. Preserve rejected and unresolved items with their evidence so the final result is auditable. The Claude `RESULT_INVALID` retry budget (`SKILL.md`) is separate and never counts against this bound.
+Every iterative pipeline must define its convergence predicate, maximum rounds or operations, and unresolved output before it starts. Stop when the predicate is met, the bound is exhausted, or new authority is required. Do not keep polling terminal tasks, repeat unchanged full reviews, or add a tie-breaker the named pipeline does not document. Preserve rejected and unresolved items with their evidence so the final result is auditable. The Claude `RESULT_INVALID` retry budget (`SKILL.md`) is separate and never counts against this bound.

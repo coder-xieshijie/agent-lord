@@ -125,12 +125,12 @@ describe("frozen node provenance", () => {
     ).toBe("unavailable");
   });
 
-  it("registers all plan-cross-review roles and preserves pipeline provenance across writer turns", async () => {
+  it("registers all plan-cross-review roles and preserves pipeline provenance across checker-writer turns", async () => {
     const roles = {
       mcode: "mcode-reviewer",
       codex: "codex-reviewer",
-      checker: "independent-checker",
-      writer: "plan-writer",
+      checker: "checker-writer",
+      verifier: "independent-verifier",
     };
     const nodes = workflowNodes(
       Object.fromEntries(
@@ -169,15 +169,15 @@ describe("frozen node provenance", () => {
         .map((id) => nodes[id]),
     );
     expect(h.calls()).toHaveLength(0); // Registration never dispatches a role.
-    const draft = await h.lord.start("writer", "mcode", h.target, "rewrite", {
+    const check = await h.lord.start("checker", "mcode", h.target, "check", {
       workflow_run_id: "plan-review",
     });
-    const check = await h.lord.turn("writer", "self-check");
-    const confirmed = await h.lord.turn("writer", "confirm exact plan");
-    for (const result of [draft, check, confirmed]) {
+    const draft = await h.lord.turn("checker", "write the complete plan");
+    const revised = await h.lord.turn("checker", "revise from verifier gaps");
+    for (const result of [check, draft, revised]) {
       expect(h.lord.store.operation(result.operation_id!).workflow).toEqual({
         run_id: "plan-review",
-        node: nodes.writer,
+        node: nodes.checker,
         provenance_status: "caller-declared",
       });
     }

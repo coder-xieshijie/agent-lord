@@ -16,11 +16,6 @@
       "label": "独立复核与交付"
     },
     {
-      "id": "exception",
-      "label": "未决项出口",
-      "variant": "exception"
-    },
-    {
       "id": "delivery",
       "label": "审查报告"
     }
@@ -71,21 +66,12 @@
       "width": 160
     },
     {
-      "id": "stop",
-      "lane": "exception",
-      "col": 3,
-      "type": "external",
-      "label": "保留分歧并停止",
-      "sublabel": "UNRESOLVED",
-      "width": 160
-    },
-    {
       "id": "checker",
       "lane": "audit",
       "col": 3,
       "type": "backend",
       "label": "独立 MCode 复核",
-      "sublabel": "全新 Session，去共识标签",
+      "sublabel": "全新 Session，逐项独立裁决",
       "width": 160
     },
     {
@@ -118,22 +104,16 @@
       "label": "证据、严重度、最小修复"
     },
     {
-      "id": "ledger-stop",
-      "from": "ledger",
-      "to": "stop",
-      "label": "仍有分歧"
-    },
-    {
       "id": "ledger-checker",
       "from": "ledger",
       "to": "checker",
-      "label": "无未决项"
+      "label": "含未决项，一并交复核"
     },
     {
       "id": "checker-result",
       "from": "checker",
       "to": "result",
-      "label": "独立审计已核验"
+      "label": "每项均有复核结论"
     }
   ],
   "cards": [
@@ -141,7 +121,7 @@
       "dot": "cyan",
       "title": "角色与隔离",
       "items": [
-        "默认 MCode：Opus 5 / xhigh；Codex：GPT-6 Astra / max",
+        "默认 MCode：Opus 5 / xhigh；Codex：GPT-6 Astra / high",
         "每个角色独立 worktree；保持源码与 HEAD 不变"
       ]
     },
@@ -150,7 +130,7 @@
       "title": "有界收敛",
       "items": [
         "常规共 5 次操作；可选收敛后共 7 次",
-        "保留 DROPPED 记录供独立复核，不以多数票代替证据"
+        "未决项由独立复核按证据裁决，不以多数票代替证据"
       ]
     },
     {

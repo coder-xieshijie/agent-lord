@@ -6,11 +6,20 @@
 
 给 worker 的限制越少越好。优先删除或纠正已经不需要的指令；需要每次都发生的动作交给运行时机制，不写成 prompt 规则；不给 worker 规定开发方法。
 
-这与两家模型厂商当前的建议一致：
+这条原则及其官方依据已整理进[设计规范](design/guidelines.md)，原文存档在 [design/sources](design/sources/README.md)。以后的修改以规范为准，本文只记录具体的审计数据和决定。
 
-- Anthropic 的 [Prompting Claude Fable 5](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5) 建议在模型能力提升后重新评估哪些指令和护栏还有必要，并指出为旧模型写的 prompt 和 skill 往往规定得太细，可能降低输出质量。
-- OpenAI 的 [Rethinking skills and prompts for GPT-6 Astra](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra) 以"每次编辑前先读 architecture.md、database.md、deployment.md"作为反面例子，说明按场景指向文档即可，并提醒测试类指令可能导致不必要的测试。
-- [Claude Code best practices](https://code.claude.com/docs/en/best-practices) 建议：模型不靠这条指令也能做对，就删掉它或改成钩子。
+## 2026-09-28：按设计规范调整交叉验证 pipeline
+
+依据[设计规范](design/guidelines.md)第二节调整了两个交叉验证 pipeline：
+
+- **cross-review**：初审不设过滤门槛，先求全（第二节第 6 条）；互审后仍有分歧的条目不再停在 checker 之前，交给独立 checker 按证据裁决（第 7 条）。
+- **plan-cross-review**：checker 核查完处置结论后，在同一 session 里接着写 plan（第 2 条）；删掉作者自查和自确认两轮（第 5 条），改由一个看不到评审争论的新 session 独立验证终稿，只报告影响正确性或既定要求的缺口（第 3、4 条），checker 按报告修订，最多两轮（第 8 条）。正常路径从 8 次操作降到 7 次。
+- **SKILL.md**：任务上下文补上"目的"、"完成标准写成可观察结果"、"边界附原因"和无人值守授权（第一节）；五条重复的"不许加节点"合并为两条；执行端交回时仍有未完成且未被阻塞的事项，在同一 session 里续做，最多两次（第一节第 8 条）。
+
+下次运行要看的数据：
+
+- cross-review：互审后仍有分歧的条目数；checker 推翻两位 reviewer 共识的条目数；可选收敛轮实际用了几次、改变了哪些结论（用于判断能否去掉这一轮）。
+- plan-cross-review：C 写作一轮的耗时与上下文压缩次数；D 第一次验证报出的实质缺口数、C 修订后仍未解决的数量；与 9 月 25 日 jev 运行中写作 113.6 分钟、自查 2.2 分钟的对照。
 
 ## 样本与主要发现
 

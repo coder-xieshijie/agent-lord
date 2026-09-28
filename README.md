@@ -11,7 +11,7 @@ Start with a single task, or choose a built-in pipeline:
 | You want to…                                 | Pipeline                                | What you get                                                              |
 | -------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------- |
 | Check a change from independent perspectives | [Cross-review](#cross-review)           | Source-backed findings, mutual challenges, and an independent final audit |
-| Rewrite a complete plan after cross-review   | [Plan-cross-review](#plan-cross-review) | Four CLI roles, a standalone plan, and author coverage verification       |
+| Rewrite a complete plan after cross-review   | [Plan-cross-review](#plan-cross-review) | Four CLI roles, a standalone plan, and independent verification           |
 | Turn an implementation plan into code        | [Plan-to-implement](#plan-to-implement) | Parallel module delivery, one integrator, and one PR/MR per repository    |
 
 [Quick start](#quick-start) · [Observer](#observer) · [Execution endpoints](#execution-endpoints) · [Documentation](#documentation)
@@ -38,14 +38,14 @@ Use this when you want reviewers to challenge each other's findings before an in
 
 > Use Agent Lord's cross-review pipeline to review the current branch against main. Keep the checkout and HEAD unchanged and return the verified findings with source locations.
 
-![Cross-review: independent reviews, mutual cross-examination, bounded convergence, and a fresh MCode checker](assets/diagrams/cross-review.svg)
+![Cross-review: independent reviews, mutual cross-examination, bounded convergence, and a fresh MCode checker that settles open items](assets/diagrams/cross-review.svg)
 
 [Full policy](references/pipelines/cross-review.md)
 
 1. Pin one repository and the same head/base SHAs for every role. Run the MCode and Codex initial reviews concurrently in separate worktrees; neither sees the other's output.
 2. Exchange their sanitized artifacts and run both cross-exams concurrently. Track agreement separately on evidence, severity, and the smallest complete fix.
-3. If needed, run one additional convergence pair on unresolved items only. If disagreements remain, preserve them as `UNRESOLVED` and stop before the checker.
-4. Once no items remain unresolved, start a **fresh MCode checker session**. It receives the source evidence and initial artifacts without consensus labels or final severity, and also inspects dropped candidates.
+3. If needed, run one additional convergence pair on unresolved items only.
+4. Start a **fresh MCode checker session**. It receives the source evidence and initial artifacts without consensus labels or final severity, gives its own verdict on every candidate (settling any the reviewers still disagree on), and also inspects dropped candidates.
 
 Defaults: MCode reviewer and checker use **Opus 5 / xhigh**; Codex uses **GPT-6 Astra / high**. The normal path has five planned provider operations, or seven with the optional convergence pair. Recovery does not add semantic review rounds.
 
@@ -57,7 +57,7 @@ These pipelines depend on the separately installed `review-rules`, `plan-for-age
 
 Use this to replace an existing plan with a complete, self-contained implementation plan grounded in the spec and current source.
 
-> Use Agent Lord's plan-cross-review pipeline on spec.md and plan.md against the latest target branch. Cross-review the findings, independently check the proposed solutions, then start a fresh MCode writer to rewrite the complete plan, self-check coverage, and confirm the exact final document.
+> Use Agent Lord's plan-cross-review pipeline on spec.md and plan.md against the latest target branch. Cross-review the findings, have a fresh checker verify the proposed solutions and rewrite the complete plan, then have another fresh session verify the plan against the sources.
 
 ```mermaid
 flowchart LR
@@ -66,18 +66,19 @@ flowchart LR
   A --> X["3. Mutual cross-exam"]
   B --> X
   X --> C["Fresh MCode: check findings and solutions"]
-  C --> D["4. Fresh MCode: rewrite full plan"]
-  D --> S["5. Same writer: self-check and revise"]
-  S --> F["6. Same writer: confirm; caller delivers"]
+  C --> D["4. Same checker: write full plan"]
+  D --> V["5. Fresh MCode: verify against sources"]
+  V -- gaps --> D
+  V --> F["6. Caller delivers verified bytes"]
 ```
 
 [Full six-step policy](references/pipelines/plan-cross-review.md)
 
-Exactly **four CLI roles**: two reviewers, a fresh independent checker, then a separate fresh writer. Reviewers/checker use the cross-review defaults above; the writer defaults to **MCode Opus 5 / xhigh**. Explicit role/model/effort choices override defaults. Later author turns reuse the writer session; there is no fifth final-plan auditor.
+Exactly **four CLI roles**: two reviewers, a fresh checker that goes on to write the plan, and a separate fresh verifier. Reviewers and the checker use the cross-review defaults above; the verifier defaults to **MCode Opus 5 / xhigh**. Explicit role/model/effort choices override defaults.
 
-The writer receives the full original plan, spec, pinned source, review artifacts, checked solutions, and user decisions. It writes the final chosen design with all implementation context, then maps every requirement, valid old detail, and review disposition to the new text. There is **no line-count target** and no historical patch structure. Final confirmation binds the exact plan hash; delivery preserves those bytes and keeps any short summary separate.
+The checker writes because it already holds the checked dispositions and their evidence; handing them to another fresh session would mean rereading everything and losing detail. It writes the final chosen design with all implementation context plus a short index of where each finding is handled. There is **no line-count target** and no historical patch structure. The verifier never sees the review debate: it checks the plan against the spec, user decisions, original plan, disposition index, and pinned source, reports gaps without editing, and the checker revises (at most two rounds). Delivery preserves the verified bytes and keeps any short summary separate.
 
-The workflow delivers the plan and coverage audit, with bounded revisions and explicit unresolved items. It does not implement code or publish changes unless separately authorized. The checker audits review findings **before** writing; final document verification is the **writer's self-check**, not an independent final audit.
+The workflow delivers the plan, the disposition index, and the verifier's report, with bounded revisions and explicit unresolved items. It does not implement code or publish changes unless separately authorized. The author does not check its own final document: an author tends to approve its own work, so a fresh session does it.
 
 ### Plan-to-implement
 
@@ -226,6 +227,7 @@ Task state defaults to `~/.codex/state/agent-lord`. Override it with `AGENT_LORD
 | [Provider transports](references/transports.md)                     | Codex CLI/App and MCode transport seams and configuration ownership            |
 | [Observer guide](observer/README.md)                                | Setup, task binding, UI behavior, and privacy boundaries                       |
 | [Development guide](references/development.md)                      | Runtime structure, build, tests, and compatibility                             |
+| [Design guidelines](references/design/guidelines.md)                | Rules and official sources for designing pipelines, the Skill, and prompts     |
 | [Diagram sources](assets/diagrams/README.md)                        | Archify specifications, SVG exports, validation, and local viewer regeneration |
 | [Python → TypeScript migration](references/python-to-typescript.md) | Cutover, rollback, and shared-state precautions                                |
 
