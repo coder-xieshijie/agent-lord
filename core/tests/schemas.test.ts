@@ -10,7 +10,7 @@ import { Ajv2020, type ValidateFunction } from "ajv/dist/2020.js";
 import { harness, packet } from "./helpers.js";
 import { RequestInbox } from "../src/requests.js";
 import { AgentLordError } from "../src/errors.js";
-import { type Data, type Envelope } from "../src/contracts.js";
+import { type Envelope } from "../src/contracts.js";
 import { stringifyJson } from "../src/json.js";
 import { operationMarker } from "../src/providers/codex-app.js";
 
@@ -170,32 +170,5 @@ describe("published schema round-trip", () => {
       validate_only: true,
     });
     expect(validated.error ?? null).toBeNull();
-  });
-
-  it("an implementation plan the runtime accepts matches the plan schema", () => {
-    const moduleNode = (id: string, repo: string): Data => ({
-      module_id: id,
-      repository: repo,
-      responsibility: `implement the ${id} subsystem`,
-      acceptance: [`${id} behaves as specified`],
-      depends_on: id === "beta" ? ["alpha"] : [],
-      owned_paths: [`src/${id}`],
-      verification: ["pnpm test"],
-    });
-    const repo = h.target;
-    check("implementation-plan-v1", {
-      version: 1,
-      plan_id: "demo",
-      goal: "deliver the feature across modules",
-      repositories: [
-        {
-          repository: repo,
-          source_branch: "main",
-          head_sha: "1e71141af8c836c5f9594536bf63cd6502d819bf",
-          delivery_branch: "feature/delivery",
-        },
-      ],
-      modules: [moduleNode("alpha", repo), moduleNode("beta", repo)],
-    });
   });
 });

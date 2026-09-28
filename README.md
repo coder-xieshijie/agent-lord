@@ -8,11 +8,11 @@ Use your Codex Desktop, Codex CLI, Claude Code, or MCode session to delegate wor
 
 Start with a single task, or choose a built-in pipeline:
 
-| You want to…                                 | Pipeline                                | What you get                                                              |
-| -------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------- |
-| Check a change from independent perspectives | [Cross-review](#cross-review)           | Source-backed findings, mutual challenges, and an independent final audit |
-| Rewrite a complete plan after cross-review   | [Plan-cross-review](#plan-cross-review) | Four CLI roles, a standalone plan, and author coverage verification       |
-| Turn an implementation plan into code        | [Plan-to-implement](#plan-to-implement) | Parallel module delivery, one integrator, and one PR/MR per repository    |
+| You want to…                                 | Pipeline                                | What you get                                                               |
+| -------------------------------------------- | --------------------------------------- | -------------------------------------------------------------------------- |
+| Check a change from independent perspectives | [Cross-review](#cross-review)           | Source-backed findings, mutual challenges, and an independent final audit  |
+| Rewrite a complete plan after cross-review   | [Plan-cross-review](#plan-cross-review) | Four CLI roles, a standalone plan, and author coverage verification        |
+| Implement a plan in order on one branch      | [Plan-to-implement](#plan-to-implement) | Consecutive fresh sessions, one final review, and one PR/MR per repository |
 
 [Quick start](#quick-start) · [Observer](#observer) · [Execution endpoints](#execution-endpoints) · [Documentation](#documentation)
 
@@ -81,20 +81,16 @@ The workflow delivers the plan and coverage audit, with bounded revisions and ex
 
 ### Plan-to-implement
 
-Use this when you already have an implementation plan and want module owners to work concurrently, followed by a single integration stage.
+Use this when you already have an implementation plan and want it carried out on one branch.
 
-> Use Agent Lord's plan-to-implement pipeline to implement this plan. Split it into complete modules, run all dependency-ready modules in parallel, then integrate and verify the result. Open one PR per repository; do not merge it.
-
-![Plan-to-implement: verified plan, dependency-ready workers, verified commits, one integrator, and repository PRs](assets/diagrams/plan-to-implement.svg)
+> Use Agent Lord's plan-to-implement pipeline to implement this plan on the MR branch. Review the result against the plan and update the MR; do not merge it.
 
 [Full policy](references/pipelines/plan-to-implement.md)
 
-1. A **planner** produces a module plan from your implementation plan. Each module has ownership, acceptance criteria, non-overlapping write paths, and explicit dependencies. The runtime accepts only a plan delivered by a verified successful planner.
-2. The main session dispatches **every ready module**, without a worker-count cap. Each worker uses its own worktree and branch, stays within its assigned paths, and commits locally. Verified upstream commits unlock dependent modules; the worker stage repeats as dependencies become ready.
-3. After **all modules are delivered**, one distinct **integrator** merges the branches, resolves conflicts, fixes integration problems, runs project verification, and opens or updates one PR/MR per repository. Workers do not push or open their own PRs.
-4. The runtime checks final branch heads, module history, structured verification records, and remote PR/MR identity. It persists the closing report before releasing workspace claims. Tests need actual evidence; user-accepted exceptions remain explicit.
-
-By default, planner, workers, and integrator use MCode's resolved model and effort, currently **Opus 5 / xhigh**. You can override the provider globally or per role with Codex CLI or Claude Code. `plan-status` retains the ready set, barriers, and run journal across caller restarts; integration recovery preserves existing work and records. **The pipeline publishes PRs/MRs; it does not merge them.**
+1. One **implementation role** works through consecutive **fresh sessions** on the delivery branch. Each session reads the plan, the branch history, and the previous session's final message, then decides how much to do and how to verify it.
+2. The main session starts each session from the head its predecessor left and passes that predecessor's final message on verbatim. It steps in only for a question to the user, uncommitted changes, or an execution error.
+3. When a session reports the plan complete, a fresh **reviewer** checks the branch against the plan. Each round's findings go to a new implementation session, then the same reviewer session checks again. After three reviews, any remaining findings are reported to you.
+4. Under your authorization, sessions push and open or update one PR/MR per repository, and the main session reads each one back. **The pipeline publishes PRs/MRs; it does not merge them.**
 
 ## Quick start
 
@@ -222,7 +218,7 @@ Task state defaults to `~/.codex/state/agent-lord`. Override it with `AGENT_LORD
 | [CLI walkthrough](references/cli-quickstart.md)                     | A complete task lifecycle from the terminal                                    |
 | [Pipeline contracts](references/pipelines/common.md)                | Shared execution and acceptance rules; individual policies linked above        |
 | [Runtime protocol](references/protocol.md)                          | Result envelope, commands, state, execution contracts, and recovery            |
-| [Supervision reference](references/supervision.md)                  | Persistent task sets, plan runs, workspace claims, and the request inbox       |
+| [Supervision reference](references/supervision.md)                  | Persistent task sets and the request inbox                                     |
 | [Provider transports](references/transports.md)                     | Codex CLI/App and MCode transport seams and configuration ownership            |
 | [Observer guide](observer/README.md)                                | Setup, task binding, UI behavior, and privacy boundaries                       |
 | [Development guide](references/development.md)                      | Runtime structure, build, tests, and compatibility                             |

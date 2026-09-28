@@ -1,6 +1,6 @@
 # Agent Lord supervision
 
-Multi-task waiting, persistent task sets, durable plan runs, durable workspace claims, and the passive request inbox. Envelopes, execution contracts, error taxonomy, and recovery semantics live in [protocol.md](protocol.md); provider transport details live in [transports.md](transports.md).
+Multi-task waiting, persistent task sets, and the passive request inbox. Envelopes, execution contracts, error taxonomy, and recovery semantics live in [protocol.md](protocol.md); provider transport details live in [transports.md](transports.md).
 
 ## Persistent task sets
 
@@ -29,45 +29,6 @@ A terminal actionable result includes a durable `receipt`. Returning it does **n
 The CLI's `start`, `turn`, `handoff`, and any `recover` that opens a new turn first persist the operation, then launch an independent `execution-worker` and return a `RUNNING` receipt. The background controller owns the provider process, the execution write lease, the final result, and the exit credentials; the process that invoked the CLI or a checkpoint may exit without stopping execution. `--include-response` carries the final text only at terminal state — collect results with `checkpoint`. After the receipt, a task does not depend on the host retaining the original start handle; only a still-running checkpoint handle is resumed.
 
 The controller PID is written into the operation before the provider launches, and the worker verifies that it is the registered owner; a repeated dispatch reuses the operation. The gap while the write lease changes hands is covered by the non-terminal operation, which keeps blocking other writers. A failure of the controller itself is still recovered through the existing checkpoint path and never replays the original prompt automatically. Embedded calls using the TypeScript `AgentLord` / `main` directly keep synchronous compatibility and may opt into background execution explicitly; the production CLI defaults to the background controller.
-
-## Durable plan runs
-
-A plan run holds the frozen module plan and barrier state for the [plan-to-implement pipeline](pipelines/plan-to-implement.md) under the private state directory's `plan-runs/`. Like task sets it never dispatches: it accepts a plan, computes the ready set, refuses a transition that would break a barrier, and journals what happened.
-
-```sh
-node core/dist/cli.js plan-validate --plan-file /tmp/run/plan.json
-node core/dist/cli.js plan-create --run-id feature-x --plan-file /tmp/run/plan.json --planner-task-id feature-x-planner
-node core/dist/cli.js plan-status --run-id feature-x
-node core/dist/cli.js plan-dispatch --run-id feature-x --module-id auth-core --task-id feature-x-auth-core
-node core/dist/cli.js plan-deliver --run-id feature-x --module-id auth-core --state delivered
-node core/dist/cli.js plan-integrate --run-id feature-x --task-id feature-x-integrator
-node core/dist/cli.js plan-merge-request --run-id feature-x --repo /path/repo --mr-url <url> --head-sha <sha> --verification-file /tmp/run/verification.json
-node core/dist/cli.js plan-report --run-id feature-x --report-file /tmp/run/report.md
-```
-
-`plan-validate` checks an [implementation-plan-v1](../schemas/implementation-plan-v1.schema.json) document and returns `PLAN_INVALID` with the offending detail. It is a pre-check and creates nothing.
-
-**Completion is verified against endpoint records.** `plan-create` requires a successful planner task whose verified delivery files include the plan file, so a run cannot start from an arbitrary JSON document. `plan-deliver --state delivered` requires the module's task to exist, its current operation to have succeeded, and its declared delivery to be verified with a commit; that verified commit is adopted, and a disagreeing `--commit-sha` is rejected. Because the task's _current_ operation is used, an older success never covers a failed retry. `plan-merge-request` and `plan-report` require the integrator's current operation to have succeeded. Failures return `ENDPOINT_UNVERIFIED` with the task, operation, and observed status.
-
-`plan-status` returns every module's state, the complete `ready` set, remaining blockers, integration state with its claimed workspaces, the stored report, live claims, and the journal. The ready set has no concurrency cap — it lists every pending module whose dependencies are all delivered, and workspace leases remain the only limit.
-
-Barriers are enforced, not advisory. `plan-dispatch` rejects unmet dependencies, a non-pending module, and a `task_id` already bound to another module; it binds the endpoint to the same `run_id` task set, so `checkpoint --run-id` and the observer cover the whole pipeline. A `task_id` may be bound before its endpoint exists, which is why delivery is where the endpoint is verified. `plan-reset` returns a failed module to pending for a replacement endpoint and keeps both attempts in the journal. `plan-integrate` opens the single final integrator only after every module is delivered, and a second distinct integrator task is refused. `plan-merge-request` verifies `--head-sha` against the repository's real local delivery-branch head, and keeps one MR URL per repository, returning `MR_CONFLICT` for a second. `plan-integration-reset` releases the run's claims and allows a replacement integrator.
-
-Replaying `plan-create` with the same plan and planner is idempotent and keeps recorded progress; a changed plan or a different planner under the same `run_id` returns `RUN_EXISTS`.
-
-`plan-report` closes the run only with a non-empty report and an MR recorded for every declared repository. It copies the report into `plan-reports/<run_id>.md` inside the state directory and records `canonical_path`, `bytes` and `sha256`, so the run keeps a readable copy after the caller's temporary file is gone; `plan-status` also reports whether that file is still `available`. Re-submitting an identical report is idempotent; a different report for a closed run returns `REPORT_CONFLICT`.
-
-The journal records shareable decisions, actions, and results — planner identity and plan digest, module dispatch and provider identity, dependency waits, verified delivery commits, failures and resets, integration with its claimed workspaces, MRs and the heads they were checked against, and the closing report digest. It stores no hidden reasoning or raw provider logs.
-
-`plan-integration-resume --run-id ... --task-id <replacement> --reason ...` keeps the integration workspace, commits, and MRs, and hands over the claims only after verifying that the old execution has stopped; do not substitute `plan-reset` for recovery. Registered workers and integrators automatically inherit their role's delivery requirements, and the commit baseline across attempts stays the plan's original SHA. Beyond the report and MR registration, `plan-report` also verifies the final workspace, the module integration history, and the verification record bound to the SHA, and reads the MR's project, branch, and SHA back through the authenticated GitHub/GitLab API. The verification-record format, exemption boundaries, and recovery steps follow [plan-to-implement](pipelines/plan-to-implement.md#final-integration).
-
-## Durable workspace claims
-
-A workspace claim is a durable reservation of one repository checkout branch by one task, stored in the state directory's `workspace-claims/`. Per-operation leases and the unfenced-operation scan already exclude a second writer, but both are bound to a single `op.target`. A claim expresses the same exclusion independently of any one operation, so one task can own the delivery worktree of several repositories at once — which is what lets the plan-to-implement pipeline run a single integrator across repositories without giving it unleased write access.
-
-Claims are created by `plan-integrate` and released by `plan-report` or `plan-integration-reset`. Any writable `start`, `turn`, `handoff`, or recovery whose worktree identity, or whose repository and checkout branch, matches a claim held by a _different_ task fails with a retryable `WORKSPACE_CLAIM_CONFLICT` naming the owning task and run. The claim owner is never blocked by its own claim, and read-only operations are unaffected. No other start/turn behavior changes: a run with no claims behaves exactly as before.
-
-Claim acquisition, checking, and release are atomic against both another plan run and an ordinary writer, because they use the same per-resource locks in the same order rather than a separate lock domain. Acquiring a claim holds `workspace-prepare`, then the target's `workspace-write` lease, then the repository branch's `branch-write` lease, and checks for an existing claim inside that innermost section before preparing the worktree and writing the record. A writable operation checks the worktree dimension only after it owns that worktree's `workspace-write` lease and the branch dimension only after it owns `branch-write`, so no writer can observe an empty result and then be overtaken. Release re-reads each claim under its `branch-write` lock and removes it only while it still belongs to the releasing run, so a replacement owner's claim on the same deterministic path survives a late cleanup. Repositories are claimed in a deterministic identity order and a failure releases the run's claims, so a multi-repository acquisition is all-or-cleanup. Contention surfaces as a retryable `STATE_BUSY` instead of a silent overwrite.
 
 ## `check` versus `checkpoint`
 

@@ -1,12 +1,11 @@
 # Agent Lord diagrams
 
-These archived SVG diagrams describe the architecture and two retained original pipelines at the revision recorded below. The `plan-cross-review` pipeline has an inline Mermaid diagram in both root READMEs. Current model/effort defaults are defined by the linked pipeline policies. Labels are Chinese; the [English README](../../README.md) and [中文 README](../../README.zh-CN.md) explain the same workflows.
+These archived SVG diagrams describe the architecture and the cross-review pipeline at the revision recorded below. The `plan-cross-review` pipeline has an inline Mermaid diagram in both root READMEs. Current model/effort defaults are defined by the linked pipeline policies. Labels are Chinese; the [English README](../../README.md) and [中文 README](../../README.zh-CN.md) explain the same workflows.
 
 | Diagram               | Type           | README image                 | Editable source                |
 | --------------------- | -------------- | ---------------------------- | ------------------------------ |
 | Architecture overview | `architecture` | [SVG](overview.svg)          | [JSON](overview.json)          |
 | Cross-review          | `workflow` v2  | [SVG](cross-review.svg)      | [JSON](cross-review.json)      |
-| Plan-to-implement     | `workflow` v2  | [SVG](plan-to-implement.svg) | [JSON](plan-to-implement.json) |
 
 Interactive HTML viewers (theme switching, zoom, relationship tracing, export) are **not committed**; regenerate them locally from the JSON sources with the steps below. Each generated viewer is self-contained and needs no external service. The SVG files come from Archify's built-in SVG export and include automatic light/dark styling and font licensing.
 
@@ -16,7 +15,6 @@ The diagrams were checked against repository revision `1c76e25d6dbc4e840a779aa8e
 
 - Overview: [scheduling ownership](../../SKILL.md#scheduling-ownership), [runtime protocol](../../references/protocol.md), [engine](../../core/src/engine.ts), and [Observer](../../observer/README.md).
 - Cross-review: [pipeline policy](../../references/pipelines/cross-review.md). “Two independent reviews” and “mutual cross-exam” each represent a concurrent pair, not one shared reviewer session. The checker is a separate new session.
-- Plan-to-implement: [pipeline policy](../../references/pipelines/plan-to-implement.md), [plan runtime](../../core/src/plan.ts), and [CLI commands](../../core/src/cli.ts). The worker/commit stage repeats for each dependency-ready set. The last node combines publication and runtime closure; the integrator publishes, then the caller registers verification and closes the run.
 
 The diagrams summarize responsibilities and barriers. Policies and runtime code retain the full failure/recovery contracts. The common contract is shared infrastructure, not a named pipeline.
 
