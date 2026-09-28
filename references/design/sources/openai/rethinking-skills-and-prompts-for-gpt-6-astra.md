@@ -1,6 +1,6 @@
 # Rethinking skills and prompts for GPT-6 Astra
 
-> For the complete documentation index, see [llms.txt](/llms.txt). Markdown versions of documentation pages are available by appending `.md` to the page URL.
+> Source: [https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra) (published 2026-09-11)
 
 Coding agents have come a long way, and best practices are changing fast. With more capable models, what used to require a lot of handholding and scaffolding no longer does.
 
@@ -20,11 +20,7 @@ A common workflow to create skills is to use the `$skill-creator` skill. We rece
 
 First, skill descriptions should be as short as possible while making it clear when the model should use them:
 
-
-
 > Illustration: Skill descriptions. Bad: Create and validate Postgres schema migrations. Use when working with databases, queries, models, or persistence. Good: Create and validate Postgres schema migrations. Use when adding or changing a migration, or reviewing its rollout.
-
-
 
 _Here, the bad skill description can push the model to use it anytime it touches anything related to a database, rather than only when it has to handle a migration._
 
@@ -40,11 +36,7 @@ Because [`AGENTS.md`](https://agents.md) applies whenever the model works in you
 
 Requiring a stack of docs or a full repo map before every edit is excessive for a typo fix. GPT-6 Astra can work out what it needs to read without being pushed to review the whole project before every change.
 
-
-
 > Illustration: AGENTS.md context. Bad: Before every edit, read architecture.md, database.md, and deployment.md. Good: Use architecture.md for service boundaries, database.md for schema changes, and deployment.md when preparing a deployment.
-
-
 
 _Prompting the model to read files before every edit is a great way to burn context and slow work down. Pointing to some docs can still be helpful, however, so long as it is contextual. Be sure to keep your docs updated too!_
 

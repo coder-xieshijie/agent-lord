@@ -15,7 +15,7 @@ import path from "node:path";
 // the whole file ships into every agent context that loads the skill.
 const SIZE_BUDGETS = { "SKILL.md": 46080 };
 
-// Verbatim copies of official source documents (see references/design/sources/README.md).
+// Archived copies of official source documents (see references/design/sources/README.md).
 const ARCHIVED_ORIGINALS = [
   "references/design/sources/anthropic/",
   "references/design/sources/openai/",

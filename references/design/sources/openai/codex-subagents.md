@@ -1,6 +1,6 @@
 # Subagents
 
-> For the complete documentation index, see [llms.txt](https://learn.chatgpt.com/llms.txt). Markdown versions of documentation pages are available by appending `.md` to the page URL.
+> Source: [https://developers.openai.com/codex/subagents](https://developers.openai.com/codex/subagents)
 
 ChatGPT Work and Codex can run subagent workflows by spawning specialized
 agents in parallel and then collecting their results in one response. This can
@@ -12,25 +12,19 @@ configurations and instructions for different tasks.
 
 ## Availability
 
-<ContentModeSwitch group="codex-surface" id="web">
+_Applies to: ChatGPT on the web._
 
 ChatGPT Work exposes subagent workflows and activity to eligible accounts.
 
-</ContentModeSwitch>
-
-<a id="custom-agents"></a>
-
-<ContentModeSwitch group="codex-surface" ids="app,cli,ide">
+_Applies to: ChatGPT desktop app, Codex CLI, IDE extension._
 
 Current Codex releases enable subagent workflows by default. Subagent activity
 appears in the ChatGPT desktop app, Codex CLI, and the IDE extension.
 
-</ContentModeSwitch>
-
 Because each subagent does its own model and tool work, subagent workflows
 consume more tokens than comparable single-agent runs.
 
-<ContentModeSwitch group="codex-surface" id="web">
+_Applies to: ChatGPT on the web._
 
 In ChatGPT Work, ask ChatGPT to delegate independent work to subagents. The
 agents run in ChatGPT's hosted environment, and the chat shows their
@@ -38,9 +32,7 @@ activity and results. At most intelligence levels, ask for delegation
 explicitly. With Ultra, ChatGPT can proactively delegate work when parallel
 agents would materially improve speed or quality.
 
-</ContentModeSwitch>
-
-<ContentModeSwitch group="codex-surface" id="app">
+_Applies to: ChatGPT desktop app._
 
 Ask Codex in an app chat to delegate independent parts of the work to
 subagents. Current local Codex releases delegate when you ask directly or when
@@ -48,26 +40,20 @@ applicable `AGENTS.md` or skill instructions request it. The app surfaces each
 subagent thread so you can inspect its work and the summary returned to the main
 chat.
 
-</ContentModeSwitch>
-
-<ContentModeSwitch group="codex-surface" id="cli">
+_Applies to: Codex CLI._
 
 Ask Codex in an interactive CLI session to use subagents. Codex can also follow
 applicable `AGENTS.md` or skill instructions that request delegation. Use
 `/agent` to inspect and switch between agent threads while they run. The main
 thread collects the subagent results into its final response.
 
-</ContentModeSwitch>
-
-<ContentModeSwitch group="codex-surface" id="ide">
+_Applies to: IDE extension._
 
 Ask Codex in an IDE chat to delegate independent parts of the work to subagents.
 Codex can also follow applicable `AGENTS.md` or skill instructions that request
 delegation. When the background-agent UI is available, active subagents appear
 above the composer. Expand the panel to see their status, stop all active
 subagents, or open an individual subagent thread.
-
-</ContentModeSwitch>
 
 ## Why subagent workflows help
 
@@ -107,20 +93,16 @@ Codex uses a few related terms in subagent workflows:
 
 ## Triggering subagent workflows
 
-<ContentModeSwitch group="codex-surface" id="web">
+_Applies to: ChatGPT on the web._
 
 At most intelligence levels, ask for subagents or parallel agent work
 directly. Ultra enables proactive delegation, so ChatGPT can delegate suitable
 independent work without a separate request.
 
-</ContentModeSwitch>
-
-<ContentModeSwitch group="codex-surface" ids="app,cli,ide">
+_Applies to: ChatGPT desktop app, Codex CLI, IDE extension._
 
 Ask for subagents or parallel agent work directly. Codex can also delegate when
 applicable project or skill instructions request it.
-
-</ContentModeSwitch>
 
 In practice, manual triggering means using direct instructions such as
 "spawn two agents," "delegate this work in parallel," or "use one agent per
@@ -139,7 +121,7 @@ Review this branch with parallel subagents. Spawn one subagent for security risk
 
 Different agents need different model and reasoning settings.
 
-<ContentModeSwitch group="codex-surface" id="web">
+_Applies to: ChatGPT on the web._
 
 In ChatGPT Work, choose a model and an intelligence level from the composer.
 Available intelligence levels can include **Light**, **Medium**, **High**,
@@ -150,9 +132,7 @@ reasoning and lets ChatGPT proactively delegate suitable work to subagents.
 At other intelligence levels, ask for subagents explicitly when you want work
 delegated in parallel.
 
-</ContentModeSwitch>
-
-<ContentModeSwitch group="codex-surface" ids="app,cli,ide">
+_Applies to: ChatGPT desktop app, Codex CLI, IDE extension._
 
 If you don't configure a subagent model or `model_reasoning_effort`, the
 subagent inherits the parent agent's model and reasoning effort. If an explicit
@@ -190,8 +170,6 @@ selected model supports.
 
 Higher reasoning effort increases response time and token usage, but it can improve quality for complex work. For details, see [Models](https://learn.chatgpt.com/docs/models), [Config basics](https://learn.chatgpt.com/docs/config-file/config-basic), and [Configuration Reference](https://learn.chatgpt.com/docs/config-file/config-reference).
 
-</ContentModeSwitch>
-
 ## Orchestration and thread controls
 
 ChatGPT or Codex handles orchestration across agents, including spawning new
@@ -201,19 +179,15 @@ agent threads.
 When many agents are running, Codex waits until all requested results are
 available, then returns a consolidated response.
 
-<ContentModeSwitch group="codex-surface" id="web">
+_Applies to: ChatGPT on the web._
 
 At most intelligence levels, ChatGPT spawns agents after a direct request. With
 Ultra, ChatGPT can also delegate proactively when parallel work is useful.
 
-</ContentModeSwitch>
-
-<ContentModeSwitch group="codex-surface" ids="app,cli,ide">
+_Applies to: ChatGPT desktop app, Codex CLI, IDE extension._
 
 Current local Codex releases spawn agents after a direct request or applicable
 project or skill instruction.
-
-</ContentModeSwitch>
 
 To see it in action, try the following prompt on your project:
 
@@ -229,77 +203,55 @@ I would like to review the following points on the current PR (this branch vs ma
 
 ## Managing subagents
 
-<ContentModeSwitch group="codex-surface" id="web">
+_Applies to: ChatGPT on the web._
 
 Open **Subagents** to see read-only **Active** and **Done** lists. Select a
 completed subagent to inspect its details and result. The web sidebar reports
 subagent activity; it doesn't provide controls to stop or steer an individual
 subagent.
 
-</ContentModeSwitch>
-
-<ContentModeSwitch group="codex-surface" id="app">
+_Applies to: ChatGPT desktop app._
 
 - Open a subagent thread from the activity shown in the main thread to inspect
   its work.
 - Ask Codex directly to steer a running subagent, stop it, or close completed
   subagent threads.
 
-
-
 > Illustration: Codex desktop chat showing two subagents working in parallel.
-
-
-
-
 
 > Illustration: Codex desktop Subagents panel with no active subagents and three completed audits.
 
-
-
-</ContentModeSwitch>
-
-<ContentModeSwitch group="codex-surface" id="cli">
+_Applies to: Codex CLI._
 
 - Use `/agent` in the CLI to switch between active agent threads and inspect the ongoing thread.
 - Ask Codex directly to steer a running subagent, stop it, or close completed agent threads.
 
-</ContentModeSwitch>
-
-<ContentModeSwitch group="codex-surface" id="ide">
+_Applies to: IDE extension._
 
 - When the background-agent panel is available, expand it to inspect status,
   stop active subagents, or open a subagent thread.
 - Ask Codex directly to steer a running subagent, stop it, or close completed
   subagent threads.
 
-</ContentModeSwitch>
-
 ## Approvals and sandbox controls
 
-<ContentModeSwitch group="codex-surface" ids="app,cli,ide">
+_Applies to: ChatGPT desktop app, Codex CLI, IDE extension._
 
 Subagents inherit your current sandbox policy.
 
-</ContentModeSwitch>
-
-<ContentModeSwitch group="codex-surface" id="web">
+_Applies to: ChatGPT on the web._
 
 ChatGPT Work runs subagents in its hosted environment and doesn't expose a
 local Codex sandbox or approval-mode control. Subagents use the tools available
 to the parent chat. Website and connector permissions remain
 tool-specific.
 
-</ContentModeSwitch>
-
-<ContentModeSwitch group="codex-surface" id="app">
+_Applies to: ChatGPT desktop app._
 
 Subagents inherit the permission mode selected beneath the composer. Choose the
 permission mode for the parent turn before you ask Codex to delegate work.
 
-</ContentModeSwitch>
-
-<ContentModeSwitch group="codex-surface" id="cli">
+_Applies to: Codex CLI._
 
 In interactive CLI sessions, approval requests can surface from inactive agent
 threads even while you are looking at the main thread. The approval overlay
@@ -315,16 +267,12 @@ child. That includes sandbox and approval choices you set interactively during
 the session, such as `/permissions` changes or `--yolo`, even if the selected
 custom agent file sets different defaults.
 
-</ContentModeSwitch>
-
-<ContentModeSwitch group="codex-surface" id="ide">
+_Applies to: IDE extension._
 
 Subagents inherit the permission mode selected beneath the composer. Choose
 the permission mode for the parent turn before you ask Codex to delegate work.
 
-</ContentModeSwitch>
-
-<ContentModeSwitch group="codex-surface" ids="app,cli,ide">
+_Applies to: ChatGPT desktop app, Codex CLI, IDE extension._
 
 You can also override the sandbox configuration for individual [custom agents](#custom-agents), such as explicitly marking one to work in read-only mode.
 
@@ -538,5 +486,3 @@ This setup works well for prompts like:
 ```text
 Investigate why the settings modal fails to save. Have browser_debugger reproduce it, code_mapper trace the responsible code path, and ui_fixer implement the smallest fix once the failure mode is clear.
 ```
-
-</ContentModeSwitch>

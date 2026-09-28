@@ -1,8 +1,7 @@
-Title: Effective context engineering for AI agents
+# Effective context engineering for AI agents
 
-URL Source: https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents
+> Source: [https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) (published 2025-09-29)
 
-Markdown Content:
 After a few years of prompt engineering being the focus of attention in applied AI, a new term has come to prominence: **context engineering**. Building with language models is becoming less about finding the right words and phrases for your prompts, and more about answering the broader question of “what configuration of context is most likely to generate our model’s desired behavior?"
 
 **Context** refers to the set of tokens included when sampling from a large-language model (LLM). The **engineering** problem at hand is optimizing the utility of those tokens against the inherent constraints of LLMs in order to consistently achieve a desired outcome. Effectively wrangling LLMs often requires _thinking in context_— in other words: considering the holistic state available to the LLM at any given time and what potential behaviors that state might yield.
@@ -55,7 +54,7 @@ One of the most common failure modes we see is bloated tool sets that cover too 
 
 Providing examples, otherwise known as few-shot prompting, is a well known best practice that we continue to strongly advise. However, teams will often stuff a laundry list of edge cases into a prompt in an attempt to articulate every possible rule the LLM should follow for a particular task. We do not recommend this. Instead, we recommend working to curate a set of diverse, canonical examples that effectively portray the expected behavior of the agent. For an LLM, examples are the “pictures” worth a thousand words.
 
-Our overall guidance across the different components of context (system prompts**,**tools**,**examples**,**message history, etc) is to be thoughtful and keep your context informative, yet tight. Now let's dive into dynamically retrieving context at runtime.
+Our overall guidance across the different components of context (system prompts, tools, examples, message history, etc) is to be thoughtful and keep your context informative, yet tight. Now let's dive into dynamically retrieving context at runtime.
 
 ## Context retrieval and agentic search
 
@@ -113,9 +112,9 @@ This approach achieves a clear separation of concerns—the detailed search cont
 
 The choice between these approaches depends on task characteristics. For example:
 
-*   Compaction maintains conversational flow for tasks requiring extensive back-and-forth;
-*   Note-taking excels for iterative development with clear milestones;
-*   Multi-agent architectures handle complex research and analysis where parallel exploration pays dividends.
+- Compaction maintains conversational flow for tasks requiring extensive back-and-forth;
+- Note-taking excels for iterative development with clear milestones;
+- Multi-agent architectures handle complex research and analysis where parallel exploration pays dividends.
 
 Even as models continue to improve, the challenge of maintaining coherence across extended interactions will remain central to building more effective agents.
 

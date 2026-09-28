@@ -1,8 +1,6 @@
 # Prompting
 
-> For the complete documentation index, see [llms.txt](https://learn.chatgpt.com/llms.txt). Markdown versions of documentation pages are available by appending `.md` to the page URL.
-
-<a id="prompts"></a>
+> Source: [https://developers.openai.com/codex/prompting](https://developers.openai.com/codex/prompting)
 
 ## Prompting overview
 
@@ -36,8 +34,6 @@ Put the decisions and next steps first.
 This prompt explains what to create and who will read it. Describe a process when
 the process itself matters. Otherwise, leave ChatGPT room to search, compare
 information, and adjust its approach.
-
-<a id="context"></a>
 
 ## Add useful context
 
@@ -75,14 +71,7 @@ plugins from the same universal directory. Ask for the result you need and let
 the active surface choose from the tools available to it. In ChatGPT, type `@`
 in the composer to choose a specific plugin.
 
-[Learn about plugins
-
-
-
-      <Plugin />
-    
-
-    Find, install, and use plugins in ChatGPT and Codex.](https://learn.chatgpt.com/docs/plugins)
+[Learn about plugins](https://learn.chatgpt.com/docs/plugins): Find, install, and use plugins in ChatGPT and Codex.
 
 ### Personalize ChatGPT
 
@@ -90,14 +79,7 @@ Put preferences that should apply across chats in **Settings > Personalization**
 as custom instructions. Keep details that matter only to the current chat in the
 prompt.
 
-[Review personalization settings
-
-
-
-      <Settings />
-    
-
-    Set a default personality, custom instructions, and other app preferences.](https://learn.chatgpt.com/docs/reference/settings#personalization)
+[Review personalization settings](https://learn.chatgpt.com/docs/reference/settings#personalization): Set a default personality, custom instructions, and other app preferences.
 
 ## Set boundaries that prevent real problems
 
@@ -159,8 +141,8 @@ Queued messages appear above the composer, where you can edit, reorder, send, or
 delete them. The setting also shows the shortcut for using the other behavior
 for one message without changing your default.
 
-In Codex CLI, press <kbd>Enter</kbd> while Codex is working to steer the current
-turn, or press <kbd>Tab</kbd> to queue the message for the next turn. See the
+In Codex CLI, press `Enter` while Codex is working to steer the current
+turn, or press `Tab` to queue the message for the next turn. See the
 [interactive shortcuts](https://learn.chatgpt.com/docs/developer-commands?surface=cli#cli-interactive-shortcuts)
 for details.
 
@@ -187,20 +169,13 @@ asks for a final check without spelling out every step.
 
 ## Use voice dictation
 
-In the ChatGPT desktop app, press <kbd>Ctrl+Shift+D</kbd> while the composer is
+In the ChatGPT desktop app, press `Ctrl+Shift+D` while the composer is
 visible, then start talking. ChatGPT transcribes your speech into the composer
 so you can review and edit it before sending the prompt.
-
 
   
 
 > Illustration: Voice dictation indicator in the composer with a transcribed prompt
-
-
-
-
-<a id="threads"></a>
-<a id="chats"></a>
 
 ## Prompting examples for Chat
 
@@ -236,9 +211,6 @@ Plan five weekday dinners that take less than 30 minutes. Avoid peanuts, reuse
 ingredients across meals, and finish with one consolidated shopping list.
 ```
 
-<a id="prompting-for-work"></a>
-<a id="prompting-in-work-mode"></a>
-
 ## Prompting for ChatGPT Work
 
 Use Chat for quick questions, short rewrites, brainstorming, and lightweight
@@ -248,9 +220,6 @@ sequence of steps, make changes, or produce a larger deliverable.
 In ChatGPT Work, describe the result you need, provide the source material, name
 the audience, and explain how you'll review the work. Ask ChatGPT to plan,
 gather the needed information, create files, and check them before it finishes.
-
-<a id="use-work-efficiently"></a>
-<a id="use-work-mode-efficiently"></a>
 
 ### Use ChatGPT Work efficiently
 
@@ -303,8 +272,6 @@ reliable, [schedule a task inside that chat](https://learn.chatgpt.com/docs/auto
 Create a standalone scheduled task instead when each scheduled run should start
 a new chat.
 
-<a id="use-editor-context"></a>
-
 ## Prompting Codex
 
 Use Codex when you want ChatGPT to work with code, a codebase, or developer tools.
@@ -312,12 +279,9 @@ A useful Codex prompt names the behavior you want, points to the relevant code o
 reproduction steps, preserves important constraints, and says how to verify the
 change.
 
-<a id="goal-mode"></a>
-
 For a multi-step task, enter `/plan` in the app composer when you want Codex to
 investigate and propose an approach before editing. When [Goal mode](https://learn.chatgpt.com/docs/long-running-work)
-is available, use `/goal` after the plan to set a persistent goal. See the [app slash
-commands](https://learn.chatgpt.com/docs/reference/slash-commands)
+is available, use `/goal` after the plan to set a persistent goal. See the [app slash](https://learn.chatgpt.com/docs/reference/slash-commands): commands
 for the current command list.
 
 ### How to read these examples
@@ -341,8 +305,6 @@ Use this when you are onboarding, inheriting a service, or trying to reason abou
 
 #### IDE extension workflow (fastest for local exploration)
 
-<WorkflowSteps>
-
 1. Open the most relevant files.
 2. Select the code you care about (optional but recommended).
 3. Prompt Codex:
@@ -356,8 +318,6 @@ Use this when you are onboarding, inheriting a service, or trying to reason abou
    - one or two "gotchas" to watch for when changing this
 ```
 
-</WorkflowSteps>
-
 Verification:
 
 - Ask for a diagram or checklist you can verify:
@@ -367,8 +327,6 @@ Summarize the request flow as a numbered list of steps. Then list the files invo
 ```
 
 #### CLI workflow (good when you want a transcript + shell commands)
-
-<WorkflowSteps>
 
 1. Start an interactive session:
 
@@ -382,8 +340,6 @@ Summarize the request flow as a numbered list of steps. Then list the files invo
    I need to understand the protocol used by this service. Read @foo.ts @schema.ts and explain the schema and request/response flow. Focus on required vs optional fields and backward compatibility rules.
 ```
 
-</WorkflowSteps>
-
 Context notes:
 
 - You can use `@` in the composer to insert file paths from the workspace, or `/mention` to attach a specific file.
@@ -393,8 +349,6 @@ Context notes:
 Use this when you have a failing behavior you can reproduce locally.
 
 #### CLI workflow (tight loop with reproduction and verification)
-
-<WorkflowSteps>
 
 1. Start Codex at the repo root:
 
@@ -421,8 +375,6 @@ Use this when you have a failing behavior you can reproduce locally.
    Start by reproducing the bug locally, then propose a patch and run checks.
 ```
 
-</WorkflowSteps>
-
 Context notes:
 
 - Supplied by you: the repro steps and constraints (these matter more than a high-level description).
@@ -439,8 +391,6 @@ After the fix, run lint + the smallest relevant test suite. Report the commands 
 
 #### IDE extension workflow
 
-<WorkflowSteps>
-
 1. Open the file where you think the bug lives, plus its nearest caller.
 2. Prompt Codex:
 
@@ -448,15 +398,11 @@ After the fix, run lint + the smallest relevant test suite. Report the commands 
    Find the bug causing "Saved" to show without persisting changes. After proposing the fix, tell me how to verify it in the UI.
 ```
 
-</WorkflowSteps>
-
 ### Write a test
 
 Use this when you want to define the exact scope to test.
 
 #### IDE extension workflow (selection-based)
-
-<WorkflowSteps>
 
 1. Open the file with the function.
 2. Select the lines that define the function. Choose "Add to Codex Thread" from command palette to add these lines to the context.
@@ -466,15 +412,11 @@ Use this when you want to define the exact scope to test.
    Write a unit test for this function. Follow conventions used in other tests.
 ```
 
-</WorkflowSteps>
-
 Context notes:
 
 - Supplied by "Add to Codex Thread" command: the selected lines (this is the "line number" scope), plus open files.
 
 #### CLI workflow (path + line range described in prompt)
-
-<WorkflowSteps>
 
 1. Start Codex:
 
@@ -488,15 +430,11 @@ Context notes:
    Add a test for the invert_list function in @transform.ts. Cover the happy path plus edge cases.
 ```
 
-</WorkflowSteps>
-
 ### Prototype from a screenshot
 
 Use this when you want to turn a design mock, screenshot, or UI reference into a working prototype.
 
 #### CLI workflow (image + prompt)
-
-<WorkflowSteps>
 
 1. Save your screenshot locally (for example `./specs/ui.png`).
 2. Run Codex:
@@ -506,7 +444,6 @@ Use this when you want to turn a design mock, screenshot, or UI reference into a
 ```
 
 3. Drag the image file into the terminal to attach it to the prompt.
-
 4. Follow up with constraints and structure:
 
 ```text
@@ -521,8 +458,6 @@ Use this when you want to turn a design mock, screenshot, or UI reference into a
    - Any small components needed
    - README.md with instructions to run it locally
 ```
-
-</WorkflowSteps>
 
 Context notes:
 
@@ -539,8 +474,6 @@ Start the dev server and tell me the local URL/route to view the prototype.
 
 #### IDE extension workflow (image + existing files)
 
-<WorkflowSteps>
-
 1. Attach the image in the Codex chat (drag-and-drop or paste).
 2. Prompt Codex:
 
@@ -549,15 +482,11 @@ Start the dev server and tell me the local URL/route to view the prototype.
    Follow design and visual patterns from other files in this project.
 ```
 
-</WorkflowSteps>
-
 ### Iterate on UI with live updates
 
 Use this when you want a tight "design → tweak → refresh → tweak" loop while Codex edits code.
 
 #### CLI workflow (run Vite, then iterate with small prompts)
-
-<WorkflowSteps>
 
 1. Start Codex:
 
@@ -595,8 +524,6 @@ Use this when you want a tight "design → tweak → refresh → tweak" loop whi
    Keep the layout, but simplify colors and remove any redundant borders.
 ```
 
-</WorkflowSteps>
-
 Verification:
 
 - Review changes in the browser as Codex updates the code.
@@ -608,8 +535,6 @@ Verification:
 Use this when you want to design an approach with local context, then delegate the long implementation to a cloud chat that can run in parallel.
 
 #### Local planning (IDE)
-
-<WorkflowSteps>
 
 1. Make sure your current work is committed or at least stashed so you can compare changes cleanly.
 2. Ask Codex to produce a refactor plan. If you have the `$plan` skill available, invoke it explicitly:
@@ -636,15 +561,11 @@ Use this when you want to design an approach with local context, then delegate t
    - include a rollback strategy
 ```
 
-</WorkflowSteps>
-
 Context notes:
 
 - Planning works best when Codex can scan the current code locally (entrypoints, module boundaries, dependency graph hints).
 
 #### Cloud delegation (IDE → Cloud)
-
-<WorkflowSteps>
 
 1. If you haven't already done so, set up a [Codex cloud environment](https://learn.chatgpt.com/docs/environments/cloud-environment).
 2. Click on the cloud icon beneath the prompt composer and select your cloud environment.
@@ -655,12 +576,8 @@ Context notes:
 ```
 
 4. Review the cloud diff, iterate if needed.
-
 5. Create a PR directly from the cloud or pull changes locally to test and finish up.
-
 6. Iterate on additional milestones of the plan.
-
-</WorkflowSteps>
 
 Tasks delegated to the cloud run in isolated environments. Internet access is
 off during the agent phase unless you enable it for the environment. Learn more
@@ -671,8 +588,6 @@ about [cloud internet access](https://learn.chatgpt.com/docs/cloud/internet-acce
 Use this when you want a second set of eyes before committing or creating a PR.
 
 #### CLI workflow (review your working tree)
-
-<WorkflowSteps>
 
 1. Start Codex:
 
@@ -692,8 +607,6 @@ Use this when you want a second set of eyes before committing or creating a PR.
    /review Focus on edge cases and security issues
 ```
 
-</WorkflowSteps>
-
 Verification:
 
 - Apply fixes based on review feedback, then rerun `/review` to confirm you resolved the issues.
@@ -705,8 +618,6 @@ Use this when you want review feedback without pulling the branch locally.
 Before you can use this, enable Codex **Code review** on your repository. See [Code review](https://learn.chatgpt.com/docs/third-party/github).
 
 #### GitHub workflow (comment-driven)
-
-<WorkflowSteps>
 
 1. Open the pull request on GitHub.
 2. Leave a comment that tags Codex with explicit focus areas:
@@ -721,15 +632,11 @@ Before you can use this, enable Codex **Code review** on your repository. See [C
    @codex review for security vulnerabilities and security concerns
 ```
 
-</WorkflowSteps>
-
 ### Update documentation
 
 Use this when you need an accurate, clear documentation change.
 
 #### IDE or CLI workflow (local edits + local validation)
-
-<WorkflowSteps>
 
 1. Identify the doc file(s) to change and open them (IDE) or `@` mention them (IDE or CLI).
 2. Prompt Codex with scope and validation requirements:
@@ -739,8 +646,6 @@ Use this when you need an accurate, clear documentation change.
 ```
 
 3. After Codex drafts the changes, review the documentation and iterate as needed.
-
-</WorkflowSteps>
 
 Verification:
 

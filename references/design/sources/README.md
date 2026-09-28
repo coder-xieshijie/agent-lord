@@ -1,6 +1,6 @@
 # 官方原文存档
 
-[设计规范](../guidelines.md)引用的全部原文，于 2026-09-28 抓取。文件保持抓取时的原样：不经 prettier 格式化，不做改写；`scripts/check-docs.mjs` 不检查这些文件内部的链接，但会校验规范指向这些文件的锚点。原文版权归各自发布方所有，这里仅作为设计依据的存档。
+[设计规范](../guidelines.md)引用的全部原文，于 2026-09-28 抓取。内容保持原文，只做格式整理，得到普通的 Markdown 文档，整理方式见文末。`scripts/check-docs.mjs` 不检查这些文件内部的链接，但会校验规范指向这些文件的锚点。原文版权归各自发布方所有，这里仅作为设计依据的存档。
 
 ## Anthropic
 
@@ -22,20 +22,6 @@
 | [scaling-managed-agents.md](anthropic/scaling-managed-agents.md)                                           | Scaling Managed Agents: Decoupling the brain from the hands | 2026-04-08 | C        |
 | [multiagent-systems-patterns-and-problems.md](anthropic/multiagent-systems-patterns-and-problems.md)       | Patterns and problems in multiagent systems                 | 2026-08-13 | C        |
 
-原始地址：
-
-- Prompting 系列（前 5 篇）：`https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/<文件名去掉 .md>`
-- Skill authoring best practices：https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices
-- Claude Code best practices：https://code.claude.com/docs/en/best-practices
-- Building effective agents：https://www.anthropic.com/engineering/building-effective-agents
-- Multi-agent research system：https://www.anthropic.com/engineering/multi-agent-research-system
-- Effective context engineering：https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents
-- Effective harnesses：https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
-- Building multi-agent systems：https://claude.com/blog/building-multi-agent-systems-when-and-how-to-use-them
-- Harness design：https://www.anthropic.com/engineering/harness-design-long-running-apps
-- Scaling Managed Agents：https://www.anthropic.com/engineering/managed-agents
-- Patterns and problems in multiagent systems：https://www.anthropic.com/research/multiagent-systems
-
 ## OpenAI
 
 | 文件                                                                                                        | 标题                                                          | 发布日期   | 获取方式 |
@@ -49,21 +35,23 @@
 | [harness-engineering.md](openai/harness-engineering.md)                                                     | Harness engineering: leveraging Codex in an agent-first world | 2026-02-11 | C        |
 | [run-long-horizon-tasks-with-codex.md](openai/run-long-horizon-tasks-with-codex.md)                         | Run long horizon tasks with Codex                             | 2026-02-23 | B        |
 
-原始地址：
-
-- GPT-6 Astra：https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra
-- Using GPT-6：https://developers.openai.com/api/docs/guides/latest-model
-- Codex Prompting：https://developers.openai.com/codex/prompting
-- Long-running work：https://developers.openai.com/codex/long-running-work
-- Subagents：https://developers.openai.com/codex/subagents
-- Orchestration and handoffs：https://developers.openai.com/api/docs/guides/agents/orchestration
-- Harness engineering：https://openai.com/index/harness-engineering/
-- Run long horizon tasks with Codex：https://developers.openai.com/blog/run-long-horizon-tasks-with-codex
+每篇文件的第二行都写有原始地址。
 
 ## 获取方式
 
-- **A**：`platform.claude.com` 在抓取机器上被地区限制，直连会跳转到 app-unavailable-in-region。改为通过 Jina Reader（`https://r.jina.ai/<URL>`，请求头 `X-Return-Format: html`）取得完整渲染页面，再转换为 Markdown：保留从 `<h1>` 标题到页面底部 "Was this page helpful?" 之前的正文，包括标题、列表、表格、代码块、链接和强调，去掉站点导航与页脚；站内相对链接改写为 `https://platform.claude.com` 下的绝对地址。可以访问时，优先改用在页面 URL 后加 `.md` 得到的官方 Markdown。
-- **B**：在页面 URL 后加 `.md`，直接下载站点提供的官方 Markdown。
-- **C**：通过 Jina Reader（`https://r.jina.ai/<URL>`）取得的 Markdown，文件开头的 `Title` / `URL Source` 为 Jina 附加的元数据。
+- **A**：`platform.claude.com` 在抓取机器上被地区限制。通过 Agent Reach 的 Jina Reader 取得完整渲染页面（请求头 `X-Return-Format: html`），保留从标题到页面底部 "Was this page helpful?" 之前的正文，转换为 Markdown。
+- **B**：在页面 URL 后加 `.md`，下载站点提供的官方 Markdown。
+- **C**：通过 Agent Reach 的 Jina Reader 取得的 Markdown。
 
-更新原文时沿用同一种方式，覆盖对应文件并更新本表的日期；新增原文时同时在[设计规范](../guidelines.md)里补上引用。
+## 整理方式
+
+三种来源都按同一套规则整理，内容本身不改写：
+
+- 文件开头统一为 `# 标题`，下一行是原文地址（有发布日期的一并注明）。
+- 删除站点附加内容：Jina 元数据、YAML 元数据、站点导航、"推荐阅读"一类的站点区块、页面锚点标签和图标组件。
+- 站点组件改为普通 Markdown：提示框（Tip、Note、Warning、Callout）改为引用块；步骤组件改为编号的加粗小标题并去掉组件缩进；OpenAI 文档中按使用环境切换的内容块改为一行 "Applies to: …"；按键标签改为行内代码。
+- 代码块内容逐字保留，只把代码块的语言标注简化为语言名，原来的代码块标题放到代码块上一行。
+- 正文中以文字形式出现的标签名（例如 `<instructions>`）包进行内代码，避免被当成 HTML。
+- 修复抓取时粘连的空格（例如加粗、链接与前后文字之间），站内相对链接改为绝对地址，指向本页的链接改为页内锚点，列表改为紧凑格式。
+
+更新原文时按同样方式抓取和整理，覆盖对应文件并更新本表；新增原文时同时在[设计规范](../guidelines.md)里补上引用。

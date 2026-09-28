@@ -1,6 +1,6 @@
 # Run long horizon tasks with Codex
 
-> For the complete documentation index, see [llms.txt](/llms.txt). Markdown versions of documentation pages are available by appending `.md` to the page URL.
+> Source: [https://developers.openai.com/blog/run-long-horizon-tasks-with-codex](https://developers.openai.com/blog/run-long-horizon-tasks-with-codex) (published 2026-02-23)
 
 In September 2025, OpenAI introduced GPT-5-Codex as the first version of GPT-5 optimized for agentic coding. In December 2025, we launched 5.2 which was the moment that people began to believe that using autonomous coding agents could be reliable. In particular, we saw a huge jump in how long the model could reliably follow instructions.
 
@@ -8,17 +8,17 @@ I wanted to stress-test that threshold. So I gave Codex a blank repo, full acces
 
 This was an experiment, not a production rollout. But it performed well on the parts that matter for long-horizon work: following the spec, staying on task, running verification, and repairing failures as it went.
 
-![Codex Design Desk UI](/images/blog/long-horizon-16.jpeg)
+![Codex Design Desk UI](https://developers.openai.com/images/blog/long-horizon-16.jpeg)
 
 ## What a long-run Codex session looks like
 
 I asked Codex to generate a summary page for the session data:
 
-![Codex session summary dashboard](/images/blog/long-horizon-1.jpeg)
+![Codex session summary dashboard](https://developers.openai.com/images/blog/long-horizon-1.jpeg)
 
 And here is a view of the CLI session stats and token usage:
 
-![Codex CLI session stats and token usage](/images/blog/long-horizon-2.jpeg)
+![Codex CLI session stats and token usage](https://developers.openai.com/images/blog/long-horizon-2.jpeg)
 
 These screenshots are useful because they make the core shift visible: agentic coding is increasingly about time horizon, not just one-shot intelligence.
 
@@ -28,7 +28,7 @@ This is not only "models got smarter." The practical change is that agents can s
 
 METR's work on time-horizon benchmarks is a helpful framing for this trend: the length of software tasks frontier agents can complete with ~50% and 80% reliability has been climbing fast, with a rough ~7 month doubling time. Refer to [Measuring AI Ability to Complete Long Tasks (METR)](https://metr.org/blog/2025-03-19-measuring-ai-ability-to-complete-long-tasks/).
 
-![METR chart measuring AI ability to complete long tasks](/images/blog/long-horizon-3.jpeg)
+![METR chart measuring AI ability to complete long tasks](https://developers.openai.com/images/blog/long-horizon-3.jpeg)
 
 Our recent GPT-5.3-Codex [launch announcement](https://openai.com/index/introducing-gpt-5-3-codex/) pushes this further for agent work in two practical ways:
 
@@ -70,7 +70,7 @@ To top this off, we also launched the Codex app that makes that loop usable day-
 - [Automations](https://developers.openai.com/codex/automations/) (routine work in the background)
 - [Git worktrees](https://developers.openai.com/codex/environments/git-worktrees/) (isolate runs, keep diffs reviewable, reduce thrash)
 
-![Codex app workspace with project thread](/images/blog/long-horizon-4.jpeg)
+![Codex app workspace with project thread](https://developers.openai.com/images/blog/long-horizon-4.jpeg)
 
 ## My setup for the test
 
@@ -97,7 +97,7 @@ Key sections in the file:
 
 The initial prompt told Codex to treat the prompt/spec file as the full project specification and generate a milestone-based plan:
 
-![Prompt used to kickstart the Codex run](/images/blog/long-horizon-5.jpeg)
+![Prompt used to kickstart the Codex run](https://developers.openai.com/images/blog/long-horizon-5.jpeg)
 
 #### [Plan.md](https://github.com/derrickchoi-openai/design-desk/blob/main/docs/plans.md) (milestones + validations)
 
@@ -111,7 +111,7 @@ Key sections in the file:
 - Decision notes to avoid oscillation
 - Intended architecture of the codebase
 
-![Codex referring to the plans markdown file while working](/images/blog/long-horizon-6.jpeg)
+![Codex referring to the plans markdown file while working](https://developers.openai.com/images/blog/long-horizon-6.jpeg)
 
 _Note that we recently added a native plan mode to the Codex app, CLI, and IDE extension. This helps break a larger task into a clear, reviewable sequence of steps before making changes, so you can align on approach upfront. If additional clarification is needed, Codex will ask follow up questions. To toggle it on, use the /plan slash command._
 
@@ -126,7 +126,7 @@ Key sections in the file:
 - Keep diffs scoped (don’t expand scope)
 - Update documentation markdown file continuously
 
-![Prompt instructing Codex to read implement.md as execution instructions](/images/blog/long-horizon-7.jpeg)
+![Prompt instructing Codex to read implement.md as execution instructions](https://developers.openai.com/images/blog/long-horizon-7.jpeg)
 
 #### [Documentation.md](https://github.com/derrickchoi-openai/design-desk/blob/main/docs/documentation.md) (status + decisions as it shipped)
 
@@ -139,11 +139,11 @@ Key sections in the file:
 - How to run + demo (commands + quick smoke tests)
 - Known issues / follow-ups
 
-![Documentation file showing milestone status updates](/images/blog/long-horizon-8.jpeg)
+![Documentation file showing milestone status updates](https://developers.openai.com/images/blog/long-horizon-8.jpeg)
 
 This is what milestone verification looked like in practice during the run:
 
-![Commands Codex ran to verify quality during milestones](/images/blog/long-horizon-9.jpeg)
+![Commands Codex ran to verify quality during milestones](https://developers.openai.com/images/blog/long-horizon-9.jpeg)
 
 ### Verification at every milestone
 
@@ -151,11 +151,11 @@ Codex did not just write code and hope it worked. After milestones, it ran verif
 
 Here are examples of the quality commands it was instructed to use:
 
-![Quality commands for lint, typecheck, tests, build, and export](/images/blog/long-horizon-10.jpeg)
+![Quality commands for lint, typecheck, tests, build, and export](https://developers.openai.com/images/blog/long-horizon-10.jpeg)
 
 And an example of Codex fixing issues after a lint failure:
 
-![Codex fixing issues after npm run lint](/images/blog/long-horizon-11.jpeg)
+![Codex fixing issues after npm run lint](https://developers.openai.com/images/blog/long-horizon-11.jpeg)
 
 ## What the agent built
 

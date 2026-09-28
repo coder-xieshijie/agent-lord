@@ -1,8 +1,7 @@
-Title: Effective harnesses for long-running agents
+# Effective harnesses for long-running agents
 
-URL Source: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
+> Source: [https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents)
 
-Markdown Content:
 As AI agents become more capable, developers are increasingly asking them to take on complex tasks requiring work that spans hours, or even days. However, getting agents to make consistent progress across multiple context windows remains an open problem.
 
 The core challenge of long-running agents is that they must work in discrete sessions, and each new session begins with no memory of what came before. Imagine a software project staffed by engineers working in shifts, where each new engineer arrives with no memory of what happened on the previous shift. Because context windows are limited, and because most complex projects cannot be completed within a single window, agents need a way to bridge the gap between coding sessions.
@@ -23,8 +22,8 @@ This decomposes the problem into two parts. First, we need to set up an initial 
 
 When experimenting internally, we addressed these problems using a two-part solution:
 
-1.   Initializer agent: The very first agent session uses a specialized prompt that asks the model to set up the initial environment: an `init.sh` script, a claude-progress.txt file that keeps a log of what agents have done, and an initial git commit that shows what files were added.
-2.   Coding agent: Every subsequent session asks the model to make incremental progress, then leave structured updates.1
+1. Initializer agent: The very first agent session uses a specialized prompt that asks the model to set up the initial environment: an `init.sh` script, a claude-progress.txt file that keeps a log of what agents have done, and an initial git commit that shows what files were added.
+2. Coding agent: Every subsequent session asks the model to make incremental progress, then leave structured updates.1
 
 The key insight here was finding a way for agents to quickly understand the state of work when starting with a fresh context window, which is accomplished with the claude-progress.txt file alongside the git history. Inspiration for these practices came from knowing what effective software engineers do every day.
 
@@ -79,9 +78,9 @@ Some issues remain, like limitations to Claude’s vision and to browser automat
 
 With all of the above in place, every coding agent is prompted to run through a series of steps to get its bearings, some quite basic but still helpful:
 
-1.   _Run `pwd` to see the directory you’re working in. You’ll only be able to edit files in this directory._
-2.   _Read the git logs and progress files to get up to speed on what was recently worked on._
-3.   _Read the features list file and choose the highest-priority feature that’s not yet done to work on._
+1. _Run `pwd` to see the directory you’re working in. You’ll only be able to edit files in this directory._
+2. _Read the git logs and progress files to get up to speed on what was recently worked on._
+3. _Read the features list file and choose the highest-priority feature that’s not yet done to work on._
 
 This approach saves Claude some tokens in every session since it doesn’t have to figure out how to test the code. It also helps to ask the initializer agent to write an init.sh script that can run the development server, and then run through a basic end-to-end test before implementing a new feature.
 

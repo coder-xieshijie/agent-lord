@@ -1,13 +1,6 @@
----
-latestModelInfo:
-  model: gpt-6-astra
-  migrationGuide: /api/docs/guides/latest-model/gpt-6-astra.md#migration-quickstart
-  promptingGuide: /api/docs/guides/latest-model/gpt-6-astra.md#prompting-best-practices
----
-
 # Using GPT-6
 
-> For the complete documentation index, see [llms.txt](/llms.txt). Markdown versions of documentation pages are available by appending `.md` to the page URL.
+> Source: [https://developers.openai.com/api/docs/guides/latest-model](https://developers.openai.com/api/docs/guides/latest-model)
 
 ## Introduction
 
@@ -18,8 +11,6 @@ GPT-6 Astra is our most intelligent model yet, with state-of-the-art performance
 GPT-6 Astra is also our most aligned model yet. It excels at exercising care, respecting task boundaries, and communicating transparently. When instructions leave room for interpretation, it uses the context it has to fill in routine gaps and asks focused questions when the answer could change the outcome. It incorporates new requirements, changes course when asked, and answers side questions without losing track of the broader task.
 
 To build with GPT-6, set `model` in a [Responses API](https://developers.openai.com/api/docs/guides/migrate-to-responses) request. Use [`gpt-6-astra`](https://developers.openai.com/api/docs/models/gpt-6-astra) for our highest level of capability, [`gpt-6-sol`](https://developers.openai.com/api/docs/models/gpt-6-sol) for strong reasoning on demanding tasks, or [`gpt-6-luna`](https://developers.openai.com/api/docs/models/gpt-6-luna) for efficient, repeatable work at scale.
-
-<a id="gpt-6-astra-what-is-new" className="scroll-mt-[110px]"></a>
 
 ## What's new
 

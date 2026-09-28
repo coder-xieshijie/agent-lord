@@ -1,8 +1,7 @@
-Title: Patterns and problems in multiagent systems
+# Patterns and problems in multiagent systems
 
-URL Source: https://www.anthropic.com/research/multiagent-systems
+> Source: [https://www.anthropic.com/research/multiagent-systems](https://www.anthropic.com/research/multiagent-systems) (published 2026-08-13)
 
-Markdown Content:
 Models are improving and AI agents are taking on more tasks in shared codebases, markets, and other social systems. As a result, an increase in real-world interactions between agents is imminent. We've already [begun studying this](https://www.anthropic.com/features/project-deal), but still have a lot of uncertainty regarding what this looks like at scale. The trajectory is easy to imagine and hard to slow: current institutions are designed by and for people, resting on assumptions about the sufficiency of oversight at human speed. Some institutions will become human-AI hybrids; others where agents outcompete on speed or cost will become agent-only. The volume of agent-agent interaction could plausibly exceed that of human-human and human-agent interactions before the world understands the conditions for making such interactions go well.
 
 Agents are unlike people in many ways. They can work for longer, instantly grasp large bodies of information, and exhibit a breadth of knowledge surpassing any person. Yet they are also susceptible to confabulation and reward hacking, and despite progress in alignment, we know very little about how they behave in complex, real-world, multiagent environments. Moreover, benign behavioral quirks at the individual level might compound into unwanted global outcomes. Here, we identify a few examples of behavioral tendencies in current frontier models and show how they can produce unexpected systemic failures, in hopes of starting a conversation about mitigating these risks.
@@ -51,10 +50,10 @@ Individual agents are “low variance”: they often act the same in situations 
 
 We have seen many examples of this in our experiments:
 
-*   In an early version of the “build a game” experiment in which agents built upon the same model all came online at the same time, 18 out of 30 agents decided to create a git branch with the exact same branch name, “mvp-game-loop.”
-*   In a “writer's workshop” in which agents were all asked to write short-form fiction and critique each other's work, multiple agents in multiple runs titled their first submission “The Cartographer's Last Commission”. The agents were given zero guidance on the subject matter for their writing.
-*   When we asked a swarm of agents to work together and each individually create something impressive, over half of the agents decided to build either ray tracers or self-hosting compilers. Even though they had the ability to communicate with each other, the agents pursuing similar projects hit similar failures.
-*   In an iterated prisoner's dilemma game with communication, agents all settle upon the same strategy and they all defect at the same time, tanking their overall rewards.
+- In an early version of the “build a game” experiment in which agents built upon the same model all came online at the same time, 18 out of 30 agents decided to create a git branch with the exact same branch name, “mvp-game-loop.”
+- In a “writer's workshop” in which agents were all asked to write short-form fiction and critique each other's work, multiple agents in multiple runs titled their first submission “The Cartographer's Last Commission”. The agents were given zero guidance on the subject matter for their writing.
+- When we asked a swarm of agents to work together and each individually create something impressive, over half of the agents decided to build either ray tracers or self-hosting compilers. Even though they had the ability to communicate with each other, the agents pursuing similar projects hit similar failures.
+- In an iterated prisoner's dilemma game with communication, agents all settle upon the same strategy and they all defect at the same time, tanking their overall rewards.
 
 We expect that agents coordinating in the wild will act in higher variance ways than we see here, because they’ll have different backgrounds and therefore different contexts. They also, presumably, won’t all be Claudes. Nonetheless, when many agents all face the same situation, we expect them to behave much more similarly to one-another than humans would.
 
@@ -140,23 +139,3 @@ Nothing above suggests that these failures are permanent—but nothing suggests 
 The conditions that allow multiagent interaction to go well will be discovered one way or another: either deliberately and early, or—and by default—in production, after agents’ interactions far outnumber ours. We would prefer the former.
 
 _Corresponding author: [Carolyn Zou](https://www.anthropic.com/research/cqz@anthropic.com)_
-
-## Related content
-
-### Yes, Claude can do Nine Loops
-
-Guest writer and physicist Matt von Hippel shares what happened when he issued a challenge to AI companies to solve a problem in his former subfield of theoretical physics.
-
-[Read more](https://www.anthropic.com/research/yes-claude-can-do-nine-loops)
-
-### Project Swap: What happens when agents trade for us?
-
-To see what works and what breaks when agents are sent into a market, we made a miniature market of Claudes—a more controlled sequel to Project Deal, our first experiment with agents interacting in a marketplace on people's behalf.
-
-[Read more](https://www.anthropic.com/research/project-swap)
-
-### How Claude is uplifting biomolecular modeling
-
-Claude made the open-source models that scientists use to predict and design biomolecules faster and more memory-efficient. Claude optimized more than 30 of these models in just under four weeks, speeding them up roughly 4x on average. It also created a low-memory mode that enables the accurate prediction of biomolecular systems larger than 10,000 tokens (amino acids, nucleotides, and atoms from small molecules and ions) on a single NVIDIA GPU node.
-
-[Read more](https://www.anthropic.com/research/claude-uplifts-biomolecular-modeling)

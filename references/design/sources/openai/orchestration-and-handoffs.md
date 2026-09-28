@@ -1,6 +1,6 @@
 # Orchestration and handoffs
 
-> For the complete documentation index, see [llms.txt](/llms.txt). Markdown versions of documentation pages are available by appending `.md` to the page URL.
+> Source: [https://developers.openai.com/api/docs/guides/agents/orchestration](https://developers.openai.com/api/docs/guides/agents/orchestration)
 
 Multi-agent workflows are useful when specialists should own different parts of the job. The first design choice is deciding who owns the final user-facing answer at each branch of the workflow.
 
@@ -40,7 +40,6 @@ triage_agent = Agent(
     handoffs=[billing_agent, handoff(refund_agent)],
 )
 ```
-
 
 Keep the routing surface legible:
 
@@ -94,7 +93,6 @@ main_agent = Agent(
 )
 ```
 
-
 This is usually the better fit when:
 
 - the manager should synthesize the final answer
@@ -111,22 +109,6 @@ Splitting too early creates more prompts, more traces, and more approval surface
 
 Once the ownership pattern is clear, continue with the guide that covers the adjacent runtime or state question.
 
-
-
-  [Agent definitions
-
-
-
-        Refine each specialist's instructions, tools, and output contract.](https://developers.openai.com/api/docs/guides/agents/define-agents)
-  [Running agents
-
-
-
-        Understand how handoffs and tools behave inside a run.](https://developers.openai.com/api/docs/guides/agents/running-agents)
-  [Results and state
-
-
-
-        See how 
-      `lastAgent` in TypeScript or `last_agent` in Python 
-      and resumable state affect the next turn.](https://developers.openai.com/api/docs/guides/agents/results)
+  [Agent definitions](https://developers.openai.com/api/docs/guides/agents/define-agents): Refine each specialist's instructions, tools, and output contract.
+  [Running agents](https://developers.openai.com/api/docs/guides/agents/running-agents): Understand how handoffs and tools behave inside a run.
+  [Results and state](https://developers.openai.com/api/docs/guides/agents/results): See how `lastAgent` in TypeScript or `last_agent` in Python and resumable state affect the next turn.

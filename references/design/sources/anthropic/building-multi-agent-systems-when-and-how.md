@@ -1,10 +1,7 @@
-Title: Building multi-agent systems: When and how to use them
+# Building multi-agent systems: When and how to use them
 
-URL Source: https://claude.com/blog/building-multi-agent-systems-when-and-how-to-use-them
+> Source: [https://claude.com/blog/building-multi-agent-systems-when-and-how-to-use-them](https://claude.com/blog/building-multi-agent-systems-when-and-how-to-use-them) (published 2026-01-23)
 
-Published Time: Jan 23, 2026
-
-Markdown Content:
 ## What is a multi-agent system?
 
 A multi-agent system is an architecture where multiple LLM instances run with separate conversation contexts, coordinated through code. Each agent handles a distinct slice of a task — a subagent researches while an orchestrator plans, for example — which protects context, enables parallel work, and allows specialization a single agent can't sustain.
@@ -37,8 +34,6 @@ Large language models have finite context windows, and response quality can degr
 
 Consider a customer support agent that needs to retrieve order history while diagnosing technical issues. If every order lookup adds thousands of tokens to the context, the agent's ability to reason about the technical problem degrades.
 
-‍
-
 **The single-agent approach:**
 
 ```
@@ -54,8 +49,6 @@ conversation_history = [
 ```
 
 The agent must reason about the technical issue while maintaining 2000+ tokens of irrelevant order history in context, diluting attention and reducing response quality.
-
-‍
 
 **The multi-agent approach:**
 
@@ -158,9 +151,9 @@ Different tasks sometimes benefit from different tool sets, system prompts, or d
 
 When an agent has access to too many tools, performance suffers. Three signals indicate tool specialization would help:
 
-1.   **Quantity.** An agent with too many tools (often 20+) struggles to select the appropriate one.
-2.   **Domain confusion.** When tools span multiple unrelated domains (database operations, API calls, file system operations), the agent confuses which domain applies to a given task.
-3.   **Degraded performance.** Adding new tools degrades performance on existing tasks, suggesting the agent has reached its capacity for tool management.
+1. **Quantity.** An agent with too many tools (often 20+) struggles to select the appropriate one.
+2. **Domain confusion.** When tools span multiple unrelated domains (database operations, API calls, file system operations), the agent confuses which domain applies to a given task.
+3. **Degraded performance.** Adding new tools degrades performance on existing tasks, suggesting the agent has reached its capacity for tool management.
 
 #### **System prompt specialization**
 
@@ -226,9 +219,9 @@ This pattern mirrors effective professional collaboration, where specialists wit
 
 Beyond the general framework, certain concrete signals suggest that single-agent patterns have been outgrown:
 
-**Approaching context limits.**If an agent routinely uses large amounts of context and performance is degrading, context pressure may be the bottleneck. Note that recent advances in context management ([such as compaction](https://platform.claude.com/cookbook/tool-use-automatic-context-compaction)) are reducing this limitation, allowing single agents to maintain effective memory across much longer horizons.
+**Approaching context limits.** If an agent routinely uses large amounts of context and performance is degrading, context pressure may be the bottleneck. Note that recent advances in context management ([such as compaction](https://platform.claude.com/cookbook/tool-use-automatic-context-compaction)) are reducing this limitation, allowing single agents to maintain effective memory across much longer horizons.
 
-**Managing many tools.** When an agent has 15-20+ tools, the model spends significant context and attention understanding its options. Before adopting a multi-agent architecture, consider using the[Tool Search Tool](https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/tool-search-tool), which lets Claude dynamically discover tools on-demand rather than loading all definitions upfront. This can [reduce token usage by up to 85%](https://www.anthropic.com/engineering/advanced-tool-use) while improving tool selection accuracy.
+**Managing many tools.** When an agent has 15-20+ tools, the model spends significant context and attention understanding its options. Before adopting a multi-agent architecture, consider using the [Tool Search Tool](https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/tool-search-tool), which lets Claude dynamically discover tools on-demand rather than loading all definitions upfront. This can [reduce token usage by up to 85%](https://www.anthropic.com/engineering/advanced-tool-use) while improving tool selection accuracy.
 
 **Parallelizable subtasks.** When tasks naturally decompose into independent pieces (research across multiple sources, tests for multiple components), parallel subagents can provide substantial speedups.
 
@@ -248,15 +241,15 @@ This principle emerges from observing failure modes in multi-agent systems. When
 
 **Effective decomposition boundaries include:**
 
-*   **Independent research paths.** Investigating "market trends in Asia" versus "market trends in Europe" can proceed in parallel with no shared context.
-*   **Separate components with clean interfaces.** With a well-defined API contract, frontend and backend work can proceed in parallel.
-*   **Blackbox verification.** A verifier that only needs to run tests and report results does not require implementation context.
+- **Independent research paths.** Investigating "market trends in Asia" versus "market trends in Europe" can proceed in parallel with no shared context.
+- **Separate components with clean interfaces.** With a well-defined API contract, frontend and backend work can proceed in parallel.
+- **Blackbox verification.** A verifier that only needs to run tests and report results does not require implementation context.
 
 **Problematic decomposition boundaries include:**
 
-*   **Sequential phases of the same work.** Planning, implementation, and testing of the same feature share too much context.
-*   **Tightly coupled components.** Components requiring constant back-and-forth belong in the same agent.
-*   **Work requiring shared state.** Agents that would need to frequently synchronize understanding should remain together.
+- **Sequential phases of the same work.** Planning, implementation, and testing of the same feature share too much context.
+- **Tightly coupled components.** Components requiring constant back-and-forth belong in the same agent.
+- **Work requiring shared state.** Agents that would need to frequently synchronize understanding should remain together.
 
 ## The verification subagent pattern
 
@@ -344,10 +337,10 @@ def implement_with_verification(requirements: str, max_attempts: int = 3):
 
 Verification subagents are effective for:
 
-*   **Quality assurance.** Running test suites, linting code, validating outputs against schemas.
-*   **Compliance checking.** Verifying documents meet policy requirements, checking outputs against rules.
-*   **Output validation.** Confirming generated content meets specifications before delivery.
-*   **Factual verification.** Having a separate agent verify claims or citations in generated content.
+- **Quality assurance.** Running test suites, linting code, validating outputs against schemas.
+- **Compliance checking.** Verifying documents meet policy requirements, checking outputs against rules.
+- **Output validation.** Confirming generated content meets specifications before delivery.
+- **Factual verification.** Having a separate agent verify claims or citations in generated content.
 
 ### The early victory problem
 
@@ -355,18 +348,18 @@ The most significant failure mode for verification subagents is marking outputs 
 
 Mitigation strategies include:
 
-*   **Concrete criteria.** Specify "Run the full test suite and report all failures" rather than "make sure it works."
-*   **Comprehensive checks.** Require the verifier to test multiple scenarios and edge cases.
-*   **Negative tests.** Direct the verifier to attempt inputs that should fail and confirm they do.
-*   **Explicit instructions.** The instruction "You MUST run the complete test suite before marking as passed" is essential. Without explicit requirements for comprehensive validation, verification agents take shortcuts.
+- **Concrete criteria.** Specify "Run the full test suite and report all failures" rather than "make sure it works."
+- **Comprehensive checks.** Require the verifier to test multiple scenarios and edge cases.
+- **Negative tests.** Direct the verifier to attempt inputs that should fail and confirm they do.
+- **Explicit instructions.** The instruction "You MUST run the complete test suite before marking as passed" is essential. Without explicit requirements for comprehensive validation, verification agents take shortcuts.
 
 ## Choosing between single-agent and multi-agent systems
 
 Multi-agent systems are powerful, but not universally appropriate. Before adding the complexity of multiple coordinated agents, confirm that:
 
-1.   **Genuine constraints exist** that multi-agent solves, such as context limits, parallelization opportunities, or need for specialization.
-2.   **Decomposition follows context, not problem type.** Group work by what context it requires, not by what kind of work it is.
-3.   **Clear verification points exist** where subagents can validate work without requiring full context.
+1. **Genuine constraints exist** that multi-agent solves, such as context limits, parallelization opportunities, or need for specialization.
+2. **Decomposition follows context, not problem type.** Group work by what context it requires, not by what kind of work it is.
+3. **Clear verification points exist** where subagents can validate work without requiring full context.
 
 Our advice? Start with the simplest approach that works, and add complexity only when evidence supports it.
 

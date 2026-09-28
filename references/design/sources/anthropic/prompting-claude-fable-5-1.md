@@ -1,46 +1,33 @@
 # Prompting Claude Fable 5.1
 
+> Source: [https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1)
+
 Behavioral differences and prompting patterns for Claude Fable 5.1 and Claude Mythos 5.1, covering effort, progress updates, tool-call batching, conversation history, writing style, formatting, task completion, compaction summaries, scope and test coverage, search triggering, safeguard false positives, file edits, long outputs, subagents, and vision.
 
 For the model's capabilities, API changes, pricing, and availability, see [What's new in Claude Fable 5.1](https://platform.claude.com/docs/en/models/fable-5-1/whats-new-fable-5-1). For techniques that apply across Claude models, see [Prompting best practices](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices).
 
 Your existing Claude Fable 5 prompts should perform well on Claude Fable 5.1 without changes, but a handful of behavioral differences are worth knowing about. Start with the section that matches what you observe:
 
-- Unsure which effort level to run, or latency and cost are higher than the task warrants: [Consider all effort levels](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1#consider-all-effort-levels)
-
-- Little or no text between tool calls: [Ask for user-facing progress updates](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1#ask-for-user-facing-progress-updates)
-
-- One tool call per turn in agent loops: [Batch independent tool calls in agent loops](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1#batch-independent-tool-calls-in-agent-loops)
-
-- Requests fail with `bound to a different conversation`, or your harness edits earlier turns between requests: [Keep the conversation history append-only](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1#keep-the-conversation-history-append-only)
-
-- Prose runs long and dense: [Writing density](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1#writing-density)
-
-- Chat replies carry less structure than the content needs: [Formatting in chat](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1#formatting-in-chat)
-
-- Summaries reproduce source wording without marking it as a quotation: [Quoting retrieved sources](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1#quoting-retrieved-sources)
-
-- Turn ends before the work is done, or the model asks permission for work you already requested: [Finish the whole task](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1#finish-the-whole-task)
-
-- Client-side compaction summaries drop constraints, decisions, or exact details: [Tell the model what to preserve in compaction summaries](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1#tell-the-model-what-to-preserve-in-compaction-summaries)
-
-- Unrequested fixes or extensions, or more committed test files than the task called for: [Keep changes and tests to what the task asks for](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1#keep-changes-and-tests-to-what-the-task-asks-for)
-
-- Answers from memory instead of searching at low effort: [Search triggering at low effort](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1#search-triggering-at-low-effort)
-
-- Benign coding requests return `stop_reason: "refusal"`: [Reduce safeguard false positives](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1#reduce-safeguard-false-positives)
-
-- Whole files rewritten for small changes: [Prefer targeted edits over whole-file rewrites](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1#prefer-targeted-edits-over-whole-file-rewrites)
-
-- Long deliverables at `xhigh` or `max` effort take a long time or hit `max_tokens`: [Leave room for long outputs at xhigh and max effort](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1#leave-room-for-long-outputs-at-xhigh-and-max-effort)
-
-- Lead agent idles while subagents run: [Let the lead agent keep working while subagents run](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1#let-the-lead-agent-keep-working-while-subagents-run)
-
-- Answers about charts and dense images miss detail: [Give vision work tools to crop and zoom](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1#give-vision-work-tools-to-crop-and-zoom)
+- Unsure which effort level to run, or latency and cost are higher than the task warrants: [Consider all effort levels](#consider-all-effort-levels)
+- Little or no text between tool calls: [Ask for user-facing progress updates](#ask-for-user-facing-progress-updates)
+- One tool call per turn in agent loops: [Batch independent tool calls in agent loops](#batch-independent-tool-calls-in-agent-loops)
+- Requests fail with `bound to a different conversation`, or your harness edits earlier turns between requests: [Keep the conversation history append-only](#keep-the-conversation-history-append-only)
+- Prose runs long and dense: [Writing density](#writing-density)
+- Chat replies carry less structure than the content needs: [Formatting in chat](#formatting-in-chat)
+- Summaries reproduce source wording without marking it as a quotation: [Quoting retrieved sources](#quoting-retrieved-sources)
+- Turn ends before the work is done, or the model asks permission for work you already requested: [Finish the whole task](#finish-the-whole-task)
+- Client-side compaction summaries drop constraints, decisions, or exact details: [Tell the model what to preserve in compaction summaries](#tell-the-model-what-to-preserve-in-compaction-summaries)
+- Unrequested fixes or extensions, or more committed test files than the task called for: [Keep changes and tests to what the task asks for](#keep-changes-and-tests-to-what-the-task-asks-for)
+- Answers from memory instead of searching at low effort: [Search triggering at low effort](#search-triggering-at-low-effort)
+- Benign coding requests return `stop_reason: "refusal"`: [Reduce safeguard false positives](#reduce-safeguard-false-positives)
+- Whole files rewritten for small changes: [Prefer targeted edits over whole-file rewrites](#prefer-targeted-edits-over-whole-file-rewrites)
+- Long deliverables at `xhigh` or `max` effort take a long time or hit `max_tokens`: [Leave room for long outputs at xhigh and max effort](#leave-room-for-long-outputs-at-xhigh-and-max-effort)
+- Lead agent idles while subagents run: [Let the lead agent keep working while subagents run](#let-the-lead-agent-keep-working-while-subagents-run)
+- Answers about charts and dense images miss detail: [Give vision work tools to crop and zoom](#give-vision-work-tools-to-crop-and-zoom)
 
 
 
-Claude Fable 5.1 runs safety classifiers and can return `stop_reason: "refusal"`. See [Refusals, fallback, and billing](https://platform.claude.com/docs/en/models/fable-5-1/whats-new-fable-5-1#refusals-fallback-and-billing) and [Reduce safeguard false positives](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1#reduce-safeguard-false-positives).
+Claude Fable 5.1 runs safety classifiers and can return `stop_reason: "refusal"`. See [Refusals, fallback, and billing](https://platform.claude.com/docs/en/models/fable-5-1/whats-new-fable-5-1#refusals-fallback-and-billing) and [Reduce safeguard false positives](#reduce-safeguard-false-positives).
 
 ## Consider all effort levels
 
@@ -48,7 +35,7 @@ Start at the default [effort](https://platform.claude.com/docs/en/build-with-cla
 
 Claude Fable 5.1's capability gains over Claude Fable 5 show up across effort levels and are largest at the higher settings. At `medium`, results roughly match Claude Fable 5 at lower cost, so step down to `medium` or `low` where your evals show quality holds. At `low`, Claude Fable 5.1 is often competitive with Claude Opus and Claude Sonnet models on cost per task while scoring higher, so include it in the comparison wherever you'd otherwise run a smaller model at a higher effort level.
 
-Two effort-specific behaviors have their own sections: at `low`, Claude Fable 5.1 calls search and retrieval tools less often (see [Search triggering at low effort](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1#search-triggering-at-low-effort)), and at `xhigh` and `max` it can think for longer before writing a long deliverable (see [Leave room for long outputs at xhigh and max effort](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1#leave-room-for-long-outputs-at-xhigh-and-max-effort)).
+Two effort-specific behaviors have their own sections: at `low`, Claude Fable 5.1 calls search and retrieval tools less often (see [Search triggering at low effort](#search-triggering-at-low-effort)), and at `xhigh` and `max` it can think for longer before writing a long deliverable (see [Leave room for long outputs at xhigh and max effort](#leave-room-for-long-outputs-at-xhigh-and-max-effort)).
 
 ## Ask for user-facing progress updates
 
@@ -80,7 +67,7 @@ First privately list what you need next; then request every item that doesn't de
 
 Each time you send tool results back, append it after that user message as a [turn-scoped system message](https://platform.claude.com/docs/en/build-with-claude/mid-conversation-system-messages#turn-scoped-system-messages): a `role: "system"` entry in `messages` with `clear_at: "next_user_message"`. Once a later user message exists, the API clears the earlier copies, so the model reads only the newest one. Turn-scoped system messages are in beta and require the [beta header](https://platform.claude.com/docs/en/api/beta-headers) `mid-conversation-system-clear-at-2026-08-21`. Without the beta, place the sentence in a text block after the `tool_result` blocks in the same user message instead.
 
-Append a fresh copy each turn and leave the earlier copies where they are, byte-for-byte. They stay in the array, but once cleared the model doesn't see them and they cost no input tokens. Deleting or rewriting them is an edit to earlier turns: it restarts the [prompt cache](https://platform.claude.com/docs/en/build-with-claude/prompt-caching) from that point and invalidates the thinking blocks that came after them (see [Keep the conversation history append-only](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1#keep-the-conversation-history-append-only)).
+Append a fresh copy each turn and leave the earlier copies where they are, byte-for-byte. They stay in the array, but once cleared the model doesn't see them and they cost no input tokens. Deleting or rewriting them is an edit to earlier turns: it restarts the [prompt cache](https://platform.claude.com/docs/en/build-with-claude/prompt-caching) from that point and invalidates the thinking blocks that came after them (see [Keep the conversation history append-only](#keep-the-conversation-history-append-only)).
 
 The following loop shows this placement. Each assistant turn goes back exactly as returned, each user turn carries only the tool results, and a fresh turn-scoped copy of the nudge follows it.
 
@@ -280,9 +267,7 @@ When a query centers on a name you do not confidently recognize, or recognize fr
 Claude Fable 5.1's safety classifiers produce fewer false positives than Claude Fable 5's did at launch, and finding vulnerabilities in source code is permitted. False positives still occur, and a blocked request returns `stop_reason: "refusal"` (see [Refusals, fallback, and billing](https://platform.claude.com/docs/en/models/fable-5-1/whats-new-fable-5-1#refusals-fallback-and-billing)). Three situations make them more likely:
 
 - **Compile-check phrasing:** Instead of "Does this program compile without errors?", ask "Are there any bugs in this program?"
-
 - **Lesser-known programming languages:** Give the model context about what the language is and how it works, for example by giving it access to the language's documentation.
-
 - **Base64 in tool output:** Tools that return base64-encoded data into the model's context can trigger false positives, so removing them is the recommended fix.
 
 ## Prefer targeted edits over whole-file rewrites
@@ -295,10 +280,9 @@ The number of tokens used to edit files is best minimized, all else being equal.
 
 ## Leave room for long outputs at xhigh and max effort
 
-At `xhigh` and especially `max` effort, Claude Fable 5.1 can think for longer before it starts writing its reply. When a single request asks for a long deliverable, such as a full rewrite of a long document, it may draft much of that deliverable in its thinking and then write it out again as the reply, which means a longer wait and more output tokens. The simplest approach is to run requests like these at `high`, the recommended starting point, and move to `xhigh` or `max` only where you've measured a quality gain (see [Consider all effort levels](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1#consider-all-effort-levels)). If you do run them at `xhigh` or `max`:
+At `xhigh` and especially `max` effort, Claude Fable 5.1 can think for longer before it starts writing its reply. When a single request asks for a long deliverable, such as a full rewrite of a long document, it may draft much of that deliverable in its thinking and then write it out again as the reply, which means a longer wait and more output tokens. The simplest approach is to run requests like these at `high`, the recommended starting point, and move to `xhigh` or `max` only where you've measured a quality gain (see [Consider all effort levels](#consider-all-effort-levels)). If you do run them at `xhigh` or `max`:
 
 - Set `max_tokens` to leave room for the thinking and the reply, not just the reply length you expect.
-
 - Append the following note to the end of the user message. It makes the thinking much shorter on prose and code requests. Replace `[max_tokens]` with the request's actual `max_tokens` value, for example 64,000.
 
 ```
@@ -312,9 +296,7 @@ Instead, when the person has asked for a long or effort-intensive deliverable su
 If your coding agent lets Claude Fable 5.1 delegate work to subagents, don't force the lead agent to stop and wait for each one. On coding tasks, letting the lead continue while subagents run lowers average time to completion at similar quality, token usage, and cost. To set this up:
 
 - Have the tool that starts a subagent return immediately.
-
 - Pass each subagent's result back to the lead in a later `user` message once it's ready.
-
 - Give the lead a separate tool it can call when it wants to wait for a result.
 
 The model still often chooses to wait. The time savings come from the runs where it carries on with other work.

@@ -7,7 +7,7 @@ pnpm-lock.yaml
 # Generated diagram sources and exports: bytes are digest-tracked, never reformat
 assets/diagrams/
 
-# Archived official source documents: kept exactly as retrieved
+# Archived official source documents: cleaned once from the originals, not reformatted
 references/design/sources/anthropic/
 references/design/sources/openai/
 
