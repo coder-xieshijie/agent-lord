@@ -8,6 +8,25 @@
 
 这条原则及其官方依据已整理进 dev-skills 的 [agent-prompt-rules](https://github.com/coder-xieshijie/dev-skills/blob/main/skills/agent-prompt-rules/SKILL.md)，官方原文随 Skill 一起存档。以后的修改以规范为准，本文只记录具体的审计数据和决定。
 
+## 2026-09-28：plan-to-implement 加验收、按阶段划分 session；编排器告警与轮询；SKILL.md 瘦身
+
+依据是 goal-v2 run-02（!7450）的耗时分析：13 个模块的代码都做完了，但真实模型链路一次都没验证过；Codex 主会话 06:53 收到 401 后没人发现，最后一个模块 07:55 完成后结果闲置约 55 小时；主会话 7 小时里 1,036 次工具调用中有 816 次在轮询（每次只等约 50 秒，再补一次读输出）；规划端第一次运行在第 53 分钟以 `RESULT_INVALID` 结束（会话还在，只是最后停在一次工具调用上），重试开了新会话从头规划，又花了 52 分钟。
+
+- **plan-to-implement 加验收**（[agent-prompt-rules](https://github.com/coder-xieshijie/dev-skills/blob/main/skills/agent-prompt-rules/SKILL.md) 第二节第 2、3、4、8 条）：写代码前先定验收场景，每条需求一个，从真实入口执行，写明怎样算通过；计划里有就用计划的，没有就由验收 session 先写。实现方拿到冻结的场景副本，不能改。最后一个阶段完成后，reviewer 和验收 session 在同一个提交上并行检查；失败和 review 发现一起交回最后一个实现 session 修复，最多三轮。报告逐条给出 PASS / FAIL / UNVERIFIED。这是新增一个角色：reviewer 只读代码，默认装配、真实入口、跨模块路径这些只有跑起来才能看到的问题，之前没有人负责。
+- **按计划阶段划分 session**（第二节第 11 条）：每个阶段一个 session，阶段的检查通过并提交才算完成；没做完、也没被卡住就在同一个 session 里续做，最多两次。删掉"你没有记忆，最后一条消息交给下一个 session"这类说法，SKILL.md 的任务上下文规则也加了同样一条。检查轮的修复改为续用最后一个实现 session，不再新开。
+- **plan-cross-review**：C 写的 plan 里每条需求要有能从真实入口执行的验收场景，D 逐条核对。
+- **未收结果告警**（第二节第 10 条，交给运行时）：run 里的任务结束后，结果超过 30 分钟没被 `run-ack`，detached worker 记一条 `result-unreceived` 事件并提醒一次：默认由 `lark-cli` 的应用机器人给登录用户发飞书私信，没有 `lark-cli` 或发送失败时改用 macOS 通知，也可以配置成别的命令。
+- **轮询**（第二节第 10 条）：`checkpoint` 默认等待从 120 秒改为 600 秒，有结果时仍立即返回；SKILL.md 要求让宿主报告 checkpoint 结束，不再每 50 秒调一次模型。run-02 的 rollout 显示，主会话自己选了 `--seconds 50`；Codex 的 `exec_command` 不论 `yield_time_ms` 设多少，最多等 30 秒（135 次请求 55 秒，都在 30.0 秒返回），剩下的时间靠 `write_stdin` 补等，所以每次等待要两次模型调用。`write_stdin` 空输入最多可等 `background_terminal_max_timeout`，默认 300 秒；SKILL.md 写明了这两个上限。
+- **`RESULT_INVALID` 同会话续跑**：`retry-invalid` 对已经跑起来的会话改发一句续做指令，不再重放整个 prompt；失败的 start 只要会话确实跑过，就绑定这个会话继续，不再要求换新会话。
+- **SKILL.md 瘦身**（第三节第 2、5 条）：44,733 → 33,365 字节。请求收件箱、Codex App 握手、`RESULT_INVALID` 重试细则、并行写入细节、observer 说明、artifact 与旧版句柄等只在特定情况下用到的内容，改为指向已有的 references；过时的 `plan-*` 与"保留 controller handle"说法删掉。`scripts/check-docs.mjs` 的预算降到 34,304 字节。
+
+下次运行要看的数据：
+
+- 验收：场景数；FAIL 里真实缺陷与场景本身写错各多少；UNVERIFIED 的数量和原因；用了几轮检查；验收 session 的耗时；场景快照有没有被改、为什么改。
+- 阶段 session：每个阶段用了几个 session、几次续做；有没有 session 在阶段没做完时就收尾；阶段结束时的上下文大小（对照 run-02 的 400–560K）。
+- 主会话：每小时的工具调用次数和其中轮询的占比（对照 run-02 的 816/1,036）；有没有压缩；告警是否触发，有没有主会话还活着、只是 ack 慢而误报的情况。
+- `retry-invalid`：续做与重放各几次，从失败到恢复的耗时（对照 run-02 的 53 分钟）。
+
 ## 2026-09-28：按设计规范调整交叉验证 pipeline
 
 依据 [agent-prompt-rules](https://github.com/coder-xieshijie/dev-skills/blob/main/skills/agent-prompt-rules/SKILL.md) 第二节调整了两个交叉验证 pipeline：

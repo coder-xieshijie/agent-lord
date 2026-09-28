@@ -80,6 +80,8 @@ export interface Control {
   claude_progress_poll_interval_ms: number;
   mcode_terminate_grace_seconds: number;
   mcode_progress_poll_interval_ms: number;
+  /** Seconds a finished result may stay unacknowledged before an alert; 0 disables. */
+  result_alert_seconds: number;
 }
 export function controlConfig(): Control {
   const value = object(loadConfig().control);
@@ -109,14 +111,40 @@ export function controlConfig(): Control {
     throw usageError(
       "optional CLI supervision values must be positive integers",
     );
+  if (
+    "result_alert_seconds" in value &&
+    (!integer(value.result_alert_seconds) || value.result_alert_seconds < 0)
+  )
+    throw usageError("result_alert_seconds must be a non-negative integer");
   return {
     ...defaults,
+    result_alert_seconds: 1800,
     ...Object.fromEntries(
-      [...required, ...Object.keys(defaults)]
+      [...required, ...Object.keys(defaults), "result_alert_seconds"]
         .filter((k) => k in value)
         .map((k) => [k, value[k]]),
     ),
   } as Control;
+}
+/**
+ * An explicitly chosen alert command: `AGENT_LORD_RESULT_ALERT_COMMAND` (run by
+ * the shell) wins over `result_alert_command` (argv) in the configuration.
+ * Null means the built-in channels apply.
+ */
+export function resultAlertCommand(): string[] | null {
+  const shell = process.env.AGENT_LORD_RESULT_ALERT_COMMAND;
+  if (shell?.trim()) return ["/bin/sh", "-c", shell];
+  const value = loadConfig().result_alert_command ?? null;
+  if (value === null) return null;
+  if (
+    !Array.isArray(value) ||
+    !value.length ||
+    strings(value).length !== value.length
+  )
+    throw usageError(
+      "result_alert_command must be null or a non-empty command array",
+    );
+  return value as string[];
 }
 export interface SetupRule {
   when: string;

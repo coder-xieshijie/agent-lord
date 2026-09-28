@@ -47,6 +47,6 @@ Report a milestone such as a successful build only when concrete artifacts or an
 
 ## Wait without inventing progress
 
-Keep one outstanding checkpoint and resume its host handle. A longer bounded `--seconds` window (for example 600 for an observer-backed run) reduces quiet tool returns; the existing supervision loop continues checking failures and wakes early for actionable state. Match host yield/resume limits and explicit user intervals. Stop empty or fully acknowledged terminal loops.
+Keep one outstanding checkpoint and resume its host handle. The default 600-second window already keeps quiet returns rare; the supervision loop continues checking failures and wakes early for actionable state. Honor explicit user intervals. Stop empty or fully acknowledged terminal loops.
 
 Keep routine waiting in Observer and follow the [waiting and reporting rules](../SKILL.md#waiting-and-reporting) for status interpretation, internal window boundaries, and any host-required heartbeat. This Skill cannot change the host's cadence; it can prevent fabricated stages and repeated substantive claims.

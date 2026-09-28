@@ -168,6 +168,8 @@ export function harness(controlOverrides: Partial<Control> = {}): {
     mcode_terminate_grace_seconds: 1,
     claude_progress_poll_interval_ms: 50,
     mcode_progress_poll_interval_ms: 50,
+    // Detached workers exit with their operation unless a test opts into alerts.
+    result_alert_seconds: 0,
     ...controlOverrides,
   });
   writeFileSync(configFile, JSON.stringify(config));

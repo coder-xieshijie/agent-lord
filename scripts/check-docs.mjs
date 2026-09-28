@@ -11,7 +11,7 @@ import path from "node:path";
 
 // Bytes. Ratchet this DOWN as SKILL.md slims; never raise it casually —
 // the whole file ships into every agent context that loads the skill.
-const SIZE_BUDGETS = { "SKILL.md": 46080 };
+const SIZE_BUDGETS = { "SKILL.md": 34304 };
 
 const root = execFileSync("git", ["rev-parse", "--show-toplevel"], {
   encoding: "utf8",

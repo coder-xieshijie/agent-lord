@@ -10,7 +10,7 @@ Freeze the required Skills and their supporting references in the run's input ve
 
 ## Resolve the contract before dispatch
 
-Write one compact run manifest per user-defined workflow outside the target repository. One scheduling session can manage multiple independent runs; apply [tasks added during execution](../../SKILL.md#tasks-added-during-execution) when the user adds work later, and register an addition you cannot dispatch yet in the [request inbox](../../SKILL.md#deferred-instruction-inbox) so it is not lost with the conversation context.
+Write one compact run manifest per user-defined workflow outside the target repository. One scheduling session can manage multiple independent runs; apply [tasks added during execution](../../SKILL.md#tasks-added-during-execution) when the user adds work later, and register an addition you cannot dispatch yet in the [request inbox](../supervision.md#passive-request-inbox) so it is not lost with the conversation context.
 
 Each manifest contains:
 
@@ -55,4 +55,4 @@ Every replacement is a new `task_id` and endpoint under [the Skill replacement p
 
 ## Converge and stop
 
-Every iterative pipeline must define its convergence predicate, maximum rounds or operations, and unresolved output before it starts. Stop when the predicate is met, the bound is exhausted, or new authority is required. Do not keep polling terminal tasks, repeat unchanged full reviews, or add a tie-breaker the named pipeline does not document. Preserve rejected and unresolved items with their evidence so the final result is auditable. The Claude `RESULT_INVALID` retry budget (`SKILL.md`) is separate and never counts against this bound.
+Every iterative pipeline must define its convergence predicate, maximum rounds or operations, and unresolved output before it starts. Stop when the predicate is met, the bound is exhausted, or new authority is required. Do not keep polling terminal tasks, repeat unchanged full reviews, or add a tie-breaker the named pipeline does not document. Preserve rejected and unresolved items with their evidence so the final result is auditable. The [scripted Claude `RESULT_INVALID` retry](../protocol.md#scripted-claude-result_invalid-retry) budget is separate and never counts against this bound.

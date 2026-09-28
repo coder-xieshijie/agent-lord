@@ -8,7 +8,7 @@ Task sets hold caller-selected membership and received-result acknowledgements u
 
 ```sh
 node core/dist/cli.js run-create --run-id book --task-id chapter-1 --task-id chapter-2 --nodes-file /tmp/book-nodes.json
-node core/dist/cli.js checkpoint --run-id book --seconds 120 --include-response
+node core/dist/cli.js checkpoint --run-id book --include-response
 # After receiving and processing a terminal actionable item's result:
 node core/dist/cli.js run-ack --run-id book --receipt <receipt-from-that-item>
 node core/dist/cli.js run-status --run-id book
@@ -21,6 +21,8 @@ For new ordinary multi-endpoint work, use [node provenance and reporting](schedu
 Registration may precede dispatch. Unobserved members appear as `not_observed`; they are not silently marked complete or failed. Repeating `run-create` with identical members is idempotent; use `run-add` for additions. `--run-id` is mutually exclusive with explicit `--task-id` / `--starting-task-id` checkpoint selectors. Membership for a running checkpoint is fixed at entry; additions join the next checkpoint.
 
 A terminal actionable result includes a durable `receipt`. Returning it does **not** consume the result. After a caller restart, an unacknowledged result is delivered again. `run-ack` is idempotent and accepts only receipts already issued by that set. Acknowledgement suppresses that exact operation/result on subsequent checkpoints, while other tasks remain supervised. A later turn, recovery operation, or changed terminal delivery/artifact/error produces a new receipt. Pending host actions are never suppressed by terminal acknowledgements. Receipt writes use the existing state lock and atomic-file primitives; concurrent readers may see duplicates, so this is at-least-once delivery with explicit acknowledgement, not exactly-once execution.
+
+A result nobody acknowledges is also a liveness signal. The detached execution worker stays behind after its operation ends; when the task belongs to a run, no run acknowledged that exact result, and no later operation continued the task within `control.result_alert_seconds` (default 1800; `0` disables), it appends a `result-unreceived` event to the task and runs the alert command once. An explicit command replaces the built-in channels: `AGENT_LORD_RESULT_ALERT_COMMAND` (run by `/bin/sh -c`), else `result_alert_command` from the provider configuration (an argv array); it receives the alert as JSON on stdin and a one-line summary in `AGENT_LORD_ALERT_MESSAGE`. Otherwise the worker tries, in order until one succeeds: a Feishu direct message sent by `lark-cli` on `PATH` as its app bot to the user logged in to `lark-cli` (or to `AGENT_LORD_RESULT_ALERT_FEISHU_USER_ID`), then a macOS notification. Each attempt is recorded as `result-alert-sent` or `result-alert-failed` with its channel; with no channel left, only the `result-unreceived` event remains. The watch lives in that worker process, so a reboot or a killed worker drops it; operations finalized by `checkpoint` itself are not watched, because a caller was present.
 
 `run-status` reads current operation/delivery states; it never consumes a result. `all_terminal` and `all_results_acknowledged` do not imply success or semantic acceptance: failed results can also be acknowledged. A fully acknowledged terminal set returns quiet immediately instead of waiting out the window. Existing task-ID checkpoints retain their snapshot behavior.
 
@@ -65,7 +67,7 @@ Actionable means exactly:
 
 `updated_at`, progress sequence changes, provider output, tool activity, and other benign progress update durable state without returning. `suspected_stall` and `recovering` are also internal while the saved retry plan and session identity permit automatic handling. The TypeScript control plane polls process/log/journal state at a short interval using Node.js timers and filesystem APIs; this polling runs inside the checkpoint command and consumes no Agent token. Portable event notification can replace that polling behind the same interface later.
 
-The quiet deadline comes from `control.checkpoint_seconds`, whose default is 120 seconds; `--seconds` overrides one call. Codex callers follow the explicit duration policy in [Waiting and reporting](../SKILL.md#waiting-and-reporting), independently of host-tool wait/yield windows. Deadline expiry returns `CHECKPOINT_QUIET` and exit `124`. An automatic selection with no active task returns quiet immediately. Each `active` item contains task/operation/provider identity, status and progress sequence, plus content-free activity fields when available: last event/tool, active tool names/count, last progress timestamp and its age in seconds. MCode removes completed tools from that active set and clears it at terminal state. Full operation state stays in the journal and remains available through `check`.
+The quiet deadline comes from `control.checkpoint_seconds`, whose default is 600 seconds; `--seconds` overrides one call. Actionable state still returns as soon as it appears: the command reads the state files every 250 ms and exits on the first terminal or actionable result, and host wait limits such as Codex's are upper bounds that end when the command exits. A long window therefore costs nothing while a result is on its way, and a short one only multiplies caller model calls. Match the host's wait mechanism to the window as described in [Waiting and reporting](../SKILL.md#waiting-and-reporting). Deadline expiry returns `CHECKPOINT_QUIET` and exit `124`. An automatic selection with no active task returns quiet immediately. Each `active` item contains task/operation/provider identity, status and progress sequence, plus content-free activity fields when available: last event/tool, active tool names/count, last progress timestamp and its age in seconds. MCode removes completed tools from that active set and clears it at terminal state. Full operation state stays in the journal and remains available through `check`.
 
 One checkpoint parses each task, operation, and action record at most once per tick, and skips records it has already attributed to a task outside the selection. Across ticks of the same checkpoint call, a record whose file stat identity (mtime, size, inode) is unchanged reuses the previously parsed value instead of being re-read; atomic replacement of any record changes that identity, so cross-process updates are always observed. Attribution uses only `task_id` and `operation_id`, which exclusive record creation writes once and never rewrites; it is never inferred from an identifier prefix, because identifiers are caller-supplied.
 
@@ -80,6 +82,14 @@ A Codex or MCode CLI operation can also die in `preparing`, before any provider 
 Codex App host tools remain model-mediated. Checkpoint returns an existing action promptly but does not synthesize a polling read at the quiet deadline; call `check`, or pass `--auto-read` to the preceding `accept`, when a new App read action is intended.
 
 ## Passive request inbox
+
+```bash
+node core/dist/cli.js request-add --request-id followup-1 --intent turn \
+  --task-id refactor-auth --message-file /private/tmp/followup.txt \
+  --user-request-file /private/tmp/user-said.txt --source-kind codex
+node core/dist/cli.js request-list --status pending
+node core/dist/cli.js request-dispatch --request-id followup-1 --include-response
+```
 
 `request-add`, `request-get`, `request-list`, `request-cancel`, and `request-dispatch` give the scheduling caller a durable place for an instruction it is not ready to dispatch. The inbox is passive by construction: it has no scheduler, no dependency evaluation, no background wakeup, and no daemon. Registration starts nothing, and only an explicit `request-dispatch` becomes a `start` or a `turn`.
 

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import path from "node:path";
 import type { AgentLord } from "./engine.js";
 import {
@@ -219,6 +219,33 @@ export class TaskSets {
         (t) => TERMINAL_STATES.has(t.status) && t.acknowledged,
       ),
     };
+  }
+  /** Runs that hold `taskId`, and whether any of them acknowledged this exact result. */
+  receiptsFor(
+    taskId: string,
+    resultKey: string,
+  ): { run_ids: string[]; acknowledged: boolean } {
+    const dir = path.join(this.lord.root, "task-sets");
+    const runIds = existsSync(dir)
+      ? readdirSync(dir)
+          .filter((name) => name.endsWith(".json"))
+          .map((name) => name.slice(0, -".json".length))
+      : [];
+    const found: string[] = [];
+    let acknowledged = false;
+    for (const id of runIds) {
+      let record: TaskSet;
+      try {
+        record = this.read(id);
+      } catch {
+        continue;
+      }
+      if (!record.task_ids.includes(taskId)) continue;
+      found.push(id);
+      if (record.receipts[sha256(`${id}\0${resultKey}`)]?.acknowledged)
+        acknowledged = true;
+    }
+    return { run_ids: found.sort(), acknowledged };
   }
   ack(id: string, receipt: string): Envelope {
     withLock(

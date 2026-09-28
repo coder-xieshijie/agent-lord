@@ -4,7 +4,7 @@ Use `plan-cross-review` to review an existing implementation plan and deliver a 
 
 ## Four CLI roles
 
-This named pipeline authorizes exactly four logical CLI roles. Register all four, including pending roles, with `run-create`, one `--task-id` per role, `--nodes-file`, and `source.kind: pipeline`, `source.reference: plan-cross-review`. Use ordinary `start`, `turn`, `checkpoint`, and `run-ack`; the `plan-*` implementation scheduler belongs to `plan-to-implement` and is not used here.
+This named pipeline authorizes exactly four logical CLI roles. Register all four, including pending roles, with `run-create`, one `--task-id` per role, `--nodes-file`, and `source.kind: pipeline`, `source.reference: plan-cross-review`. Use ordinary `start`, `turn`, `checkpoint`, and `run-ack`.
 
 | Role                    | Provider    | Model and effort                                    | Session boundary                                                                                   |
 | ----------------------- | ----------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
@@ -68,6 +68,8 @@ Continue C's saved session in a writing turn. The prompt states the goal: one co
 
 `plan-for-agents` owns the plan's content, executable granularity, revision preservation, and completeness criteria, including the writer's own coverage check before delivery. The caller adds no separate self-check or confirmation turn: the writer already checks its own work, and a second pass by the same author adds cost without adding independence. This pipeline additionally requires the text to implement every disposition and keep the original plan's valid details. Fine-grained rules count individually; a topic heading cannot stand in for its conditions. Keep review history in run artifacts; the plan must be independently usable. No caller-added compression target may replace those standards.
 
+The plan's acceptance section is what [plan-to-implement](plan-to-implement.md#acceptance-scenarios) runs after the code is written, so each requirement needs a scenario that runs from a real entry point — the UI, CLI, or API a user or caller would reach — with its preconditions, the action, the observable result that counts as passing, and the evidence to keep. Name any requirement no real entry point can reach. An internal unit test alone does not show that the product meets the requirement.
+
 Alongside the plan, C writes a short disposition index: each finding ID, its verdict, and where the plan implements it or why it was rejected or superseded. Declare both non-empty workspace-relative files with `--require-file` on each relevant turn; verify externally stored artifacts separately. Keep the original snapshots and completed review artifacts available throughout the run.
 
 Completion: C produces the whole new plan and the disposition index, with no implementation code changes. A large size reduction is a reason to inspect D's coverage findings, never evidence of success or failure by itself.
@@ -84,6 +86,7 @@ A verifier tends to approve after a light look, so D's prompt names each check. 
 | Original plan           | Each design detail, invariant, and edge case is preserved, replaced, or removed with a stated reason, rule by rule     |
 | Disposition index       | Each accepted finding is implemented where the index says; rejected and superseded items did not remove valid behavior |
 | Pinned source           | Current behavior, reusable symbols, change locations, feasibility, and compatibility claims hold                       |
+| Acceptance section      | Each requirement has a scenario that runs from a real entry point with an observable pass condition                    |
 
 D also applies the `plan-for-agents` completeness criteria: every step has its inputs, actions, outputs, and completion criteria, and no interface, state, or required implementation choice is left inconsistent or open without being marked. D reports each gap with its location and evidence; it never edits the plan. A reviewer asked to find gaps usually reports some even in sound work, and chasing every one leads to over-engineering, so D reports as material only gaps that affect correctness or a stated requirement and lists anything else as optional.
 

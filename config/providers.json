@@ -1,7 +1,8 @@
 {
   "version": 1,
   "control": {
-    "checkpoint_seconds": 120,
+    "checkpoint_seconds": 600,
+    "result_alert_seconds": 1800,
     "dead_process_result_grace_seconds": 5,
     "finalize_lock_attempts": 40,
     "finalize_lock_retry_interval_ms": 50,
@@ -18,6 +19,7 @@
       "command": ["pnpm", "install", "--frozen-lockfile", "--prefer-offline"]
     }
   ],
+  "result_alert_command": null,
   "providers": {
     "claude-cli": {
       "binary_env": "AGENT_LORD_CLAUDE_BIN",
