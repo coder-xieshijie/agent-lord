@@ -27,6 +27,12 @@ import type { AgentLord } from "../engine.js";
 export class Reporting {
   constructor(private readonly engine: AgentLord) {}
   check(taskId: string): Envelope {
+    if (!this.engine.store.hasTask(taskId)) {
+      // A Codex or Claude start that fails before publishing never writes the
+      // task record; report its terminal operation as checkpoint does.
+      const op = this.engine.store.operations(taskId).at(-1);
+      if (op && TERMINAL_STATES.has(op.status)) return this.envelope(op);
+    }
     const task = this.engine.store.task(taskId);
     const id = task.last_operation_id;
     if (!id)

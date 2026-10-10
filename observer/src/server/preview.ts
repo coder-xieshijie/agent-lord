@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
+import { isMainEntrypoint } from "@agent-lord/core/entrypoint";
 import { parseArgs, type CliOptions } from "./main.js";
 import { pidAlive } from "./scan.js";
 import {
@@ -280,10 +281,7 @@ async function main(): Promise<void> {
   }
 }
 
-if (
-  process.argv[1] &&
-  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
-) {
+if (isMainEntrypoint(import.meta.url)) {
   main().catch((error: unknown) => {
     console.error(String(error));
     process.exitCode = 1;

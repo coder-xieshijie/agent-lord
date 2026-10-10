@@ -36,7 +36,7 @@ The controller PID is written into the operation before the provider launches, a
 
 The two commands are not interchangeable:
 
-- `check --task-id <id>` reconstructs one task's full current envelope and never supervises. For a `codex-app` task it also creates the next polling read action. When the recorded controller process for a non-terminal local CLI operation is gone, the envelope adds `observed.supervision = {"controller_state": "exited", "recovery_command": "checkpoint"}`; that hint is advice, not recovery.
+- `check --task-id <id>` reconstructs one task's full current envelope and never supervises. For a `codex-app` task it also creates the next polling read action. When the recorded controller process for a non-terminal local CLI operation is gone, the envelope adds `observed.supervision = {"controller_state": "exited", "recovery_command": "checkpoint"}`; that hint is advice, not recovery. A Claude or Codex CLI task has no task record until its first operation publishes it; before that, `check` answers `TASK_UNKNOWN` while the operation is still running, and reports the operation's envelope (for example `ERROR`) once it is terminal, the same envelope `checkpoint` returns. A failed first start still publishes no handle: dispatch it again with `start`.
 - `checkpoint` fences, recovers terminal facts, terminalizes a dead controller's operation, or waits. It returns compact `active` entries rather than full envelopes. The separate `recover` command consumes an emitted MCode continuation action and starts a bounded new turn on the same Session.
 
 So a `RUNNING` envelope from `check` never becomes terminal by itself: run `checkpoint` when the hint appears or when the caller asked for supervision.

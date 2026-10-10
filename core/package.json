@@ -19,6 +19,10 @@
     "./mcode-tools": {
       "types": "./dist/mcode-tools.d.ts",
       "default": "./dist/mcode-tools.js"
+    },
+    "./entrypoint": {
+      "types": "./dist/entrypoint.d.ts",
+      "default": "./dist/entrypoint.js"
     }
   },
   "bin": {

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { object, type Data, type Envelope } from "../src/contracts.js";
-import { harness, packet, waitFor } from "./helpers.js";
+import { harness, operation, packet, waitFor } from "./helpers.js";
 import {
   operationMarker,
   ROUTE_STALE_FRAGMENT,
@@ -202,6 +202,31 @@ describe("local CLI lifecycle", () => {
     });
     expect(h.calls()).toHaveLength(2);
     expect(h.lord.store.hasTask("task")).toBe(false);
+  });
+  it("check reports a failed first start that never published its task record", async () => {
+    h.options({ failAll: true });
+    for (const provider of ["codex", "claude-cli"]) {
+      const id = `${provider}-task`;
+      await expect(
+        h.lord.start(id, provider, h.target, "work"),
+      ).rejects.toMatchObject({ code: "PROVIDER_FAILED" });
+      expect(h.lord.store.hasTask(id)).toBe(false);
+      const [reported] = await h.lord.checkpoint([id], 1);
+      const checked = h.lord.check(id);
+      expect(checked).toEqual(reported.actionable![0]);
+      expect(checked).toMatchObject({
+        status: "ERROR",
+        task_id: id,
+        error: { code: "PROVIDER_FAILED" },
+      });
+    }
+    // Before publication a running operation is still not a known task.
+    h.lord.store.createOperation(
+      operation("codex-cli", { task_id: "starting", target: h.target }),
+    );
+    expect(() => h.lord.check("starting")).toThrow(
+      expect.objectContaining({ code: "TASK_UNKNOWN" }),
+    );
   });
   it("Claude auxiliary model failures do not cause retries", async () => {
     h.options({ auxiliaryWarning: true });

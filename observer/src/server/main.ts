@@ -13,6 +13,7 @@ import { statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes, randomUUID } from "node:crypto";
+import { isMainEntrypoint } from "@agent-lord/core/entrypoint";
 import { Hub } from "./hub.js";
 import { runTasks } from "./run-binding.js";
 import { createObserverServer } from "./http.js";
@@ -196,8 +197,4 @@ function main(): void {
   });
 }
 
-if (
-  process.argv[1] &&
-  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
-)
-  main();
+if (isMainEntrypoint(import.meta.url)) main();

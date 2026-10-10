@@ -5,9 +5,11 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
 } from "node:fs";
 import { createServer } from "node:http";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -280,5 +282,37 @@ describe("preview lifecycle", () => {
     expect(() =>
       parseArgs(["--tasks", "fixture-task", "--focus-task", "other"]),
     ).toThrow("focus-task");
+  });
+});
+
+describe("entry scripts", () => {
+  it("run when started through a symlinked path, as a Skill installed by symlink is", () => {
+    const base = mkdtempSync(path.join(tmpdir(), "observer-entry-"));
+    cleanups.push(() => rmSync(base, { recursive: true, force: true }));
+    const link = path.join(base, "observer");
+    symlinkSync(fileURLToPath(new URL("..", import.meta.url)), link);
+    const run = (script: string, args: string[]) =>
+      spawnSync(
+        process.execPath,
+        [
+          "--import",
+          createRequire(import.meta.url).resolve("tsx"),
+          path.join(link, "src", "server", script),
+          ...args,
+        ],
+        { encoding: "utf8", timeout: 10_000 },
+      );
+    const status = run("preview.ts", [
+      "status",
+      "--state-dir",
+      path.join(base, "state"),
+    ]);
+    expect(status.status, status.stderr).toBe(0);
+    expect(JSON.parse(status.stdout)).toMatchObject({ status: "stopped" });
+    // Without --tasks the server's main refuses to start; a skipped main
+    // would exit 0 silently.
+    const server = run("main.ts", []);
+    expect(server.status).toBe(2);
+    expect(server.stderr).toContain("--tasks");
   });
 });
